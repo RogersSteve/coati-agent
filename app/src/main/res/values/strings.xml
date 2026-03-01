@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Coati</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">Coati uses accessibility to observe the screen and perform actions on your behalf. It reads UI elements and takes screenshots to understand what\'s on screen.</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Coati Service</string>
+    <string name="notification_channel_description">Persistent notification while Coati is running</string>
+    <string name="notification_title">Coati is running</string>
+    <string name="notification_text_idle">Status: Idle</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">Welcome to Coati</string>
+    <string name="onboarding_welcome_description">Coati is an intelligent assistant that helps you operate your phone automatically. It observes the screen and performs actions on your behalf.</string>
+    <string name="onboarding_get_started">Get Started</string>
+
+    <string name="onboarding_overlay_title">Overlay Permission</string>
+    <string name="onboarding_overlay_description">Coati needs to display a floating ball on top of other apps so you can interact with it anytime.</string>
+    <string name="onboarding_overlay_grant">Grant Permission</string>
+    <string name="onboarding_overlay_granted">Permission Granted</string>
+
+    <string name="onboarding_accessibility_title">Accessibility Permission</string>
+    <string name="onboarding_accessibility_description">Coati needs accessibility access to observe the screen, take screenshots, and perform taps and gestures on your behalf.</string>
+    <string name="onboarding_accessibility_grant">Open Settings</string>
+    <string name="onboarding_accessibility_granted">Permission Granted</string>
+    <string name="onboarding_accessibility_hint">Find \"Coati\" in the list and enable it</string>
+
+    <string name="onboarding_region_title">Select Region</string>
+    <string name="onboarding_region_description">Choose your region to configure default skills and services.</string>
+    <string name="onboarding_region_detected">Detected: %1$s</string>
+    <string name="onboarding_finish">Finish Setup</string>
+
+    <!-- Regions -->
+    <string name="region_cn">China</string>
+    <string name="region_global">Global</string>
+    <string name="region_jp">Japan</string>
+
+    <!-- Common -->
+    <string name="next">Next</string>
+</resources>
