@@ -9,17 +9,23 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import bot.coati.data.ConfigStore
+import bot.coati.model.GatewayFactory
+import bot.coati.model.ModelProviders
 import bot.coati.util.RegionDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import javax.inject.Inject
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     application: Application,
     private val dataStore: DataStore<Preferences>,
+    private val configStore: ConfigStore,
+    private val okHttpClient: OkHttpClient,
 ) : AndroidViewModel(application) {
 
     private val _currentStep = MutableStateFlow(0)
@@ -34,12 +40,37 @@ class OnboardingViewModel @Inject constructor(
     private val _selectedRegion = MutableStateFlow("global")
     val selectedRegion: StateFlow<String> = _selectedRegion
 
+    private val _selectedProvider = MutableStateFlow("gemini")
+    val selectedProvider: StateFlow<String> = _selectedProvider
+
+    private val _selectedEndpoint = MutableStateFlow("")
+    val selectedEndpoint: StateFlow<String> = _selectedEndpoint
+
+    private val _selectedModelName = MutableStateFlow("")
+    val selectedModelName: StateFlow<String> = _selectedModelName
+
+    private val _apiKeyVerified = MutableStateFlow(false)
+    val apiKeyVerified: StateFlow<Boolean> = _apiKeyVerified
+
+    private val _verifying = MutableStateFlow(false)
+    val verifying: StateFlow<Boolean> = _verifying
+
+    private val _verifyError = MutableStateFlow<String?>(null)
+    val verifyError: StateFlow<String?> = _verifyError
+
     init {
         _selectedRegion.value = RegionDetector.detectRegion(application)
+        val defaultProvider = configStore.getDefaultProvider()
+        _selectedProvider.value = defaultProvider
+        val provider = ModelProviders.findById(defaultProvider)
+        if (provider != null) {
+            _selectedEndpoint.value = configStore.getEndpoint(defaultProvider) ?: provider.defaultEndpoint
+            _selectedModelName.value = configStore.getModelName(defaultProvider) ?: provider.models.firstOrNull() ?: ""
+        }
     }
 
     fun nextStep() {
-        _currentStep.value = (_currentStep.value + 1).coerceAtMost(3)
+        _currentStep.value = (_currentStep.value + 1).coerceAtMost(4)
     }
 
     fun refreshPermissions() {
@@ -50,6 +81,67 @@ class OnboardingViewModel @Inject constructor(
 
     fun selectRegion(region: String) {
         _selectedRegion.value = region
+    }
+
+    fun selectProvider(providerId: String) {
+        _selectedProvider.value = providerId
+        _apiKeyVerified.value = false
+        _verifyError.value = null
+        val provider = ModelProviders.findById(providerId)
+        if (provider != null) {
+            _selectedEndpoint.value = provider.defaultEndpoint
+            _selectedModelName.value = provider.models.firstOrNull() ?: ""
+        } else {
+            _selectedEndpoint.value = ""
+            _selectedModelName.value = ""
+        }
+    }
+
+    fun updateEndpoint(endpoint: String) {
+        _selectedEndpoint.value = endpoint
+    }
+
+    fun updateModelName(modelName: String) {
+        _selectedModelName.value = modelName
+    }
+
+    fun verifyApiKey(provider: String, key: String) {
+        if (key.isBlank()) return
+        val endpoint = _selectedEndpoint.value
+        val modelName = _selectedModelName.value
+        if (endpoint.isBlank() || modelName.isBlank()) {
+            _verifyError.value = "Endpoint and model name are required"
+            return
+        }
+        _verifying.value = true
+        _verifyError.value = null
+
+        viewModelScope.launch {
+            try {
+                val modelProvider = ModelProviders.findById(provider)
+                if (modelProvider == null) {
+                    _verifyError.value = "Unknown provider: $provider"
+                    _verifying.value = false
+                    return@launch
+                }
+                val gateway = GatewayFactory.create(modelProvider, okHttpClient, key, endpoint, modelName)
+                val result = gateway.testConnection()
+                if (result.isSuccess) {
+                    configStore.saveApiKey(provider, key)
+                    configStore.saveEndpoint(provider, endpoint)
+                    configStore.saveModelName(provider, modelName)
+                    configStore.setDefaultProvider(provider)
+                    _apiKeyVerified.value = true
+                    _verifyError.value = null
+                } else {
+                    _verifyError.value = result.exceptionOrNull()?.message ?: "Unknown error"
+                }
+            } catch (e: Exception) {
+                _verifyError.value = e.message ?: "Connection failed"
+            } finally {
+                _verifying.value = false
+            }
+        }
     }
 
     fun finishOnboarding(onComplete: () -> Unit) {
@@ -68,7 +160,6 @@ class OnboardingViewModel @Inject constructor(
             context.contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
         ) ?: return false
-        // Match both full and shorthand: "bot.coati/bot.coati.service.X" or "bot.coati/.service.X"
         return enabled.contains("$pkg/$pkg.service.CoatiAccessibilityService")
                 || enabled.contains("$pkg/.service.CoatiAccessibilityService")
     }

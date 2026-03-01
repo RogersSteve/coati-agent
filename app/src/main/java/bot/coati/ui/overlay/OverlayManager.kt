@@ -19,10 +19,6 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import bot.coati.service.CoatiAccessibilityService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class OverlayManager(
     private val context: Context,
@@ -30,6 +26,21 @@ class OverlayManager(
 ) {
     private var composeView: ComposeView? = null
     private val overlayState = mutableStateOf<OverlayState>(OverlayState.Collapsed)
+
+    // Track the "background" agent state for ball color when collapsed
+    private var agentBallState = mutableStateOf<OverlayState>(OverlayState.Collapsed)
+
+    var onExecuteTask: ((String) -> Unit)? = null
+    var onStopTask: (() -> Unit)? = null
+    var onConfirmAction: (() -> Unit)? = null
+    var onCancelAction: (() -> Unit)? = null
+
+    private var lastTask: String = ""
+
+    private val density = Resources.getSystem().displayMetrics.density
+    private val ballSizePx = (48 * density).toInt()
+    private val expandedWidthPx = (296 * density).toInt() // 280 + 16 padding
+    private val expandedHeightPx = LayoutParams.WRAP_CONTENT
 
     private val layoutParams = LayoutParams(
         LayoutParams.WRAP_CONTENT,
@@ -43,9 +54,6 @@ class OverlayManager(
         y = 300
     }
 
-    private val viewWidth: Int
-        get() = (48 * Resources.getSystem().displayMetrics.density).toInt()
-
     fun show() {
         if (composeView != null) return
 
@@ -58,7 +66,30 @@ class OverlayManager(
             setViewTreeLifecycleOwner(lifecycleOwner)
             setViewTreeSavedStateRegistryOwner(lifecycleOwner)
             setContent {
-                OverlayContent(state = overlayState.value)
+                val state = overlayState.value
+                val ballState = agentBallState.value
+                OverlayContent(
+                    state = if (state is OverlayState.Collapsed) {
+                        // Pass the agent ball state to CollapsedBall for color
+                        state
+                    } else {
+                        state
+                    },
+                    onExecute = { task ->
+                        lastTask = task
+                        onExecuteTask?.invoke(task)
+                    },
+                    onStop = { onStopTask?.invoke() },
+                    onConfirm = { onConfirmAction?.invoke() },
+                    onCancel = { onCancelAction?.invoke() },
+                    onRetry = {
+                        if (lastTask.isNotBlank()) {
+                            onExecuteTask?.invoke(lastTask)
+                        }
+                    },
+                    onDismiss = { collapse() },
+                    onCollapse = { collapse() },
+                )
             }
         }
 
@@ -74,6 +105,60 @@ class OverlayManager(
         }
     }
 
+    fun collapse() {
+        overlayState.value = OverlayState.Collapsed
+        updateLayoutForState(OverlayState.Collapsed)
+    }
+
+    fun setExecuting(status: String, progress: Float? = null) {
+        agentBallState.value = OverlayState.Executing(status, progress)
+        overlayState.value = OverlayState.Executing(status, progress)
+        updateLayoutForState(overlayState.value)
+    }
+
+    fun showError(message: String) {
+        agentBallState.value = OverlayState.Error(message)
+        overlayState.value = OverlayState.Error(message)
+        updateLayoutForState(overlayState.value)
+    }
+
+    fun showConfirmation(title: String, detail: String) {
+        agentBallState.value = OverlayState.Confirmation(title, detail)
+        overlayState.value = OverlayState.Confirmation(title, detail)
+        updateLayoutForState(overlayState.value)
+    }
+
+    fun resetBallState() {
+        agentBallState.value = OverlayState.Collapsed
+    }
+
+    private fun updateLayoutForState(state: OverlayState) {
+        val view = composeView ?: return
+        when (state) {
+            is OverlayState.Collapsed, is OverlayState.Hidden -> {
+                layoutParams.width = LayoutParams.WRAP_CONTENT
+                layoutParams.height = LayoutParams.WRAP_CONTENT
+                layoutParams.flags = layoutParams.flags or LayoutParams.FLAG_NOT_FOCUSABLE
+            }
+            is OverlayState.Expanded -> {
+                layoutParams.width = expandedWidthPx
+                layoutParams.height = expandedHeightPx
+                // Remove NOT_FOCUSABLE to enable keyboard input
+                layoutParams.flags = layoutParams.flags and LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+            }
+            is OverlayState.Executing, is OverlayState.Confirmation, is OverlayState.Error -> {
+                layoutParams.width = expandedWidthPx
+                layoutParams.height = expandedHeightPx
+                layoutParams.flags = layoutParams.flags or LayoutParams.FLAG_NOT_FOCUSABLE
+            }
+        }
+        try {
+            windowManager.updateViewLayout(view, layoutParams)
+        } catch (_: IllegalArgumentException) {
+            // View might have been removed
+        }
+    }
+
     private fun setupTouchListener(view: View) {
         var initialX = 0
         var initialY = 0
@@ -82,6 +167,9 @@ class OverlayManager(
         var isDragging = false
 
         view.setOnTouchListener { _, event ->
+            // Only handle drag/click on collapsed state
+            if (overlayState.value !is OverlayState.Collapsed) return@setOnTouchListener false
+
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = layoutParams.x
@@ -94,7 +182,7 @@ class OverlayManager(
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
-                    if (dx * dx + dy * dy > 100) { // 10px threshold
+                    if (dx * dx + dy * dy > 100) {
                         isDragging = true
                     }
                     if (isDragging) {
@@ -119,8 +207,8 @@ class OverlayManager(
 
     private fun snapToEdge(view: View) {
         val screenWidth = Resources.getSystem().displayMetrics.widthPixels
-        val centerX = layoutParams.x + viewWidth / 2
-        val targetX = if (centerX < screenWidth / 2) 0 else screenWidth - viewWidth
+        val centerX = layoutParams.x + ballSizePx / 2
+        val targetX = if (centerX < screenWidth / 2) 0 else screenWidth - ballSizePx
 
         val animator = ValueAnimator.ofInt(layoutParams.x, targetX)
         animator.duration = 200
@@ -139,37 +227,9 @@ class OverlayManager(
         overlayState.value = when (overlayState.value) {
             is OverlayState.Collapsed -> OverlayState.Expanded
             is OverlayState.Expanded -> OverlayState.Collapsed
-            is OverlayState.Hidden -> OverlayState.Collapsed
+            else -> OverlayState.Collapsed
         }
-        runDiagnostics()
-    }
-
-    private fun runDiagnostics() {
-        val a11y = CoatiAccessibilityService.instance
-        if (a11y == null) {
-            Log.w(TAG, "[Diag] AccessibilityService instance is NULL — service not connected")
-            return
-        }
-        Log.i(TAG, "[Diag] AccessibilityService instance is ALIVE")
-
-        // Test UI tree
-        val tree = a11y.getUiTree()
-        if (tree != null) {
-            Log.i(TAG, "[Diag] UI Tree: ${tree.flatCount()} nodes, ${tree.nodesWithText()} with text")
-            Log.d(TAG, "[Diag] UI Tree dump:\n${tree.toSimpleString()}")
-        } else {
-            Log.w(TAG, "[Diag] UI Tree: null (no root window)")
-        }
-
-        // Test screenshot (API 30+)
-        CoroutineScope(Dispatchers.Main).launch {
-            val bitmap = a11y.takeScreenshot()
-            if (bitmap != null) {
-                Log.i(TAG, "[Diag] Screenshot OK: ${bitmap.width}x${bitmap.height}")
-            } else {
-                Log.w(TAG, "[Diag] Screenshot: null (requires API 30+, current=${android.os.Build.VERSION.SDK_INT})")
-            }
-        }
+        updateLayoutForState(overlayState.value)
     }
 
     companion object {

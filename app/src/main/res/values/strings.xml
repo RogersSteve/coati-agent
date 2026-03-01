@@ -37,6 +37,29 @@
     <string name="region_global">Global</string>
     <string name="region_jp">Japan</string>
 
+    <!-- API Key Step -->
+    <string name="onboarding_apikey_title">AI Model Configuration</string>
+    <string name="onboarding_apikey_description">Enter your API key to connect Coati to a cloud AI model. Gemini is recommended for the best experience.</string>
+    <string name="onboarding_apikey_provider">Provider</string>
+    <string name="onboarding_apikey_input_hint">Enter API key</string>
+    <string name="onboarding_apikey_verify">Verify Connection</string>
+    <string name="onboarding_apikey_verifying">Verifying…</string>
+    <string name="onboarding_apikey_verified">Connection verified</string>
+    <string name="onboarding_apikey_failed">Verification failed: %1$s</string>
+    <string name="onboarding_apikey_skip">Skip for now</string>
+    <string name="onboarding_endpoint_hint">API Endpoint</string>
+    <string name="onboarding_model_name_hint">Model Name</string>
+    <string name="onboarding_model_select">Select Model</string>
+
+    <!-- Overlay -->
+    <string name="overlay_task_hint">Describe a task…</string>
+    <string name="overlay_execute">Execute</string>
+    <string name="overlay_stop">Stop</string>
+    <string name="overlay_cancel">Cancel</string>
+    <string name="overlay_confirm">Confirm</string>
+    <string name="overlay_retry">Retry</string>
+    <string name="overlay_dismiss">Dismiss</string>
+
     <!-- Common -->
     <string name="next">Next</string>
 </resources>

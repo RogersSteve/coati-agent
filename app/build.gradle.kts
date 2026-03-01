@@ -81,6 +81,9 @@ dependencies {
     // Coroutines
     implementation(libs.coroutines.android)
 
+    // Security
+    implementation(libs.security.crypto)
+
     // Network
     implementation(libs.okhttp)
 

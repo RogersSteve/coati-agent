@@ -1,0 +1,148 @@
+package bot.coati.agent
+
+import android.util.Log
+import android.widget.Toast
+import bot.coati.action.ActionEngine
+import bot.coati.action.AgentAction
+import bot.coati.model.CloudModelGateway
+import bot.coati.model.Message
+import bot.coati.model.ScreenContext
+import bot.coati.service.CoatiAccessibilityService
+import bot.coati.ui.overlay.OverlayManager
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+
+class AgentRunner(
+    private val overlayManager: OverlayManager,
+    private val gateway: CloudModelGateway,
+    private val actionEngine: ActionEngine,
+    private val a11y: CoatiAccessibilityService,
+) {
+    private var currentJob: Job? = null
+    private var confirmationDeferred: CompletableDeferred<Boolean>? = null
+    private val scope = CoroutineScope(Dispatchers.Main)
+    private val conversationHistory = mutableListOf<Message>()
+
+    fun start(task: String) {
+        stop()
+        conversationHistory.clear()
+        Log.i(TAG, "Starting agent for task: $task")
+
+        currentJob = scope.launch {
+            try {
+                executeSingleStep(task)
+            } catch (e: CancellationException) {
+                Log.i(TAG, "Agent cancelled")
+                overlayManager.collapse()
+            } catch (e: Exception) {
+                Log.e(TAG, "Agent error: ${e.message}", e)
+                overlayManager.showError(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    fun stop() {
+        confirmationDeferred?.cancel()
+        confirmationDeferred = null
+        currentJob?.cancel()
+        currentJob = null
+        overlayManager.resetBallState()
+        Log.i(TAG, "Agent stopped")
+    }
+
+    fun onConfirm() {
+        confirmationDeferred?.complete(true)
+    }
+
+    fun onCancel() {
+        confirmationDeferred?.complete(false)
+    }
+
+    private suspend fun executeSingleStep(task: String) {
+        // Step 1: Capture screen
+        overlayManager.setExecuting("Capturing screen...")
+        Log.i(TAG, "Step 1: Capturing screen context")
+        val screenContext = ScreenContext.capture(a11y)
+            ?: throw Exception("Failed to capture screen")
+
+        // Step 2: Analyze with cloud model
+        overlayManager.setExecuting("Analyzing...")
+        Log.i(TAG, "Step 2: Sending to cloud model")
+        val result = gateway.analyzeScreen(
+            screenshot = screenContext.screenshotJpeg,
+            uiTreeHint = screenContext.uiTreeJson,
+            taskDescription = task,
+            conversationHistory = conversationHistory,
+        )
+
+        val response = result.getOrElse { e ->
+            throw Exception("Model analysis failed: ${e.message}")
+        }
+        Log.i(TAG, "Model response: action=${response.action}, reasoning=${response.reasoning}")
+
+        // Track conversation
+        conversationHistory.add(Message("user", task))
+        conversationHistory.add(Message("assistant", response.reasoning))
+
+        // Step 3: Parse action
+        val action = try {
+            AgentAction.fromMap(response.action, response.params)
+        } catch (e: Exception) {
+            throw Exception("Failed to parse action '${response.action}': ${e.message}")
+        }
+        Log.i(TAG, "Parsed action: $action")
+
+        // Step 4: Safety check
+        if (response.safetyLevel == "high") {
+            Log.i(TAG, "High safety level - requesting confirmation")
+            overlayManager.showConfirmation(
+                title = "Confirm Action",
+                detail = "${response.action}: ${response.reasoning}",
+            )
+
+            confirmationDeferred = CompletableDeferred()
+            val confirmed = confirmationDeferred?.await() ?: false
+            confirmationDeferred = null
+
+            if (!confirmed) {
+                Log.i(TAG, "User cancelled action")
+                overlayManager.collapse()
+                overlayManager.resetBallState()
+                return
+            }
+        }
+
+        // Step 5: Execute action
+        val actionName = response.statusUpdate.ifBlank { response.action }
+        overlayManager.setExecuting("Executing: $actionName")
+        Log.i(TAG, "Step 5: Executing action")
+        val actionResult = actionEngine.execute(action)
+        Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
+
+        // Step 6: Handle completion
+        if (response.isTaskComplete) {
+            Log.i(TAG, "Task complete!")
+            overlayManager.collapse()
+            overlayManager.resetBallState()
+            scope.launch(Dispatchers.Main) {
+                Toast.makeText(a11y, "Task complete: ${response.statusUpdate}", Toast.LENGTH_SHORT).show()
+            }
+        } else if (!actionResult.success) {
+            overlayManager.showError("Action failed: ${actionResult.message}")
+        } else {
+            overlayManager.setExecuting("Done: ${response.statusUpdate}")
+            // Brief delay then collapse
+            kotlinx.coroutines.delay(1500)
+            overlayManager.collapse()
+            overlayManager.resetBallState()
+        }
+    }
+
+    companion object {
+        private const val TAG = "CoatiAgent"
+    }
+}

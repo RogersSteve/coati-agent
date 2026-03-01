@@ -1,6 +1,7 @@
 package bot.coati.service
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Build
@@ -58,6 +59,35 @@ class CoatiAccessibilityService : AccessibilityService() {
                     }
                 },
             )
+        }
+    }
+
+    suspend fun dispatchGestureAsync(gesture: GestureDescription): Boolean {
+        return suspendCancellableCoroutine { continuation ->
+            val dispatched = dispatchGesture(
+                gesture,
+                object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        if (continuation.isActive) {
+                            continuation.resume(true)
+                        }
+                    }
+
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        Log.w(TAG, "Gesture cancelled")
+                        if (continuation.isActive) {
+                            continuation.resume(false)
+                        }
+                    }
+                },
+                null,
+            )
+            if (!dispatched) {
+                Log.w(TAG, "dispatchGesture returned false")
+                if (continuation.isActive) {
+                    continuation.resume(false)
+                }
+            }
         }
     }
 
