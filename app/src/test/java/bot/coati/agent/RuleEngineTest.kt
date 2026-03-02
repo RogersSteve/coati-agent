@@ -1,10 +1,13 @@
 package bot.coati.agent
 
 import android.graphics.Rect
+import bot.coati.data.SafetyMode
 import bot.coati.service.UiTreeNode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RuleEngineTest {
@@ -128,6 +131,40 @@ class RuleEngineTest {
         val result = RuleEngine.assessSafety("com.example.app", "tap search button", "medium")
         assertEquals("medium", result.level)
         assertNull(result.reason)
+    }
+
+    // ─── shouldConfirm ───
+
+    @Test
+    fun `shouldConfirm high always true regardless of mode`() {
+        assertTrue(RuleEngine.shouldConfirm("high", SafetyMode.CAUTIOUS))
+        assertTrue(RuleEngine.shouldConfirm("high", SafetyMode.STANDARD))
+        assertTrue(RuleEngine.shouldConfirm("high", SafetyMode.TRUST))
+    }
+
+    @Test
+    fun `shouldConfirm medium true for CAUTIOUS and STANDARD`() {
+        assertTrue(RuleEngine.shouldConfirm("medium", SafetyMode.CAUTIOUS))
+        assertTrue(RuleEngine.shouldConfirm("medium", SafetyMode.STANDARD))
+    }
+
+    @Test
+    fun `shouldConfirm medium false for TRUST`() {
+        assertFalse(RuleEngine.shouldConfirm("medium", SafetyMode.TRUST))
+    }
+
+    @Test
+    fun `shouldConfirm low true only for CAUTIOUS`() {
+        assertTrue(RuleEngine.shouldConfirm("low", SafetyMode.CAUTIOUS))
+        assertFalse(RuleEngine.shouldConfirm("low", SafetyMode.STANDARD))
+        assertFalse(RuleEngine.shouldConfirm("low", SafetyMode.TRUST))
+    }
+
+    @Test
+    fun `shouldConfirm unknown level returns false`() {
+        assertFalse(RuleEngine.shouldConfirm("unknown", SafetyMode.CAUTIOUS))
+        assertFalse(RuleEngine.shouldConfirm("unknown", SafetyMode.STANDARD))
+        assertFalse(RuleEngine.shouldConfirm("unknown", SafetyMode.TRUST))
     }
 
     // ─── detectScreenChange ───

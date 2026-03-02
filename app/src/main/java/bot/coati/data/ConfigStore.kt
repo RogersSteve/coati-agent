@@ -14,6 +14,8 @@ data class ProviderConfig(
     val modelName: String,
 )
 
+enum class SafetyMode { CAUTIOUS, STANDARD, TRUST }
+
 class ConfigStore(context: Context) {
 
     private val masterKey = MasterKey.Builder(context)
@@ -81,6 +83,21 @@ class ConfigStore(context: Context) {
         val key = getApiKey(provider) ?: return ""
         if (key.length <= 4) return "****"
         return "****${key.takeLast(4)}"
+    }
+
+    // ─── SAFETY MODE ───
+
+    fun getSafetyMode(): SafetyMode {
+        val name = prefs.getString(KEY_SAFETY_MODE, SafetyMode.STANDARD.name) ?: SafetyMode.STANDARD.name
+        return try {
+            SafetyMode.valueOf(name)
+        } catch (_: IllegalArgumentException) {
+            SafetyMode.STANDARD
+        }
+    }
+
+    fun setSafetyMode(mode: SafetyMode) {
+        prefs.edit().putString(KEY_SAFETY_MODE, mode.name).apply()
     }
 
     // ─── ROLE-BASED CONFIG (Reasoning / Fast) ───
@@ -157,6 +174,7 @@ class ConfigStore(context: Context) {
         private const val PREFS_NAME = "coati_secure_prefs"
         private const val KEY_DEFAULT_PROVIDER = "default_provider"
         private const val KEY_FAST_SAME_AS_REASONING = "fast_same_as_reasoning"
+        private const val KEY_SAFETY_MODE = "safety_mode"
 
         const val ROLE_REASONING = "reasoning"
         const val ROLE_FAST = "fast"

@@ -3,25 +3,33 @@ package bot.coati.agent
 import android.util.Log
 import bot.coati.action.ActionEngine
 import bot.coati.action.AgentAction
+import bot.coati.data.SafetyMode
 import bot.coati.model.Message
 import bot.coati.model.ModelRouter
 import bot.coati.model.ScreenContext
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.UiTreeNode
+import bot.coati.state.AppExperienceManager
+import bot.coati.state.StateManager
+import bot.coati.state.TaskState
 import bot.coati.ui.overlay.OverlayManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class AgentLoop(
     private val overlayManager: OverlayManager,
     private val modelRouter: ModelRouter,
     private val actionEngine: ActionEngine,
     private val a11y: CoatiAccessibilityService,
+    private val stateManager: StateManager? = null,
+    private val experienceManager: AppExperienceManager? = null,
+    private val safetyMode: SafetyMode = SafetyMode.STANDARD,
 ) {
     private var currentJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
@@ -29,15 +37,26 @@ class AgentLoop(
     private var taskStartTime = 0L
     private var stepCount = 0
 
+    private val autocompact = Autocompact()
+    private val exceptionHandler = ExceptionHandler()
+    private val screenshotCache = mutableListOf<ByteArray>()
+    private var currentTask: TaskState? = null
+    private var resumedFromPause = false
+    private var replanHint: String? = null
+
     @Volatile
     var emergencyStop = false
 
     fun start(task: String) {
         stop()
         conversationHistory.clear()
+        screenshotCache.clear()
         taskStartTime = System.currentTimeMillis()
         stepCount = 0
         emergencyStop = false
+        exceptionHandler.reset()
+        resumedFromPause = false
+        replanHint = null
         Log.i(TAG, "Starting agent loop for task: $task")
 
         overlayManager.enterFrameExecuting(task)
@@ -47,9 +66,11 @@ class AgentLoop(
                 runLoop(task)
             } catch (e: CancellationException) {
                 Log.i(TAG, "Agent loop cancelled")
+                updateTaskStatus("paused")
                 overlayManager.collapse()
             } catch (e: Exception) {
                 Log.e(TAG, "Agent loop error: ${e.message}", e)
+                updateTaskStatus("failed", e.message)
                 val retry = overlayManager.awaitTaskFailed(
                     taskName = task,
                     reason = e.message ?: "Unknown error",
@@ -72,7 +93,20 @@ class AgentLoop(
         Log.i(TAG, "Agent loop stopped")
     }
 
+    fun resumeFromPause() {
+        val task = currentTask
+        if (task != null) {
+            resumedFromPause = true
+            start(task.goal)
+        }
+    }
+
     private suspend fun runLoop(task: String) {
+        // INIT: create TaskState
+        val taskState = TaskState.newTask(task)
+        currentTask = taskState
+        writeTaskState(taskState)
+
         var prevNodeCount = 0
         var prevApp = ""
 
@@ -80,16 +114,29 @@ class AgentLoop(
             stepCount++
             Log.i(TAG, "── Step $stepCount/$MAX_STEPS ──")
 
-            // 1. OBSERVE
+            // a. REORIENT: if resumed from pause
+            if (resumedFromPause && stepCount == 1) {
+                Log.i(TAG, "Reorienting after pause...")
+                resumedFromPause = false
+                val targetPkg = currentTask?.targetPackage
+                if (targetPkg != null) {
+                    actionEngine.execute(AgentAction.OpenApp(targetPkg))
+                    delay(randomDelay())
+                }
+            }
+
+            // b. OBSERVE
             overlayManager.updateProgress(task, "Capturing screen...", "", stepCount, MAX_STEPS)
             val screenContext = ScreenContext.capture(a11y)
                 ?: throw Exception("Failed to capture screen")
+
+            screenshotCache.add(screenContext.screenshotJpeg)
 
             val uiTree = a11y.getUiTree()
             val nodeCount = uiTree?.flatCount() ?: 0
             val textNodeCount = uiTree?.nodesWithText() ?: 0
 
-            // 2. RULE CHECK: assess quality, detect popup
+            // c. RULE CHECK: assess quality, detect popup
             val quality = RuleEngine.assessQuality(nodeCount, textNodeCount)
             Log.i(TAG, "UI quality=$quality, nodes=$nodeCount, textNodes=$textNodeCount")
 
@@ -106,19 +153,29 @@ class AgentLoop(
                 continue
             }
 
-            // 3. THINK: Reasoning model
+            // d. CONTEXT: load app experience
+            val experienceSection = experienceManager?.let { mgr ->
+                val markdown = mgr.loadForPrompt(screenContext.appPackage)
+                PromptBuilder.buildExperiencePromptSection(screenContext.appPackage, markdown)
+            }
+
+            // e. THINK: Reasoning model with timeout + exception handling
             overlayManager.updateProgress(task, "Analyzing...", "", stepCount, MAX_STEPS)
             Log.i(TAG, "Calling reasoning model")
-            val result = modelRouter.reasoning.analyzeScreen(
-                screenshot = screenContext.screenshotJpeg,
-                uiTreeHint = screenContext.uiTreeJson,
-                taskDescription = task,
-                conversationHistory = conversationHistory,
-            )
 
-            val response = result.getOrElse { e ->
-                throw Exception("Model analysis failed: ${e.message}")
+            val taskDescriptionWithContext = buildTaskDescription(task, experienceSection)
+
+            val result = withTimeoutOrNull(30_000) {
+                modelRouter.reasoning.analyzeScreen(
+                    screenshot = screenContext.screenshotJpeg,
+                    uiTreeHint = screenContext.uiTreeJson,
+                    taskDescription = taskDescriptionWithContext,
+                    conversationHistory = conversationHistory,
+                )
             }
+
+            val response = handleModelResult(result, task)
+            if (response == null) continue
             Log.i(TAG, "Model response: action=${response.action}, x=${response.x}, y=${response.y}")
 
             // Track conversation
@@ -129,6 +186,7 @@ class AgentLoop(
             if (response.isTaskComplete) {
                 val elapsed = System.currentTimeMillis() - taskStartTime
                 Log.i(TAG, "Task complete at step $stepCount!")
+                updateTaskStatus("completed")
                 overlayManager.awaitTaskComplete(
                     taskName = task,
                     summary = response.statusUpdate,
@@ -140,24 +198,25 @@ class AgentLoop(
                 return
             }
 
-            // 4. COORDINATE RESOLUTION
+            // f. COORDINATE RESOLUTION
             val action = resolveAction(response.action, response.params, response.x, response.y, quality, uiTree, response.statusUpdate)
             Log.i(TAG, "Resolved action: $action")
 
-            // 5. SAFETY CHECK
+            // g. SAFETY CHECK: use shouldConfirm with safety mode
             val safety = RuleEngine.assessSafety(
                 screenContext.appPackage,
                 "${response.action}: ${response.statusUpdate}",
                 response.safetyLevel,
             )
-            if (safety.level == "high") {
-                Log.i(TAG, "High safety — requesting confirmation: ${safety.reason}")
+            if (RuleEngine.shouldConfirm(safety.level, safetyMode)) {
+                Log.i(TAG, "Safety confirmation needed (${safety.level}/$safetyMode): ${safety.reason}")
                 val confirmed = overlayManager.requestConfirmation(
                     title = "Confirm Action",
                     detail = "${response.action}: ${response.reasoning}",
                 )
                 if (!confirmed) {
                     Log.i(TAG, "User cancelled action")
+                    updateTaskStatus("cancelled")
                     overlayManager.collapse()
                     overlayManager.resetBallState()
                     return
@@ -165,30 +224,48 @@ class AgentLoop(
                 overlayManager.enterFrameExecuting(task)
             }
 
-            // 6. ACT
+            // h. ACT
             val actionName = response.statusUpdate.ifBlank { response.action }
             overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, stepCount, MAX_STEPS)
             val actionResult = actionEngine.execute(action)
             Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
             if (!actionResult.success) {
-                val retry = overlayManager.awaitTaskFailed(
-                    taskName = task,
-                    reason = "Action failed: ${actionResult.message}",
-                    stepsCompleted = stepCount,
-                    totalSteps = MAX_STEPS,
-                )
-                if (retry) {
-                    start(task)
-                    return
-                } else {
-                    overlayManager.collapse()
-                    overlayManager.resetBallState()
-                    return
+                val failAction = exceptionHandler.recordFailure()
+                when (failAction) {
+                    FailureAction.ABORT -> {
+                        updateTaskStatus("failed", "Action failed: ${actionResult.message}")
+                        val retry = overlayManager.awaitTaskFailed(
+                            taskName = task,
+                            reason = "Action failed: ${actionResult.message}",
+                            stepsCompleted = stepCount,
+                            totalSteps = MAX_STEPS,
+                        )
+                        if (retry) {
+                            start(task)
+                            return
+                        } else {
+                            overlayManager.collapse()
+                            overlayManager.resetBallState()
+                            return
+                        }
+                    }
+                    FailureAction.REPLAN -> {
+                        replanHint = exceptionHandler.buildReplanHint()
+                        Log.i(TAG, "Replan after action failure: $replanHint")
+                        continue
+                    }
+                    FailureAction.RETRY -> {
+                        Log.i(TAG, "Retrying after action failure...")
+                        continue
+                    }
                 }
             }
 
-            // 7. VERIFY: rules-first, fallback to Fast model
+            // i. VERIFY: rules-first, fallback to Fast model + record success
+            exceptionHandler.recordSuccess()
+            replanHint = null
+
             delay(randomDelay())
             val currContext = ScreenContext.capture(a11y)
             val currTree = a11y.getUiTree()
@@ -208,7 +285,39 @@ class AgentLoop(
                 Log.i(TAG, "Fast model check: answer=${check?.answer}, confidence=${check?.confidence}")
             }
 
-            // 8. UPDATE
+            // j. LEARN: record experienceNote
+            if (response.experienceNote != null && experienceManager != null) {
+                val note = response.experienceNote
+                experienceManager.recordObservation(screenContext.appPackage, note.page, note.observation)
+                Log.i(TAG, "Recorded experience: page=${note.page}")
+            }
+
+            // k. UPDATE: write step to task.json
+            currentTask = currentTask?.copy(
+                currentStep = stepCount,
+                totalSteps = MAX_STEPS,
+                lastUpdated = currentTimestamp(),
+                targetPackage = screenContext.appPackage,
+            )
+            writeTaskState(currentTask)
+
+            // l. AUTOCOMPACT
+            if (autocompact.shouldCompact(stepCount) && stateManager != null) {
+                Log.i(TAG, "Running autocompact at step $stepCount")
+                try {
+                    autocompact.compact(
+                        modelRouter.reasoning,
+                        conversationHistory,
+                        stateManager,
+                        currentTask?.id ?: "unknown",
+                    )
+                    autocompact.pruneScreenshotCache(screenshotCache)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Autocompact failed: ${e.message}")
+                }
+            }
+
+            // m. DELAY
             prevNodeCount = currNodeCount
             prevApp = currApp
         }
@@ -216,6 +325,7 @@ class AgentLoop(
         // Loop ended
         if (emergencyStop) {
             Log.i(TAG, "Emergency stop triggered!")
+            updateTaskStatus("paused")
             overlayManager.collapse()
             overlayManager.resetBallState()
             return
@@ -223,6 +333,7 @@ class AgentLoop(
 
         if (stepCount >= MAX_STEPS) {
             Log.w(TAG, "Step limit reached ($MAX_STEPS)")
+            updateTaskStatus("failed", "Step limit reached")
             val retry = overlayManager.awaitTaskFailed(
                 taskName = task,
                 reason = "Step limit reached ($MAX_STEPS steps)",
@@ -236,6 +347,86 @@ class AgentLoop(
                 overlayManager.resetBallState()
             }
         }
+    }
+
+    private suspend fun handleModelResult(result: Result<bot.coati.model.ModelResponse>?, task: String): bot.coati.model.ModelResponse? {
+        if (result == null) {
+            Log.w(TAG, "Model analysis timed out")
+            val failAction = exceptionHandler.recordFailure()
+            when (failAction) {
+                FailureAction.ABORT -> {
+                    updateTaskStatus("failed", "Model timeout")
+                    throw Exception("Model analysis timed out after $MAX_CONSECUTIVE_FAILURES consecutive failures")
+                }
+                FailureAction.REPLAN -> {
+                    replanHint = exceptionHandler.buildReplanHint()
+                    Log.i(TAG, "Replan hint set: $replanHint")
+                    return null
+                }
+                FailureAction.RETRY -> {
+                    Log.i(TAG, "Retrying after timeout...")
+                    return null
+                }
+            }
+        }
+
+        return result.getOrNull() ?: run {
+            val e = result.exceptionOrNull()
+            val failAction = exceptionHandler.recordFailure()
+            when (failAction) {
+                FailureAction.ABORT -> {
+                    updateTaskStatus("failed", e?.message)
+                    throw Exception("Model analysis failed: ${e?.message}")
+                }
+                FailureAction.REPLAN -> {
+                    replanHint = exceptionHandler.buildReplanHint()
+                    Log.i(TAG, "Replan hint set after model failure: $replanHint")
+                    null
+                }
+                FailureAction.RETRY -> {
+                    Log.i(TAG, "Retrying after model failure...")
+                    null
+                }
+            }
+        }
+    }
+
+    private fun buildTaskDescription(task: String, experienceSection: String?): String {
+        val sb = StringBuilder(task)
+        if (replanHint != null) {
+            sb.append("\n\n[REPLAN] $replanHint")
+        }
+        if (experienceSection != null) {
+            sb.append("\n\n$experienceSection")
+        }
+        return sb.toString()
+    }
+
+    private suspend fun writeTaskState(taskState: TaskState?) {
+        if (taskState == null || stateManager == null) return
+        try {
+            withContext(Dispatchers.IO) {
+                stateManager.writeJson("task", taskState.toJson())
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to write task state: ${e.message}")
+        }
+    }
+
+    private suspend fun updateTaskStatus(status: String, error: String? = null) {
+        val task = currentTask ?: return
+        val errors = if (error != null) task.errors + error else task.errors
+        currentTask = task.copy(
+            status = status,
+            lastUpdated = currentTimestamp(),
+            errors = errors,
+        )
+        writeTaskState(currentTask)
+    }
+
+    private fun currentTimestamp(): String {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+        return sdf.format(java.util.Date())
     }
 
     private fun resolveAction(
@@ -330,5 +521,6 @@ class AgentLoop(
     companion object {
         private const val TAG = "CoatiLoop"
         const val MAX_STEPS = 200
+        private const val MAX_CONSECUTIVE_FAILURES = 3
     }
 }

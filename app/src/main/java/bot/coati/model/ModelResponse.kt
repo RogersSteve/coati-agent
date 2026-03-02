@@ -1,5 +1,7 @@
 package bot.coati.model
 
+data class ExperienceNote(val page: String, val observation: String)
+
 data class ModelResponse(
     val reasoning: String,
     val action: String,
@@ -9,6 +11,7 @@ data class ModelResponse(
     val statusUpdate: String,
     val x: Int? = null,
     val y: Int? = null,
+    val experienceNote: ExperienceNote? = null,
 )
 
 data class QuickCheckResult(

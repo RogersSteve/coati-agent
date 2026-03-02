@@ -46,6 +46,16 @@ object GatewayUtils {
         val x = if (json.has("x") && !json.isNull("x")) json.optInt("x") else null
         val y = if (json.has("y") && !json.isNull("y")) json.optInt("y") else null
 
+        val experienceNote = if (json.has("experienceNote") && !json.isNull("experienceNote")) {
+            val noteJson = json.optJSONObject("experienceNote")
+            if (noteJson != null) {
+                ExperienceNote(
+                    page = noteJson.optString("page", ""),
+                    observation = noteJson.optString("observation", ""),
+                )
+            } else null
+        } else null
+
         return ModelResponse(
             reasoning = json.optString("reasoning", ""),
             action = json.getString("action"),
@@ -55,6 +65,7 @@ object GatewayUtils {
             statusUpdate = json.optString("statusUpdate", ""),
             x = x,
             y = y,
+            experienceNote = experienceNote,
         )
     }
 

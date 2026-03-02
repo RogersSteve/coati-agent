@@ -1,6 +1,7 @@
 package bot.coati.agent
 
 import android.graphics.Rect
+import bot.coati.data.SafetyMode
 import bot.coati.service.UiTreeNode
 
 enum class UiTreeQuality { HIGH, MEDIUM, LOW }
@@ -87,6 +88,13 @@ object RuleEngine {
         }
 
         return SafetyAssessment(modelSafetyLevel)
+    }
+
+    fun shouldConfirm(safetyLevel: String, safetyMode: SafetyMode): Boolean = when (safetyLevel) {
+        "high" -> true
+        "medium" -> safetyMode != SafetyMode.TRUST
+        "low" -> safetyMode == SafetyMode.CAUTIOUS
+        else -> false
     }
 
     fun detectScreenChange(

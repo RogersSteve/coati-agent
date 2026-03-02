@@ -66,6 +66,44 @@ class PromptBuilderTest {
         assertFalse(prompt.contains("pixel"))
     }
 
+    // ─── Experience prompt section ───
+
+    @Test
+    fun `experience prompt for unknown app asks for experienceNote`() {
+        val prompt = PromptBuilder.buildExperiencePromptSection("com.new.app", null)
+        assertTrue(prompt.contains("first time"))
+        assertTrue(prompt.contains("com.new.app"))
+        assertTrue(prompt.contains("experienceNote"))
+    }
+
+    @Test
+    fun `experience prompt with existing experience includes markdown`() {
+        val markdown = "# MyApp\n## Known Pages\n- Home: Main feed"
+        val prompt = PromptBuilder.buildExperiencePromptSection("com.test.app", markdown)
+        assertTrue(prompt.contains("previous experience"))
+        assertTrue(prompt.contains("Main feed"))
+    }
+
+    @Test
+    fun `experience prompt with outdated pages includes warning`() {
+        val markdown = "# MyApp\n## Known Pages\n- \u26a0\ufe0f **Home**: Main feed"
+        val prompt = PromptBuilder.buildExperiencePromptSection("com.test.app", markdown)
+        assertTrue(prompt.contains("outdated"))
+    }
+
+    @Test
+    fun `experience prompt without outdated pages has no warning`() {
+        val markdown = "# MyApp\n## Known Pages\n- Home: Main feed"
+        val prompt = PromptBuilder.buildExperiencePromptSection("com.test.app", markdown)
+        assertFalse(prompt.contains("outdated"))
+    }
+
+    @Test
+    fun `reasoning user prompt includes experienceNote field`() {
+        val prompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
+        assertTrue(prompt.contains("experienceNote"))
+    }
+
     @Test
     fun `reasoning system prompt contains task planning instructions`() {
         val prompt = PromptBuilder.buildReasoningSystemPrompt()

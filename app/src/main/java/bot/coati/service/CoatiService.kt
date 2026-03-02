@@ -19,9 +19,15 @@ import bot.coati.data.ConfigStore
 import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
 import bot.coati.model.ModelRouter
+import bot.coati.state.AppExperienceManager
+import bot.coati.state.StateManager
+import bot.coati.state.TaskRecovery
 import bot.coati.ui.main.MainActivity
 import bot.coati.ui.overlay.OverlayManager
 import bot.coati.ui.overlay.OverlayState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -32,6 +38,7 @@ class CoatiService : Service() {
     private var agentLoop: AgentLoop? = null
     private var telephonyManager: TelephonyManager? = null
     private var callStateCallback: TelephonyCallback? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate() {
         super.onCreate()
@@ -84,13 +91,41 @@ class CoatiService : Service() {
         val actionEngine = ActionEngine(a11y)
         val overlay = overlayManager ?: return
 
-        val loop = AgentLoop(overlay, modelRouter, actionEngine, a11y)
+        val stateManager = StateManager(filesDir)
+        val experienceManager = AppExperienceManager(stateManager)
+        val safetyMode = configStore.getSafetyMode()
+
+        val loop = AgentLoop(
+            overlay, modelRouter, actionEngine, a11y,
+            stateManager, experienceManager, safetyMode,
+        )
         agentLoop = loop
 
         // Wire emergency stop from accessibility service
         a11y.onEmergencyStop = {
             loop.emergencyStop = true
             loop.stop()
+        }
+
+        // Wire recovery
+        val taskRecovery = TaskRecovery(stateManager)
+        if (taskRecovery.hasIncompleteTask()) {
+            val incompleteTask = taskRecovery.getIncompleteTask()!!
+            serviceScope.launch {
+                val interruptedAgo = taskRecovery.getInterruptedAgo(incompleteTask)
+                val resume = overlay.awaitRecoveryDialog(
+                    incompleteTask.goal,
+                    incompleteTask.currentStep,
+                    incompleteTask.totalSteps,
+                    interruptedAgo,
+                )
+                if (resume) {
+                    loop.start(incompleteTask.goal)
+                } else {
+                    taskRecovery.markCancelled()
+                    overlay.collapse()
+                }
+            }
         }
 
         // Wire overlay callbacks to agent loop
@@ -104,7 +139,7 @@ class CoatiService : Service() {
             overlay.collapse()
         }
         overlay.onResumeTask = {
-            // Future: resume with re-orientation
+            serviceScope.launch { loop.resumeFromPause() }
         }
         overlay.onSettings = {
             val intent = Intent(this, MainActivity::class.java).apply {

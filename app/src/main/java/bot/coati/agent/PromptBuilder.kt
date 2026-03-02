@@ -50,7 +50,8 @@ object PromptBuilder {
           "y": <normalized 0-1000 y coordinate for tap/longpress target, or null>,
           "safetyLevel": "low|medium|high",
           "isTaskComplete": false,
-          "statusUpdate": "Short status message for the user"
+          "statusUpdate": "Short status message for the user",
+          "experienceNote": {"page": "page_name", "observation": "what you learned about this page"} (optional, include when you discover something new about the app)
         }
 
         Planning fields:
@@ -85,6 +86,26 @@ object PromptBuilder {
         You are a quick verification assistant. Answer questions about Android screenshots with a JSON response.
         Always respond with valid JSON only: {"answer": true/false, "category": "optional_category", "confidence": 0.0-1.0}
     """.trimIndent()
+
+    fun buildExperiencePromptSection(packageName: String, experienceMarkdown: String?): String {
+        if (experienceMarkdown == null) {
+            return """
+                ## App Experience
+                This is your first time operating $packageName. If you learn something useful about the app's UI (page layout, navigation paths, important buttons), include an "experienceNote" in your response.
+            """.trimIndent()
+        }
+
+        val hasOutdated = experienceMarkdown.contains("\u26a0\ufe0f")
+        val warning = if (hasOutdated) "\n⚠️ Some pages may be outdated — verify before relying on them." else ""
+
+        return """
+            ## App Experience
+            You have previous experience with this app:
+            $experienceMarkdown$warning
+
+            Use this knowledge to navigate more efficiently. If something has changed, include an "experienceNote" to update.
+        """.trimIndent()
+    }
 
     fun buildQuickCheckPrompt(question: String): String = """
         $question

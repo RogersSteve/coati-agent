@@ -2,6 +2,7 @@ package bot.coati.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -141,6 +142,42 @@ class ModelResponseTest {
         )
         assertNull(response.x)
         assertNull(response.y)
+    }
+
+    @Test
+    fun `ExperienceNote data class holds values`() {
+        val note = ExperienceNote(page = "Home", observation = "Has a search bar at top")
+        assertEquals("Home", note.page)
+        assertEquals("Has a search bar at top", note.observation)
+    }
+
+    @Test
+    fun `ModelResponse with experienceNote`() {
+        val response = ModelResponse(
+            reasoning = "test",
+            action = "tap",
+            params = mapOf("x" to 100, "y" to 200),
+            safetyLevel = "low",
+            isTaskComplete = false,
+            statusUpdate = "Tapping",
+            experienceNote = ExperienceNote("Home", "Main feed with posts"),
+        )
+        assertNotNull(response.experienceNote)
+        assertEquals("Home", response.experienceNote!!.page)
+        assertEquals("Main feed with posts", response.experienceNote!!.observation)
+    }
+
+    @Test
+    fun `ModelResponse without experienceNote defaults to null`() {
+        val response = ModelResponse(
+            reasoning = "test",
+            action = "tap",
+            params = emptyMap(),
+            safetyLevel = "low",
+            isTaskComplete = false,
+            statusUpdate = "test",
+        )
+        assertNull(response.experienceNote)
     }
 
     @Test
