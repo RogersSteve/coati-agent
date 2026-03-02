@@ -4,7 +4,6 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.Resources
 import android.graphics.PixelFormat
-import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -19,29 +18,48 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import kotlinx.coroutines.CompletableDeferred
 
 class OverlayManager(
     private val context: Context,
     private val windowManager: WindowManager,
 ) {
     private var composeView: ComposeView? = null
-    private val overlayState = mutableStateOf<OverlayState>(OverlayState.Collapsed)
+    val overlayState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
 
-    // Track the "background" agent state for ball color when collapsed
-    private var agentBallState = mutableStateOf<OverlayState>(OverlayState.Collapsed)
+    // Background agent state for ball color when collapsed
+    private var agentBallState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
 
+    // Callbacks wired by CoatiService
     var onExecuteTask: ((String) -> Unit)? = null
     var onStopTask: (() -> Unit)? = null
+    var onPauseTask: (() -> Unit)? = null
+    var onResumeTask: (() -> Unit)? = null
     var onConfirmAction: (() -> Unit)? = null
     var onCancelAction: (() -> Unit)? = null
+    var onRetryTask: (() -> Unit)? = null
+    var onSettings: (() -> Unit)? = null
+    var onExit: (() -> Unit)? = null
+    var onRecoveryResume: (() -> Unit)? = null
+    var onRecoveryAbandon: (() -> Unit)? = null
 
     private var lastTask: String = ""
 
+    // Deferred for suspend-based confirmation
+    private var confirmationDeferred: CompletableDeferred<Boolean>? = null
+    private var taskCompleteDeferred: CompletableDeferred<Unit>? = null
+    private var taskFailedDeferred: CompletableDeferred<Boolean>? = null
+    private var recoveryDeferred: CompletableDeferred<Boolean>? = null
+
     private val density = Resources.getSystem().displayMetrics.density
     private val ballSizePx = (48 * density).toInt()
-    private val expandedWidthPx = (296 * density).toInt() // 280 + 16 padding
-    private val expandedHeightPx = LayoutParams.WRAP_CONTENT
+    private val expandedWidthPx = (296 * density).toInt()
 
+    // Saved position for collapsed/expanded (non-fullscreen) states
+    private var savedX = 0
+    private var savedY = 300
+
+    // Layout params — mutated when switching states
     private val layoutParams = LayoutParams(
         LayoutParams.WRAP_CONTENT,
         LayoutParams.WRAP_CONTENT,
@@ -69,26 +87,44 @@ class OverlayManager(
                 val state = overlayState.value
                 val ballState = agentBallState.value
                 OverlayContent(
-                    state = if (state is OverlayState.Collapsed) {
-                        // Pass the agent ball state to CollapsedBall for color
-                        state
-                    } else {
-                        state
-                    },
+                    state = state,
+                    ballState = ballState,
                     onExecute = { task ->
                         lastTask = task
                         onExecuteTask?.invoke(task)
                     },
                     onStop = { onStopTask?.invoke() },
-                    onConfirm = { onConfirmAction?.invoke() },
-                    onCancel = { onCancelAction?.invoke() },
-                    onRetry = {
-                        if (lastTask.isNotBlank()) {
-                            onExecuteTask?.invoke(lastTask)
-                        }
+                    onPause = { onPauseTask?.invoke() },
+                    onResume = { onResumeTask?.invoke() },
+                    onConfirm = {
+                        confirmationDeferred?.complete(true)
+                        onConfirmAction?.invoke()
                     },
-                    onDismiss = { collapse() },
+                    onCancel = {
+                        confirmationDeferred?.complete(false)
+                        onCancelAction?.invoke()
+                    },
+                    onRetry = {
+                        taskFailedDeferred?.complete(true)
+                        onRetryTask?.invoke()
+                    },
+                    onDismiss = {
+                        // Handle dismiss for both TaskComplete and TaskFailed
+                        taskCompleteDeferred?.complete(Unit)
+                        taskFailedDeferred?.complete(false)
+                        collapse()
+                    },
                     onCollapse = { collapse() },
+                    onSettings = { onSettings?.invoke() },
+                    onExit = { onExit?.invoke() },
+                    onRecoveryResume = {
+                        recoveryDeferred?.complete(true)
+                        onRecoveryResume?.invoke()
+                    },
+                    onRecoveryAbandon = {
+                        recoveryDeferred?.complete(false)
+                        onRecoveryAbandon?.invoke()
+                    },
                 )
             }
         }
@@ -100,64 +136,211 @@ class OverlayManager(
 
     fun hide() {
         composeView?.let {
-            windowManager.removeView(it)
+            try {
+                windowManager.removeView(it)
+            } catch (_: IllegalArgumentException) {
+                // View might have been removed
+            }
             composeView = null
         }
     }
 
+    // ─── STATE TRANSITIONS ───
+
     fun collapse() {
-        overlayState.value = OverlayState.Collapsed
-        updateLayoutForState(OverlayState.Collapsed)
+        overlayState.value = OverlayState.CollapsedIdle
+        applyLayout(LayoutMode.COLLAPSED)
     }
 
-    fun setExecuting(status: String, progress: Float? = null) {
-        agentBallState.value = OverlayState.Executing(status, progress)
-        overlayState.value = OverlayState.Executing(status, progress)
-        updateLayoutForState(overlayState.value)
+    fun expand() {
+        overlayState.value = OverlayState.ExpandedIdle
+        applyLayout(LayoutMode.EXPANDED)
     }
 
-    fun showError(message: String) {
-        agentBallState.value = OverlayState.Error(message)
-        overlayState.value = OverlayState.Error(message)
-        updateLayoutForState(overlayState.value)
+    fun enterFrameExecuting(taskName: String) {
+        lastTask = taskName
+        val state = OverlayState.FrameExecuting(taskName = taskName)
+        agentBallState.value = state
+        overlayState.value = state
+        applyLayout(LayoutMode.FULLSCREEN_KEEPON)
     }
 
-    fun showConfirmation(title: String, detail: String) {
-        agentBallState.value = OverlayState.Confirmation(title, detail)
-        overlayState.value = OverlayState.Confirmation(title, detail)
-        updateLayoutForState(overlayState.value)
+    fun updateProgress(taskName: String, status: String, reasoning: String, step: Int, totalSteps: Int) {
+        val state = OverlayState.FrameExecuting(
+            taskName = taskName,
+            status = status,
+            reasoning = reasoning,
+            step = step,
+            totalSteps = totalSteps,
+        )
+        agentBallState.value = state
+        overlayState.value = state
+        // No layout change needed — already fullscreen
+    }
+
+    fun pause(taskName: String, step: Int, totalSteps: Int) {
+        val state = OverlayState.Paused(taskName = taskName, step = step, totalSteps = totalSteps)
+        agentBallState.value = state
+        overlayState.value = state
+        applyLayout(LayoutMode.TOP_BAR)
+    }
+
+    fun showSafetyConfirm(title: String, detail: String) {
+        overlayState.value = OverlayState.SafetyConfirm(title = title, detail = detail)
+        applyLayout(LayoutMode.FULLSCREEN)
+    }
+
+    fun showTaskComplete(taskName: String, summary: String, steps: Int, durationMs: Long) {
+        agentBallState.value = OverlayState.CollapsedIdle
+        overlayState.value = OverlayState.TaskComplete(
+            taskName = taskName,
+            summary = summary,
+            steps = steps,
+            durationMs = durationMs,
+        )
+        applyLayout(LayoutMode.FULLSCREEN)
+    }
+
+    fun showTaskFailed(taskName: String, reason: String, stepsCompleted: Int, totalSteps: Int) {
+        agentBallState.value = OverlayState.TaskFailed(taskName = taskName, reason = reason, stepsCompleted = stepsCompleted, totalSteps = totalSteps)
+        overlayState.value = OverlayState.TaskFailed(
+            taskName = taskName,
+            reason = reason,
+            stepsCompleted = stepsCompleted,
+            totalSteps = totalSteps,
+        )
+        applyLayout(LayoutMode.FULLSCREEN)
+    }
+
+    fun showRecoveryDialog(taskName: String, step: Int, totalSteps: Int, interruptedAgo: String) {
+        overlayState.value = OverlayState.TaskRecovery(
+            taskName = taskName,
+            step = step,
+            totalSteps = totalSteps,
+            interruptedAgo = interruptedAgo,
+        )
+        applyLayout(LayoutMode.FULLSCREEN)
     }
 
     fun resetBallState() {
-        agentBallState.value = OverlayState.Collapsed
+        agentBallState.value = OverlayState.CollapsedIdle
     }
 
-    private fun updateLayoutForState(state: OverlayState) {
+    // ─── SUSPEND-BASED API (for AgentRunner) ───
+
+    suspend fun requestConfirmation(title: String, detail: String): Boolean {
+        showSafetyConfirm(title, detail)
+        confirmationDeferred = CompletableDeferred()
+        return try {
+            confirmationDeferred!!.await()
+        } finally {
+            confirmationDeferred = null
+        }
+    }
+
+    suspend fun awaitTaskComplete(taskName: String, summary: String, steps: Int, durationMs: Long) {
+        showTaskComplete(taskName, summary, steps, durationMs)
+        taskCompleteDeferred = CompletableDeferred()
+        try {
+            taskCompleteDeferred!!.await()
+        } finally {
+            taskCompleteDeferred = null
+        }
+    }
+
+    suspend fun awaitTaskFailed(taskName: String, reason: String, stepsCompleted: Int, totalSteps: Int): Boolean {
+        showTaskFailed(taskName, reason, stepsCompleted, totalSteps)
+        taskFailedDeferred = CompletableDeferred()
+        return try {
+            taskFailedDeferred!!.await()
+        } finally {
+            taskFailedDeferred = null
+        }
+    }
+
+    suspend fun awaitRecoveryDialog(taskName: String, step: Int, totalSteps: Int, interruptedAgo: String): Boolean {
+        showRecoveryDialog(taskName, step, totalSteps, interruptedAgo)
+        recoveryDeferred = CompletableDeferred()
+        return try {
+            recoveryDeferred!!.await()
+        } finally {
+            recoveryDeferred = null
+        }
+    }
+
+    // ─── LAYOUT MANAGEMENT ───
+
+    private enum class LayoutMode {
+        COLLAPSED,
+        EXPANDED,
+        FULLSCREEN,
+        FULLSCREEN_KEEPON,
+        TOP_BAR,
+    }
+
+    private fun applyLayout(mode: LayoutMode) {
         val view = composeView ?: return
-        when (state) {
-            is OverlayState.Collapsed, is OverlayState.Hidden -> {
+
+        when (mode) {
+            LayoutMode.COLLAPSED -> {
                 layoutParams.width = LayoutParams.WRAP_CONTENT
                 layoutParams.height = LayoutParams.WRAP_CONTENT
-                layoutParams.flags = layoutParams.flags or LayoutParams.FLAG_NOT_FOCUSABLE
+                layoutParams.gravity = Gravity.TOP or Gravity.START
+                layoutParams.x = savedX
+                layoutParams.y = savedY
+                layoutParams.flags = LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_LAYOUT_IN_SCREEN
             }
-            is OverlayState.Expanded -> {
+            LayoutMode.EXPANDED -> {
+                // Save position for when we go back to collapsed
+                savedX = layoutParams.x
+                savedY = layoutParams.y
                 layoutParams.width = expandedWidthPx
-                layoutParams.height = expandedHeightPx
+                layoutParams.height = LayoutParams.WRAP_CONTENT
+                layoutParams.gravity = Gravity.TOP or Gravity.START
                 // Remove NOT_FOCUSABLE to enable keyboard input
-                layoutParams.flags = layoutParams.flags and LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                layoutParams.flags = LayoutParams.FLAG_LAYOUT_IN_SCREEN
             }
-            is OverlayState.Executing, is OverlayState.Confirmation, is OverlayState.Error -> {
-                layoutParams.width = expandedWidthPx
-                layoutParams.height = expandedHeightPx
-                layoutParams.flags = layoutParams.flags or LayoutParams.FLAG_NOT_FOCUSABLE
+            LayoutMode.FULLSCREEN -> {
+                savedX = layoutParams.x
+                savedY = layoutParams.y
+                layoutParams.width = LayoutParams.MATCH_PARENT
+                layoutParams.height = LayoutParams.MATCH_PARENT
+                layoutParams.gravity = Gravity.TOP or Gravity.START
+                layoutParams.x = 0
+                layoutParams.y = 0
+                layoutParams.flags = LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            }
+            LayoutMode.FULLSCREEN_KEEPON -> {
+                savedX = layoutParams.x
+                savedY = layoutParams.y
+                layoutParams.width = LayoutParams.MATCH_PARENT
+                layoutParams.height = LayoutParams.MATCH_PARENT
+                layoutParams.gravity = Gravity.TOP or Gravity.START
+                layoutParams.x = 0
+                layoutParams.y = 0
+                layoutParams.flags = LayoutParams.FLAG_NOT_FOCUSABLE or
+                    LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    LayoutParams.FLAG_KEEP_SCREEN_ON
+            }
+            LayoutMode.TOP_BAR -> {
+                layoutParams.width = LayoutParams.MATCH_PARENT
+                layoutParams.height = LayoutParams.WRAP_CONTENT
+                layoutParams.gravity = Gravity.TOP
+                layoutParams.x = 0
+                layoutParams.y = 0
+                // Remove KEEP_SCREEN_ON when paused — user controls the phone
+                layoutParams.flags = LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_LAYOUT_IN_SCREEN
             }
         }
+
         try {
             windowManager.updateViewLayout(view, layoutParams)
         } catch (_: IllegalArgumentException) {
             // View might have been removed
         }
     }
+
+    // ─── TOUCH HANDLING ───
 
     private fun setupTouchListener(view: View) {
         var initialX = 0
@@ -168,7 +351,7 @@ class OverlayManager(
 
         view.setOnTouchListener { _, event ->
             // Only handle drag/click on collapsed state
-            if (overlayState.value !is OverlayState.Collapsed) return@setOnTouchListener false
+            if (overlayState.value !is OverlayState.CollapsedIdle) return@setOnTouchListener false
 
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -224,15 +407,15 @@ class OverlayManager(
     }
 
     private fun onClick() {
-        overlayState.value = when (overlayState.value) {
-            is OverlayState.Collapsed -> OverlayState.Expanded
-            is OverlayState.Expanded -> OverlayState.Collapsed
-            else -> OverlayState.Collapsed
+        when (overlayState.value) {
+            is OverlayState.CollapsedIdle -> expand()
+            is OverlayState.ExpandedIdle -> collapse()
+            else -> { /* other states don't respond to ball click */ }
         }
-        updateLayoutForState(overlayState.value)
     }
 
     companion object {
+        @Suppress("unused")
         private const val TAG = "CoatiOverlay"
     }
 }

@@ -8,6 +8,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.telephony.TelephonyCallback
+import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.WindowManager
 import bot.coati.R
@@ -18,13 +20,17 @@ import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
 import bot.coati.ui.main.MainActivity
 import bot.coati.ui.overlay.OverlayManager
+import bot.coati.ui.overlay.OverlayState
 import okhttp3.OkHttpClient
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class CoatiService : Service() {
 
     private var overlayManager: OverlayManager? = null
     private var agentRunner: AgentRunner? = null
+    private var telephonyManager: TelephonyManager? = null
+    private var callStateCallback: TelephonyCallback? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -36,6 +42,7 @@ class CoatiService : Service() {
         overlayManager?.show()
 
         initializeAgent()
+        registerCallStateListener()
     }
 
     private fun initializeAgent() {
@@ -73,15 +80,78 @@ class CoatiService : Service() {
 
         // Wire overlay callbacks to agent
         overlay.onExecuteTask = { task -> runner.start(task) }
-        overlay.onStopTask = { runner.stop() }
-        overlay.onConfirmAction = { runner.onConfirm() }
-        overlay.onCancelAction = { runner.onCancel() }
+        overlay.onStopTask = {
+            runner.stop()
+            overlay.collapse()
+        }
+        overlay.onPauseTask = {
+            // Phase 3: full pause implementation
+            // For now, stop the agent
+            runner.stop()
+            overlay.collapse()
+        }
+        overlay.onResumeTask = {
+            // Phase 3: resume with re-orientation
+        }
+        overlay.onSettings = {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }
+        overlay.onExit = {
+            runner.stop()
+            stop(this)
+        }
 
         Log.i(TAG, "Agent initialized with provider: ${config.providerId}, model: ${config.modelName}")
     }
 
+    private fun registerCallStateListener() {
+        try {
+            val tm = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            telephonyManager = tm
+
+            val callback = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+                override fun onCallStateChanged(state: Int) {
+                    if (state == TelephonyManager.CALL_STATE_RINGING ||
+                        state == TelephonyManager.CALL_STATE_OFFHOOK
+                    ) {
+                        val overlay = overlayManager ?: return
+                        val currentState = overlay.overlayState.value
+                        if (currentState is OverlayState.FrameExecuting) {
+                            Log.i(TAG, "Incoming call detected, auto-pausing agent")
+                            agentRunner?.stop()
+                            overlay.pause(
+                                taskName = currentState.taskName,
+                                step = currentState.step,
+                                totalSteps = currentState.totalSteps,
+                            )
+                        }
+                    }
+                }
+            }
+            callStateCallback = callback
+            tm.registerTelephonyCallback(Executors.newSingleThreadExecutor(), callback)
+            Log.i(TAG, "Call state listener registered")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register call state listener: ${e.message}")
+        }
+    }
+
+    private fun unregisterCallStateListener() {
+        try {
+            callStateCallback?.let { callback ->
+                telephonyManager?.unregisterTelephonyCallback(callback)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister call state listener: ${e.message}")
+        }
+        callStateCallback = null
+        telephonyManager = null
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Re-initialize agent if it wasn't available during onCreate
         if (agentRunner == null) {
             initializeAgent()
         }
@@ -91,6 +161,7 @@ class CoatiService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        unregisterCallStateListener()
         agentRunner?.stop()
         agentRunner = null
         overlayManager?.hide()

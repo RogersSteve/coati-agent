@@ -1,7 +1,6 @@
 package bot.coati.agent
 
 import android.util.Log
-import android.widget.Toast
 import bot.coati.action.ActionEngine
 import bot.coati.action.AgentAction
 import bot.coati.model.CloudModelGateway
@@ -10,7 +9,6 @@ import bot.coati.model.ScreenContext
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.ui.overlay.OverlayManager
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,14 +21,18 @@ class AgentRunner(
     private val a11y: CoatiAccessibilityService,
 ) {
     private var currentJob: Job? = null
-    private var confirmationDeferred: CompletableDeferred<Boolean>? = null
     private val scope = CoroutineScope(Dispatchers.Main)
     private val conversationHistory = mutableListOf<Message>()
+    private var taskStartTime = 0L
 
     fun start(task: String) {
         stop()
         conversationHistory.clear()
+        taskStartTime = System.currentTimeMillis()
         Log.i(TAG, "Starting agent for task: $task")
+
+        // Enter frame executing overlay
+        overlayManager.enterFrameExecuting(task)
 
         currentJob = scope.launch {
             try {
@@ -40,14 +42,24 @@ class AgentRunner(
                 overlayManager.collapse()
             } catch (e: Exception) {
                 Log.e(TAG, "Agent error: ${e.message}", e)
-                overlayManager.showError(e.message ?: "Unknown error")
+                val elapsed = System.currentTimeMillis() - taskStartTime
+                // Show task failed dialog
+                val retry = overlayManager.awaitTaskFailed(
+                    taskName = task,
+                    reason = e.message ?: "Unknown error",
+                    stepsCompleted = 0,
+                    totalSteps = 0,
+                )
+                if (retry) {
+                    start(task)
+                } else {
+                    overlayManager.collapse()
+                }
             }
         }
     }
 
     fun stop() {
-        confirmationDeferred?.cancel()
-        confirmationDeferred = null
         currentJob?.cancel()
         currentJob = null
         overlayManager.resetBallState()
@@ -55,22 +67,22 @@ class AgentRunner(
     }
 
     fun onConfirm() {
-        confirmationDeferred?.complete(true)
+        // Handled by CompletableDeferred in OverlayManager
     }
 
     fun onCancel() {
-        confirmationDeferred?.complete(false)
+        // Handled by CompletableDeferred in OverlayManager
     }
 
     private suspend fun executeSingleStep(task: String) {
         // Step 1: Capture screen
-        overlayManager.setExecuting("Capturing screen...")
+        overlayManager.updateProgress(task, "Capturing screen...", "", 0, 0)
         Log.i(TAG, "Step 1: Capturing screen context")
         val screenContext = ScreenContext.capture(a11y)
             ?: throw Exception("Failed to capture screen")
 
         // Step 2: Analyze with cloud model
-        overlayManager.setExecuting("Analyzing...")
+        overlayManager.updateProgress(task, "Analyzing...", "", 0, 0)
         Log.i(TAG, "Step 2: Sending to cloud model")
         val result = gateway.analyzeScreen(
             screenshot = screenContext.screenshotJpeg,
@@ -99,14 +111,10 @@ class AgentRunner(
         // Step 4: Safety check
         if (response.safetyLevel == "high") {
             Log.i(TAG, "High safety level - requesting confirmation")
-            overlayManager.showConfirmation(
+            val confirmed = overlayManager.requestConfirmation(
                 title = "Confirm Action",
                 detail = "${response.action}: ${response.reasoning}",
             )
-
-            confirmationDeferred = CompletableDeferred()
-            val confirmed = confirmationDeferred?.await() ?: false
-            confirmationDeferred = null
 
             if (!confirmed) {
                 Log.i(TAG, "User cancelled action")
@@ -114,28 +122,45 @@ class AgentRunner(
                 overlayManager.resetBallState()
                 return
             }
+
+            // Back to frame executing after confirmation
+            overlayManager.enterFrameExecuting(task)
         }
 
         // Step 5: Execute action
         val actionName = response.statusUpdate.ifBlank { response.action }
-        overlayManager.setExecuting("Executing: $actionName")
+        overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, 0, 0)
         Log.i(TAG, "Step 5: Executing action")
         val actionResult = actionEngine.execute(action)
         Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
         // Step 6: Handle completion
+        val elapsed = System.currentTimeMillis() - taskStartTime
         if (response.isTaskComplete) {
             Log.i(TAG, "Task complete!")
+            overlayManager.awaitTaskComplete(
+                taskName = task,
+                summary = response.statusUpdate,
+                steps = 1,
+                durationMs = elapsed,
+            )
             overlayManager.collapse()
             overlayManager.resetBallState()
-            scope.launch(Dispatchers.Main) {
-                Toast.makeText(a11y, "Task complete: ${response.statusUpdate}", Toast.LENGTH_SHORT).show()
-            }
         } else if (!actionResult.success) {
-            overlayManager.showError("Action failed: ${actionResult.message}")
+            val retry = overlayManager.awaitTaskFailed(
+                taskName = task,
+                reason = "Action failed: ${actionResult.message}",
+                stepsCompleted = 0,
+                totalSteps = 0,
+            )
+            if (retry) {
+                start(task)
+            } else {
+                overlayManager.collapse()
+                overlayManager.resetBallState()
+            }
         } else {
-            overlayManager.setExecuting("Done: ${response.statusUpdate}")
-            // Brief delay then collapse
+            overlayManager.updateProgress(task, "Done: ${response.statusUpdate}", "", 1, 1)
             kotlinx.coroutines.delay(1500)
             overlayManager.collapse()
             overlayManager.resetBallState()
