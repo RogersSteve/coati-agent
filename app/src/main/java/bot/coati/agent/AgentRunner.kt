@@ -5,6 +5,7 @@ import bot.coati.action.ActionEngine
 import bot.coati.action.AgentAction
 import bot.coati.model.CloudModelGateway
 import bot.coati.model.Message
+import bot.coati.model.ModelRouter
 import bot.coati.model.ScreenContext
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.ui.overlay.OverlayManager
@@ -14,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+@Deprecated("Use AgentLoop instead for full auto-loop support")
 class AgentRunner(
     private val overlayManager: OverlayManager,
     private val gateway: CloudModelGateway,

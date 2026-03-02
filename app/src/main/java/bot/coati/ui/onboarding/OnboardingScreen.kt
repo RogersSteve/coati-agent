@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -27,6 +28,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -324,6 +327,70 @@ private fun ApiKeyStep(
     viewModel: OnboardingViewModel,
     onFinish: () -> Unit,
 ) {
+    val selectedTab by viewModel.selectedTab.collectAsState()
+    val verified by viewModel.apiKeyVerified.collectAsState()
+    val fastSameAsReasoning by viewModel.fastSameAsReasoning.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = stringResource(R.string.onboarding_apikey_title),
+            style = MaterialTheme.typography.headlineMedium,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.onboarding_apikey_description),
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Tab Row
+        TabRow(selectedTabIndex = selectedTab) {
+            Tab(
+                selected = selectedTab == 0,
+                onClick = { viewModel.selectTab(0) },
+                text = { Text(stringResource(R.string.tab_reasoning)) },
+            )
+            Tab(
+                selected = selectedTab == 1,
+                onClick = { viewModel.selectTab(1) },
+                text = { Text(stringResource(R.string.tab_fast)) },
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        when (selectedTab) {
+            0 -> ReasoningModelConfig(viewModel)
+            1 -> FastModelConfig(viewModel)
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Finish button — enabled when reasoning verified
+        if (verified) {
+            Button(
+                onClick = { viewModel.finishOnboarding(onFinish) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text(stringResource(R.string.onboarding_finish))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
     val selectedProvider by viewModel.selectedProvider.collectAsState()
     val selectedEndpoint by viewModel.selectedEndpoint.collectAsState()
     val selectedModelName by viewModel.selectedModelName.collectAsState()
@@ -339,47 +406,259 @@ private fun ApiKeyStep(
     val providers = ModelProviders.all
     val currentProvider = ModelProviders.findById(selectedProvider)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = stringResource(R.string.onboarding_apikey_title),
-            style = MaterialTheme.typography.headlineMedium,
-            textAlign = TextAlign.Center,
+    // Provider dropdown
+    Box {
+        OutlinedButton(
+            onClick = { providerDropdownExpanded = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Text(currentProvider?.displayName ?: selectedProvider)
+        }
+        DropdownMenu(
+            expanded = providerDropdownExpanded,
+            onDismissRequest = { providerDropdownExpanded = false },
+        ) {
+            providers.forEach { provider ->
+                DropdownMenuItem(
+                    text = { Text(provider.displayName) },
+                    onClick = {
+                        viewModel.selectProvider(provider.id)
+                        apiKeyInput = ""
+                        providerDropdownExpanded = false
+                    },
+                )
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    // Endpoint field — only shown for custom providers
+    if (currentProvider?.isCustom == true) {
+        OutlinedTextField(
+            value = selectedEndpoint,
+            onValueChange = { viewModel.updateEndpoint(it) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.onboarding_endpoint_hint)) },
+            placeholder = {
+                Text(
+                    if (currentProvider.apiFormat == ApiFormat.CLAUDE_COMPATIBLE)
+                        "https://api.anthropic.com"
+                    else
+                        "https://api.openai.com",
+                )
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
         )
-        Spacer(modifier = Modifier.height(16.dp))
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    // Model selector
+    if (currentProvider != null && currentProvider.models.isNotEmpty()) {
+        Box {
+            OutlinedButton(
+                onClick = { modelDropdownExpanded = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text(
+                    text = if (selectedModelName.isNotBlank()) selectedModelName
+                    else stringResource(R.string.onboarding_model_select),
+                )
+            }
+            DropdownMenu(
+                expanded = modelDropdownExpanded,
+                onDismissRequest = { modelDropdownExpanded = false },
+            ) {
+                currentProvider.models.forEach { model ->
+                    DropdownMenuItem(
+                        text = { Text(model) },
+                        onClick = {
+                            viewModel.updateModelName(model)
+                            modelDropdownExpanded = false
+                        },
+                    )
+                }
+            }
+        }
+    } else {
+        OutlinedTextField(
+            value = selectedModelName,
+            onValueChange = { viewModel.updateModelName(it) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.onboarding_model_name_hint)) },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+        )
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    // API key input
+    OutlinedTextField(
+        value = apiKeyInput,
+        onValueChange = { apiKeyInput = it },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(stringResource(R.string.onboarding_apikey_input_hint)) },
+        singleLine = true,
+        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                Text(if (passwordVisible) "Hide" else "Show", style = MaterialTheme.typography.labelLarge)
+            }
+        },
+        shape = RoundedCornerShape(12.dp),
+    )
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // Verify button
+    Button(
+        onClick = { viewModel.verifyApiKey(selectedProvider, apiKeyInput) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp),
+        shape = RoundedCornerShape(16.dp),
+        enabled = apiKeyInput.isNotBlank() && !verifying,
+    ) {
+        if (verifying) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                color = MaterialTheme.colorScheme.onPrimary,
+                strokeWidth = 2.dp,
+            )
+        } else {
+            Text(stringResource(R.string.onboarding_apikey_verify))
+        }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    if (verified) {
         Text(
-            text = stringResource(R.string.onboarding_apikey_description),
+            text = stringResource(R.string.onboarding_apikey_verified),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+    verifyError?.let { error ->
+        Text(
+            text = stringResource(R.string.onboarding_apikey_failed, error),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+}
+
+@Composable
+private fun FastModelConfig(viewModel: OnboardingViewModel) {
+    val fastSameAsReasoning by viewModel.fastSameAsReasoning.collectAsState()
+    val selectedProvider by viewModel.selectedProvider.collectAsState()
+    val fastProvider by viewModel.fastProvider.collectAsState()
+    val fastEndpoint by viewModel.fastEndpoint.collectAsState()
+    val fastModelName by viewModel.fastModelName.collectAsState()
+    val fastVerified by viewModel.fastApiKeyVerified.collectAsState()
+    val fastVerifying by viewModel.fastVerifying.collectAsState()
+    val fastVerifyError by viewModel.fastVerifyError.collectAsState()
+
+    var fastApiKeyInput by remember { mutableStateOf("") }
+    var fastPasswordVisible by remember { mutableStateOf(false) }
+    var fastProviderDropdownExpanded by remember { mutableStateOf(false) }
+    var fastModelDropdownExpanded by remember { mutableStateOf(false) }
+
+    // Checkbox: use same as reasoning
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Checkbox(
+            checked = fastSameAsReasoning,
+            onCheckedChange = { viewModel.setFastSameAsReasoning(it) },
+        )
+        Text(
+            text = stringResource(R.string.fast_same_as_reasoning),
             style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
+        )
+    }
+
+    if (fastSameAsReasoning) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.fast_same_as_reasoning_desc),
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(modifier = Modifier.height(24.dp))
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Only show model name selector for fast model
+        val reasoningProvider = ModelProviders.findById(selectedProvider)
+        if (reasoningProvider != null && reasoningProvider.models.size > 1) {
+            Box {
+                OutlinedButton(
+                    onClick = { fastModelDropdownExpanded = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text(
+                        text = if (fastModelName.isNotBlank()) fastModelName
+                        else stringResource(R.string.onboarding_model_select),
+                    )
+                }
+                DropdownMenu(
+                    expanded = fastModelDropdownExpanded,
+                    onDismissRequest = { fastModelDropdownExpanded = false },
+                ) {
+                    reasoningProvider.models.forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(model) },
+                            onClick = {
+                                viewModel.updateFastModelName(model)
+                                fastModelDropdownExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
+        } else {
+            OutlinedTextField(
+                value = fastModelName,
+                onValueChange = { viewModel.updateFastModelName(it) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.fast_model_hint)) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+            )
+        }
+    } else {
+        // Independent fast model config
+        Spacer(modifier = Modifier.height(12.dp))
+
+        val currentFastProvider = ModelProviders.findById(fastProvider)
 
         // Provider dropdown
         Box {
             OutlinedButton(
-                onClick = { providerDropdownExpanded = true },
+                onClick = { fastProviderDropdownExpanded = true },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
             ) {
-                Text(currentProvider?.displayName ?: selectedProvider)
+                Text(currentFastProvider?.displayName ?: fastProvider)
             }
             DropdownMenu(
-                expanded = providerDropdownExpanded,
-                onDismissRequest = { providerDropdownExpanded = false },
+                expanded = fastProviderDropdownExpanded,
+                onDismissRequest = { fastProviderDropdownExpanded = false },
             ) {
-                providers.forEach { provider ->
+                ModelProviders.all.forEach { provider ->
                     DropdownMenuItem(
                         text = { Text(provider.displayName) },
                         onClick = {
-                            viewModel.selectProvider(provider.id)
-                            apiKeyInput = ""
-                            providerDropdownExpanded = false
+                            viewModel.selectFastProvider(provider.id)
+                            fastApiKeyInput = ""
+                            fastProviderDropdownExpanded = false
                         },
                     )
                 }
@@ -388,51 +667,42 @@ private fun ApiKeyStep(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Endpoint field — only shown for custom providers
-        if (currentProvider?.isCustom == true) {
+        // Endpoint for custom
+        if (currentFastProvider?.isCustom == true) {
             OutlinedTextField(
-                value = selectedEndpoint,
-                onValueChange = { viewModel.updateEndpoint(it) },
+                value = fastEndpoint,
+                onValueChange = { viewModel.updateFastEndpoint(it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.onboarding_endpoint_hint)) },
-                placeholder = {
-                    Text(
-                        if (currentProvider.apiFormat == ApiFormat.CLAUDE_COMPATIBLE)
-                            "https://api.anthropic.com"
-                        else
-                            "https://api.openai.com",
-                    )
-                },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
             )
+            Spacer(modifier = Modifier.height(12.dp))
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Model selector — dropdown for non-custom, free text for custom
-        if (currentProvider != null && currentProvider.models.isNotEmpty()) {
+        // Model selector
+        if (currentFastProvider != null && currentFastProvider.models.isNotEmpty()) {
             Box {
                 OutlinedButton(
-                    onClick = { modelDropdownExpanded = true },
+                    onClick = { fastModelDropdownExpanded = true },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text(
-                        text = if (selectedModelName.isNotBlank()) selectedModelName
+                        text = if (fastModelName.isNotBlank()) fastModelName
                         else stringResource(R.string.onboarding_model_select),
                     )
                 }
                 DropdownMenu(
-                    expanded = modelDropdownExpanded,
-                    onDismissRequest = { modelDropdownExpanded = false },
+                    expanded = fastModelDropdownExpanded,
+                    onDismissRequest = { fastModelDropdownExpanded = false },
                 ) {
-                    currentProvider.models.forEach { model ->
+                    currentFastProvider.models.forEach { model ->
                         DropdownMenuItem(
                             text = { Text(model) },
                             onClick = {
-                                viewModel.updateModelName(model)
-                                modelDropdownExpanded = false
+                                viewModel.updateFastModelName(model)
+                                fastModelDropdownExpanded = false
                             },
                         )
                     }
@@ -440,10 +710,10 @@ private fun ApiKeyStep(
             }
         } else {
             OutlinedTextField(
-                value = selectedModelName,
-                onValueChange = { viewModel.updateModelName(it) },
+                value = fastModelName,
+                onValueChange = { viewModel.updateFastModelName(it) },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.onboarding_model_name_hint)) },
+                label = { Text(stringResource(R.string.fast_model_hint)) },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
             )
@@ -451,17 +721,17 @@ private fun ApiKeyStep(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // API key input
+        // API key
         OutlinedTextField(
-            value = apiKeyInput,
-            onValueChange = { apiKeyInput = it },
+            value = fastApiKeyInput,
+            onValueChange = { fastApiKeyInput = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.onboarding_apikey_input_hint)) },
             singleLine = true,
-            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            visualTransformation = if (fastPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                    Text(if (passwordVisible) "Hide" else "Show", style = MaterialTheme.typography.labelLarge)
+                IconButton(onClick = { fastPasswordVisible = !fastPasswordVisible }) {
+                    Text(if (fastPasswordVisible) "Hide" else "Show", style = MaterialTheme.typography.labelLarge)
                 }
             },
             shape = RoundedCornerShape(12.dp),
@@ -471,14 +741,14 @@ private fun ApiKeyStep(
 
         // Verify button
         Button(
-            onClick = { viewModel.verifyApiKey(selectedProvider, apiKeyInput) },
+            onClick = { viewModel.verifyFastApiKey(fastProvider, fastApiKeyInput) },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(16.dp),
-            enabled = apiKeyInput.isNotBlank() && !verifying,
+            enabled = fastApiKeyInput.isNotBlank() && !fastVerifying,
         ) {
-            if (verifying) {
+            if (fastVerifying) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(24.dp),
                     color = MaterialTheme.colorScheme.onPrimary,
@@ -491,36 +761,19 @@ private fun ApiKeyStep(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Status
-        if (verified) {
+        if (fastVerified) {
             Text(
                 text = stringResource(R.string.onboarding_apikey_verified),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        verifyError?.let { error ->
+        fastVerifyError?.let { error ->
             Text(
                 text = stringResource(R.string.onboarding_apikey_failed, error),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error,
             )
         }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Finish / Skip
-        if (verified) {
-            Button(
-                onClick = { viewModel.finishOnboarding(onFinish) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text(stringResource(R.string.onboarding_finish))
-            }
-        }
-
     }
 }

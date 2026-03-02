@@ -14,10 +14,11 @@ import android.util.Log
 import android.view.WindowManager
 import bot.coati.R
 import bot.coati.action.ActionEngine
-import bot.coati.agent.AgentRunner
+import bot.coati.agent.AgentLoop
 import bot.coati.data.ConfigStore
 import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
+import bot.coati.model.ModelRouter
 import bot.coati.ui.main.MainActivity
 import bot.coati.ui.overlay.OverlayManager
 import bot.coati.ui.overlay.OverlayState
@@ -28,7 +29,7 @@ import java.util.concurrent.TimeUnit
 class CoatiService : Service() {
 
     private var overlayManager: OverlayManager? = null
-    private var agentRunner: AgentRunner? = null
+    private var agentLoop: AgentLoop? = null
     private var telephonyManager: TelephonyManager? = null
     private var callStateCallback: TelephonyCallback? = null
 
@@ -53,17 +54,23 @@ class CoatiService : Service() {
         }
 
         val configStore = ConfigStore(this)
-        val config = configStore.getActiveProviderConfig()
-        if (config == null) {
-            Log.w(TAG, "No API key configured, agent will not be initialized")
+
+        // Load reasoning config (with fallback to old single config)
+        val reasoningConfig = configStore.getReasoningConfig() ?: configStore.getActiveProviderConfig()
+        if (reasoningConfig == null) {
+            Log.w(TAG, "No reasoning config, agent will not be initialized")
             return
         }
 
-        val provider = ModelProviders.findById(config.providerId)
-        if (provider == null) {
-            Log.w(TAG, "Unknown provider: ${config.providerId}, agent will not be initialized")
+        val reasoningProvider = ModelProviders.findById(reasoningConfig.providerId)
+        if (reasoningProvider == null) {
+            Log.w(TAG, "Unknown reasoning provider: ${reasoningConfig.providerId}")
             return
         }
+
+        // Load fast config
+        val fastConfig = configStore.getFastConfig() ?: reasoningConfig
+        val fastProvider = ModelProviders.findById(fastConfig.providerId) ?: reasoningProvider
 
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -71,27 +78,33 @@ class CoatiService : Service() {
             .writeTimeout(60, TimeUnit.SECONDS)
             .build()
 
-        val gateway = GatewayFactory.create(provider, client, config.apiKey, config.endpoint, config.modelName)
+        val reasoningGateway = GatewayFactory.create(reasoningProvider, client, reasoningConfig.apiKey, reasoningConfig.endpoint, reasoningConfig.modelName)
+        val fastGateway = GatewayFactory.create(fastProvider, client, fastConfig.apiKey, fastConfig.endpoint, fastConfig.modelName)
+        val modelRouter = ModelRouter(reasoningGateway, fastGateway)
         val actionEngine = ActionEngine(a11y)
         val overlay = overlayManager ?: return
 
-        val runner = AgentRunner(overlay, gateway, actionEngine, a11y)
-        agentRunner = runner
+        val loop = AgentLoop(overlay, modelRouter, actionEngine, a11y)
+        agentLoop = loop
 
-        // Wire overlay callbacks to agent
-        overlay.onExecuteTask = { task -> runner.start(task) }
+        // Wire emergency stop from accessibility service
+        a11y.onEmergencyStop = {
+            loop.emergencyStop = true
+            loop.stop()
+        }
+
+        // Wire overlay callbacks to agent loop
+        overlay.onExecuteTask = { task -> loop.start(task) }
         overlay.onStopTask = {
-            runner.stop()
+            loop.stop()
             overlay.collapse()
         }
         overlay.onPauseTask = {
-            // Phase 3: full pause implementation
-            // For now, stop the agent
-            runner.stop()
+            loop.stop()
             overlay.collapse()
         }
         overlay.onResumeTask = {
-            // Phase 3: resume with re-orientation
+            // Future: resume with re-orientation
         }
         overlay.onSettings = {
             val intent = Intent(this, MainActivity::class.java).apply {
@@ -100,11 +113,11 @@ class CoatiService : Service() {
             startActivity(intent)
         }
         overlay.onExit = {
-            runner.stop()
+            loop.stop()
             stop(this)
         }
 
-        Log.i(TAG, "Agent initialized with provider: ${config.providerId}, model: ${config.modelName}")
+        Log.i(TAG, "Agent initialized: reasoning=${reasoningConfig.providerId}/${reasoningConfig.modelName}, fast=${fastConfig.providerId}/${fastConfig.modelName}")
     }
 
     private fun registerCallStateListener() {
@@ -121,7 +134,7 @@ class CoatiService : Service() {
                         val currentState = overlay.overlayState.value
                         if (currentState is OverlayState.FrameExecuting) {
                             Log.i(TAG, "Incoming call detected, auto-pausing agent")
-                            agentRunner?.stop()
+                            agentLoop?.stop()
                             overlay.pause(
                                 taskName = currentState.taskName,
                                 step = currentState.step,
@@ -152,7 +165,7 @@ class CoatiService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (agentRunner == null) {
+        if (agentLoop == null) {
             initializeAgent()
         }
         return START_STICKY
@@ -162,8 +175,8 @@ class CoatiService : Service() {
 
     override fun onDestroy() {
         unregisterCallStateListener()
-        agentRunner?.stop()
-        agentRunner = null
+        agentLoop?.stop()
+        agentLoop = null
         overlayManager?.hide()
         overlayManager = null
         super.onDestroy()

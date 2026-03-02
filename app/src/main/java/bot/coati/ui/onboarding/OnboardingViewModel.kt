@@ -58,6 +58,32 @@ class OnboardingViewModel @Inject constructor(
     private val _verifyError = MutableStateFlow<String?>(null)
     val verifyError: StateFlow<String?> = _verifyError
 
+    // Tab selection (0 = Reasoning, 1 = Fast)
+    private val _selectedTab = MutableStateFlow(0)
+    val selectedTab: StateFlow<Int> = _selectedTab
+
+    // Fast model state
+    private val _fastProvider = MutableStateFlow("gemini")
+    val fastProvider: StateFlow<String> = _fastProvider
+
+    private val _fastEndpoint = MutableStateFlow("")
+    val fastEndpoint: StateFlow<String> = _fastEndpoint
+
+    private val _fastModelName = MutableStateFlow("")
+    val fastModelName: StateFlow<String> = _fastModelName
+
+    private val _fastApiKeyVerified = MutableStateFlow(false)
+    val fastApiKeyVerified: StateFlow<Boolean> = _fastApiKeyVerified
+
+    private val _fastVerifying = MutableStateFlow(false)
+    val fastVerifying: StateFlow<Boolean> = _fastVerifying
+
+    private val _fastVerifyError = MutableStateFlow<String?>(null)
+    val fastVerifyError: StateFlow<String?> = _fastVerifyError
+
+    private val _fastSameAsReasoning = MutableStateFlow(true)
+    val fastSameAsReasoning: StateFlow<Boolean> = _fastSameAsReasoning
+
     init {
         _selectedRegion.value = RegionDetector.detectRegion(application)
         val defaultProvider = configStore.getDefaultProvider()
@@ -66,6 +92,13 @@ class OnboardingViewModel @Inject constructor(
         if (provider != null) {
             _selectedEndpoint.value = configStore.getEndpoint(defaultProvider) ?: provider.defaultEndpoint
             _selectedModelName.value = configStore.getModelName(defaultProvider) ?: provider.models.firstOrNull() ?: ""
+        }
+        _fastSameAsReasoning.value = configStore.isFastSameAsReasoning()
+        // Default fast provider to same as reasoning
+        _fastProvider.value = defaultProvider
+        if (provider != null) {
+            _fastEndpoint.value = provider.defaultEndpoint
+            _fastModelName.value = provider.models.getOrNull(1) ?: provider.models.firstOrNull() ?: ""
         }
     }
 
@@ -105,6 +138,72 @@ class OnboardingViewModel @Inject constructor(
         _selectedModelName.value = modelName
     }
 
+    fun selectTab(tab: Int) {
+        _selectedTab.value = tab
+    }
+
+    fun setFastSameAsReasoning(same: Boolean) {
+        _fastSameAsReasoning.value = same
+    }
+
+    fun selectFastProvider(providerId: String) {
+        _fastProvider.value = providerId
+        _fastApiKeyVerified.value = false
+        _fastVerifyError.value = null
+        val provider = ModelProviders.findById(providerId)
+        if (provider != null) {
+            _fastEndpoint.value = provider.defaultEndpoint
+            _fastModelName.value = provider.models.firstOrNull() ?: ""
+        } else {
+            _fastEndpoint.value = ""
+            _fastModelName.value = ""
+        }
+    }
+
+    fun updateFastEndpoint(endpoint: String) {
+        _fastEndpoint.value = endpoint
+    }
+
+    fun updateFastModelName(modelName: String) {
+        _fastModelName.value = modelName
+    }
+
+    fun verifyFastApiKey(provider: String, key: String) {
+        if (key.isBlank()) return
+        val endpoint = _fastEndpoint.value
+        val modelName = _fastModelName.value
+        if (endpoint.isBlank() || modelName.isBlank()) {
+            _fastVerifyError.value = "Endpoint and model name are required"
+            return
+        }
+        _fastVerifying.value = true
+        _fastVerifyError.value = null
+
+        viewModelScope.launch {
+            try {
+                val modelProvider = ModelProviders.findById(provider)
+                if (modelProvider == null) {
+                    _fastVerifyError.value = "Unknown provider: $provider"
+                    _fastVerifying.value = false
+                    return@launch
+                }
+                val gateway = GatewayFactory.create(modelProvider, okHttpClient, key, endpoint, modelName)
+                val result = gateway.testConnection()
+                if (result.isSuccess) {
+                    configStore.saveRoleConfig("fast", provider, key, endpoint, modelName)
+                    _fastApiKeyVerified.value = true
+                    _fastVerifyError.value = null
+                } else {
+                    _fastVerifyError.value = result.exceptionOrNull()?.message ?: "Unknown error"
+                }
+            } catch (e: Exception) {
+                _fastVerifyError.value = e.message ?: "Connection failed"
+            } finally {
+                _fastVerifying.value = false
+            }
+        }
+    }
+
     fun verifyApiKey(provider: String, key: String) {
         if (key.isBlank()) return
         val endpoint = _selectedEndpoint.value
@@ -131,6 +230,8 @@ class OnboardingViewModel @Inject constructor(
                     configStore.saveEndpoint(provider, endpoint)
                     configStore.saveModelName(provider, modelName)
                     configStore.setDefaultProvider(provider)
+                    // Also save as reasoning role config
+                    configStore.saveRoleConfig("reasoning", provider, key, endpoint, modelName)
                     _apiKeyVerified.value = true
                     _verifyError.value = null
                 } else {
@@ -146,6 +247,13 @@ class OnboardingViewModel @Inject constructor(
 
     fun finishOnboarding(onComplete: () -> Unit) {
         viewModelScope.launch {
+            // Save fast model settings
+            configStore.saveFastSameAsReasoning(_fastSameAsReasoning.value)
+            if (_fastSameAsReasoning.value) {
+                // Save fast model name so getFastConfig() can substitute it
+                configStore.saveFastModelName(_fastModelName.value)
+            }
+
             dataStore.edit { prefs ->
                 prefs[KEY_ONBOARDING_COMPLETE] = true
                 prefs[KEY_REGION] = _selectedRegion.value

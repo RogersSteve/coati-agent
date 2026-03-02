@@ -6,12 +6,18 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Build
 import android.util.Log
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 class CoatiAccessibilityService : AccessibilityService() {
+
+    var onEmergencyStop: (() -> Unit)? = null
+
+    private var volumeUpPressed = false
+    private var volumeDownPressed = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -27,7 +33,31 @@ class CoatiAccessibilityService : AccessibilityService() {
         // No-op for Phase 1
     }
 
+    override fun onKeyEvent(event: KeyEvent?): Boolean {
+        if (event == null) return super.onKeyEvent(event)
+
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                volumeUpPressed = event.action == KeyEvent.ACTION_DOWN
+            }
+            KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                volumeDownPressed = event.action == KeyEvent.ACTION_DOWN
+            }
+        }
+
+        if (volumeUpPressed && volumeDownPressed) {
+            Log.i(TAG, "Emergency stop: volume up + down pressed simultaneously")
+            volumeUpPressed = false
+            volumeDownPressed = false
+            onEmergencyStop?.invoke()
+            return true
+        }
+
+        return super.onKeyEvent(event)
+    }
+
     override fun onDestroy() {
+        onEmergencyStop = null
         instance = null
         super.onDestroy()
     }

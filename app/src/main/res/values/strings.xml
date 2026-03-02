@@ -51,6 +51,13 @@
     <string name="onboarding_model_name_hint">Model Name</string>
     <string name="onboarding_model_select">Select Model</string>
 
+    <!-- Model Tabs -->
+    <string name="tab_reasoning">Reasoning</string>
+    <string name="tab_fast">Fast</string>
+    <string name="fast_same_as_reasoning">Use same API key as Reasoning</string>
+    <string name="fast_same_as_reasoning_desc">The Fast model uses the same provider and API key as Reasoning, with a different model name for quick verification tasks.</string>
+    <string name="fast_model_hint">Fast Model Name</string>
+
     <!-- Overlay -->
     <string name="overlay_task_hint">Describe a task…</string>
     <string name="overlay_execute">Execute</string>

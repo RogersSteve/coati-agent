@@ -8,5 +8,10 @@ interface CloudModelGateway {
         conversationHistory: List<Message>,
     ): Result<ModelResponse>
 
+    suspend fun quickCheck(
+        screenshot: ByteArray,
+        question: String,
+    ): Result<QuickCheckResult>
+
     suspend fun testConnection(): Result<String>
 }

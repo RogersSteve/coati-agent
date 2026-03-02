@@ -2,6 +2,7 @@ package bot.coati.model
 
 import android.util.Base64
 import android.util.Log
+import bot.coati.agent.PromptBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -55,6 +56,66 @@ class ClaudeCompatibleGateway(
             Result.success(modelResponse)
         } catch (e: Exception) {
             Log.e(TAG, "analyzeScreen failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun quickCheck(
+        screenshot: ByteArray,
+        question: String,
+    ): Result<QuickCheckResult> = withContext(Dispatchers.IO) {
+        try {
+            val base64Image = Base64.encodeToString(screenshot, Base64.NO_WRAP)
+            val messages = JSONArray()
+
+            val userContent = JSONArray()
+            userContent.put(JSONObject().apply {
+                put("type", "image")
+                put("source", JSONObject().apply {
+                    put("type", "base64")
+                    put("media_type", "image/jpeg")
+                    put("data", base64Image)
+                })
+            })
+            userContent.put(JSONObject().apply {
+                put("type", "text")
+                put("text", PromptBuilder.buildQuickCheckPrompt(question))
+            })
+            messages.put(JSONObject().apply {
+                put("role", "user")
+                put("content", userContent)
+            })
+
+            val requestBody = JSONObject().apply {
+                put("model", modelName)
+                put("max_tokens", 128)
+                put("system", PromptBuilder.buildFastSystemPrompt())
+                put("messages", messages)
+            }.toString()
+
+            val request = Request.Builder()
+                .url("$endpoint/v1/messages")
+                .addHeader("x-api-key", apiKey)
+                .addHeader("anthropic-version", ANTHROPIC_VERSION)
+                .addHeader("content-type", "application/json")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+            }
+
+            val text = JSONObject(body)
+                .getJSONArray("content")
+                .getJSONObject(0)
+                .getString("text")
+
+            Result.success(GatewayUtils.parseQuickCheckResponse(text))
+        } catch (e: Exception) {
+            Log.e(TAG, "quickCheck failed: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -127,7 +188,7 @@ class ClaudeCompatibleGateway(
         })
         userContent.put(JSONObject().apply {
             put("type", "text")
-            put("text", GatewayUtils.buildUserPrompt(uiTreeHint, taskDescription))
+            put("text", PromptBuilder.buildReasoningUserPrompt(uiTreeHint, taskDescription, 0, 0))
         })
 
         messages.put(JSONObject().apply {
@@ -138,7 +199,7 @@ class ClaudeCompatibleGateway(
         return JSONObject().apply {
             put("model", modelName)
             put("max_tokens", 1024)
-            put("system", GatewayUtils.SYSTEM_PROMPT)
+            put("system", PromptBuilder.buildReasoningSystemPrompt())
             put("messages", messages)
         }.toString()
     }

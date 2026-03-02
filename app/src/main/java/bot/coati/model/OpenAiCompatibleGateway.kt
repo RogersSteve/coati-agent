@@ -2,6 +2,7 @@ package bot.coati.model
 
 import android.util.Base64
 import android.util.Log
+import bot.coati.agent.PromptBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -58,6 +59,68 @@ class OpenAiCompatibleGateway(
         }
     }
 
+    override suspend fun quickCheck(
+        screenshot: ByteArray,
+        question: String,
+    ): Result<QuickCheckResult> = withContext(Dispatchers.IO) {
+        try {
+            val base64Image = Base64.encodeToString(screenshot, Base64.NO_WRAP)
+            val messages = JSONArray()
+
+            messages.put(JSONObject().apply {
+                put("role", "system")
+                put("content", PromptBuilder.buildFastSystemPrompt())
+            })
+
+            val userContent = JSONArray()
+            userContent.put(JSONObject().apply {
+                put("type", "image_url")
+                put("image_url", JSONObject().apply {
+                    put("url", "data:image/jpeg;base64,$base64Image")
+                })
+            })
+            userContent.put(JSONObject().apply {
+                put("type", "text")
+                put("text", PromptBuilder.buildQuickCheckPrompt(question))
+            })
+            messages.put(JSONObject().apply {
+                put("role", "user")
+                put("content", userContent)
+            })
+
+            val requestBody = JSONObject().apply {
+                put("model", modelName)
+                put("messages", messages)
+                put("temperature", 0.1)
+                put("max_tokens", 128)
+            }.toString()
+
+            val request = Request.Builder()
+                .url("$endpoint/v1/chat/completions")
+                .addHeader("Authorization", "Bearer $apiKey")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+            }
+
+            val text = JSONObject(body)
+                .getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .getString("content")
+
+            Result.success(GatewayUtils.parseQuickCheckResponse(text))
+        } catch (e: Exception) {
+            Log.e(TAG, "quickCheck failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
         try {
             val requestBody = JSONObject().apply {
@@ -109,7 +172,7 @@ class OpenAiCompatibleGateway(
         // System message
         messages.put(JSONObject().apply {
             put("role", "system")
-            put("content", GatewayUtils.SYSTEM_PROMPT)
+            put("content", PromptBuilder.buildReasoningSystemPrompt())
         })
 
         // Conversation history
@@ -130,7 +193,7 @@ class OpenAiCompatibleGateway(
         })
         userContent.put(JSONObject().apply {
             put("type", "text")
-            put("text", GatewayUtils.buildUserPrompt(uiTreeHint, taskDescription))
+            put("text", PromptBuilder.buildReasoningUserPrompt(uiTreeHint, taskDescription, 0, 0))
         })
 
         messages.put(JSONObject().apply {

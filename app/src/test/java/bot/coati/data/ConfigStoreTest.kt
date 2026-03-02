@@ -9,7 +9,6 @@ class ConfigStoreTest {
 
     @Test
     fun `maskedKey masks all but last 4 chars`() {
-        // Test the masking logic directly
         val key = "sk-abcdefghijklmnop1234"
         val masked = maskKey(key)
         assertEquals("****1234", masked)
@@ -60,6 +59,35 @@ class ConfigStoreTest {
     fun `supported providers does not contain legacy custom`() {
         val providers = ConfigStore.SUPPORTED_PROVIDERS
         assertFalse(providers.contains("custom"))
+    }
+
+    // ─── Role-based config key tests ───
+
+    @Test
+    fun `role key generation produces correct prefixed keys`() {
+        assertEquals("reasoning_api_key", ConfigStore.roleApiKeyPrefKey("reasoning"))
+        assertEquals("reasoning_provider", ConfigStore.roleProviderPrefKey("reasoning"))
+        assertEquals("reasoning_endpoint", ConfigStore.roleEndpointPrefKey("reasoning"))
+        assertEquals("reasoning_model_name", ConfigStore.roleModelNamePrefKey("reasoning"))
+
+        assertEquals("fast_api_key", ConfigStore.roleApiKeyPrefKey("fast"))
+        assertEquals("fast_provider", ConfigStore.roleProviderPrefKey("fast"))
+        assertEquals("fast_endpoint", ConfigStore.roleEndpointPrefKey("fast"))
+        assertEquals("fast_model_name", ConfigStore.roleModelNamePrefKey("fast"))
+    }
+
+    @Test
+    fun `supported roles contains reasoning and fast`() {
+        val roles = ConfigStore.SUPPORTED_ROLES
+        assertEquals(2, roles.size)
+        assertTrue(roles.contains(ConfigStore.ROLE_REASONING))
+        assertTrue(roles.contains(ConfigStore.ROLE_FAST))
+    }
+
+    @Test
+    fun `ROLE constants have expected values`() {
+        assertEquals("reasoning", ConfigStore.ROLE_REASONING)
+        assertEquals("fast", ConfigStore.ROLE_FAST)
     }
 
     // Replicates the masking logic from ConfigStore for unit testing

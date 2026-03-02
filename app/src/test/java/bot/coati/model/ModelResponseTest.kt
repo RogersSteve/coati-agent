@@ -2,6 +2,7 @@ package bot.coati.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -110,5 +111,55 @@ class ModelResponseTest {
         val copy = original.copy(isTaskComplete = true)
         assertTrue(copy.isTaskComplete)
         assertEquals("tap", copy.action)
+    }
+
+    @Test
+    fun `ModelResponse with normalized coordinates`() {
+        val response = ModelResponse(
+            reasoning = "Tapping search button",
+            action = "tap",
+            params = mapOf("x" to 500, "y" to 750),
+            safetyLevel = "medium",
+            isTaskComplete = false,
+            statusUpdate = "Tapping search",
+            x = 500,
+            y = 750,
+        )
+        assertEquals(500, response.x)
+        assertEquals(750, response.y)
+    }
+
+    @Test
+    fun `ModelResponse without coordinates defaults to null`() {
+        val response = ModelResponse(
+            reasoning = "Scrolling down",
+            action = "scroll",
+            params = mapOf("direction" to "DOWN"),
+            safetyLevel = "low",
+            isTaskComplete = false,
+            statusUpdate = "Scrolling",
+        )
+        assertNull(response.x)
+        assertNull(response.y)
+    }
+
+    @Test
+    fun `QuickCheckResult holds correct values`() {
+        val result = QuickCheckResult(
+            answer = true,
+            category = "screen_changed",
+            confidence = 0.95f,
+        )
+        assertTrue(result.answer)
+        assertEquals("screen_changed", result.category)
+        assertEquals(0.95f, result.confidence)
+    }
+
+    @Test
+    fun `QuickCheckResult defaults`() {
+        val result = QuickCheckResult(answer = false)
+        assertFalse(result.answer)
+        assertNull(result.category)
+        assertEquals(1.0f, result.confidence)
     }
 }

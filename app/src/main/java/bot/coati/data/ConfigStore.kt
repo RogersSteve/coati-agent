@@ -30,6 +30,7 @@ class ConfigStore(context: Context) {
 
     init {
         migrateCustomProvider()
+        migrateToRoleConfig()
     }
 
     fun saveApiKey(provider: String, key: String) {
@@ -82,6 +83,52 @@ class ConfigStore(context: Context) {
         return "****${key.takeLast(4)}"
     }
 
+    // ─── ROLE-BASED CONFIG (Reasoning / Fast) ───
+
+    fun saveRoleConfig(role: String, providerId: String, apiKey: String, endpoint: String, modelName: String) {
+        require(role in SUPPORTED_ROLES) { "Unsupported role: $role" }
+        prefs.edit()
+            .putString(roleApiKeyPrefKey(role), apiKey)
+            .putString(roleProviderPrefKey(role), providerId)
+            .putString(roleEndpointPrefKey(role), endpoint)
+            .putString(roleModelNamePrefKey(role), modelName)
+            .apply()
+        Log.i(TAG, "Role config saved: role=$role, provider=$providerId, model=$modelName")
+    }
+
+    fun getRoleConfig(role: String): ProviderConfig? {
+        require(role in SUPPORTED_ROLES) { "Unsupported role: $role" }
+        val providerId = prefs.getString(roleProviderPrefKey(role), null) ?: return null
+        val apiKey = prefs.getString(roleApiKeyPrefKey(role), null) ?: return null
+        val endpoint = prefs.getString(roleEndpointPrefKey(role), null) ?: ""
+        val modelName = prefs.getString(roleModelNamePrefKey(role), null) ?: return null
+        return ProviderConfig(providerId, apiKey, endpoint, modelName)
+    }
+
+    fun getReasoningConfig(): ProviderConfig? = getRoleConfig(ROLE_REASONING)
+
+    fun getFastConfig(): ProviderConfig? {
+        if (isFastSameAsReasoning()) {
+            val reasoning = getReasoningConfig() ?: return null
+            val fastModelName = prefs.getString(roleModelNamePrefKey(ROLE_FAST), null)
+                ?: reasoning.modelName
+            return reasoning.copy(modelName = fastModelName)
+        }
+        return getRoleConfig(ROLE_FAST)
+    }
+
+    fun saveFastSameAsReasoning(same: Boolean) {
+        prefs.edit().putBoolean(KEY_FAST_SAME_AS_REASONING, same).apply()
+    }
+
+    fun isFastSameAsReasoning(): Boolean {
+        return prefs.getBoolean(KEY_FAST_SAME_AS_REASONING, true)
+    }
+
+    fun saveFastModelName(modelName: String) {
+        prefs.edit().putString(roleModelNamePrefKey(ROLE_FAST), modelName).apply()
+    }
+
     private fun migrateCustomProvider() {
         val currentDefault = prefs.getString(KEY_DEFAULT_PROVIDER, null)
         if (currentDefault == "custom") {
@@ -95,10 +142,26 @@ class ConfigStore(context: Context) {
         }
     }
 
+    /** Migrate old single-provider config to reasoning role if reasoning config is absent. */
+    private fun migrateToRoleConfig() {
+        val hasReasoningConfig = prefs.getString(roleProviderPrefKey(ROLE_REASONING), null) != null
+        if (hasReasoningConfig) return
+
+        val oldConfig = getActiveProviderConfig() ?: return
+        saveRoleConfig(ROLE_REASONING, oldConfig.providerId, oldConfig.apiKey, oldConfig.endpoint, oldConfig.modelName)
+        Log.i(TAG, "Migrated single config to reasoning role: ${oldConfig.providerId}")
+    }
+
     companion object {
         private const val TAG = "CoatiConfig"
         private const val PREFS_NAME = "coati_secure_prefs"
         private const val KEY_DEFAULT_PROVIDER = "default_provider"
+        private const val KEY_FAST_SAME_AS_REASONING = "fast_same_as_reasoning"
+
+        const val ROLE_REASONING = "reasoning"
+        const val ROLE_FAST = "fast"
+
+        val SUPPORTED_ROLES = listOf(ROLE_REASONING, ROLE_FAST)
 
         val SUPPORTED_PROVIDERS = listOf(
             "gemini", "openai", "claude", "deepseek", "openai_compatible", "claude_compatible",
@@ -107,5 +170,10 @@ class ConfigStore(context: Context) {
         private fun apiKeyPrefKey(provider: String) = "api_key_$provider"
         private fun endpointPrefKey(provider: String) = "endpoint_$provider"
         private fun modelNamePrefKey(provider: String) = "model_name_$provider"
+
+        fun roleApiKeyPrefKey(role: String) = "${role}_api_key"
+        fun roleProviderPrefKey(role: String) = "${role}_provider"
+        fun roleEndpointPrefKey(role: String) = "${role}_endpoint"
+        fun roleModelNamePrefKey(role: String) = "${role}_model_name"
     }
 }

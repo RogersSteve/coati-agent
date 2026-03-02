@@ -1,58 +1,18 @@
 package bot.coati.model
 
+import bot.coati.agent.PromptBuilder
 import org.json.JSONObject
 
 object GatewayUtils {
 
-    val SYSTEM_PROMPT = """
-        You are Coati, an AI agent that controls an Android phone on behalf of the user.
-        You can see the screen via screenshots and understand the UI structure via accessibility trees.
+    /** @deprecated Use PromptBuilder.buildReasoningSystemPrompt() instead. */
+    @Deprecated("Use PromptBuilder.buildReasoningSystemPrompt()", ReplaceWith("PromptBuilder.buildReasoningSystemPrompt()"))
+    val SYSTEM_PROMPT: String get() = PromptBuilder.buildReasoningSystemPrompt()
 
-        Rules:
-        1. Analyze the screenshot and UI tree to understand the current screen state.
-        2. Determine the single best next action to accomplish the user's task.
-        3. Use precise coordinates from the UI tree bounds for tap/swipe actions.
-        4. Be conservative — prefer safe, reversible actions.
-        5. Mark safetyLevel as "high" for any destructive, financial, or irreversible actions.
-        6. Set isTaskComplete to true only when the task is fully accomplished.
-        7. Always respond with valid JSON only, no additional text.
-    """.trimIndent()
-
+    /** @deprecated Use PromptBuilder.buildReasoningUserPrompt() instead. */
+    @Deprecated("Use PromptBuilder.buildReasoningUserPrompt()", ReplaceWith("PromptBuilder.buildReasoningUserPrompt(uiTreeHint, taskDescription, 0, 0)"))
     fun buildUserPrompt(uiTreeHint: String, taskDescription: String): String {
-        return """
-            Task: $taskDescription
-
-            UI Tree (simplified):
-            $uiTreeHint
-
-            Analyze the screenshot and UI tree above. Decide the single best action to perform next.
-
-            Respond ONLY with a JSON object in this exact format:
-            {
-              "reasoning": "Brief explanation of what you see and why you chose this action",
-              "action": "tap|longpress|swipe|inputText|pressKey|scroll|wait|screenshot|openApp",
-              "params": { ... action-specific parameters ... },
-              "safetyLevel": "low|medium|high",
-              "isTaskComplete": false,
-              "statusUpdate": "Short status message for the user"
-            }
-
-            Action params:
-            - tap: {"x": int, "y": int}
-            - longpress: {"x": int, "y": int, "durationMs": int}
-            - swipe: {"x1": int, "y1": int, "x2": int, "y2": int, "durationMs": int}
-            - inputText: {"text": "string"}
-            - pressKey: {"keyCode": "BACK|HOME|RECENTS|ENTER"}
-            - scroll: {"direction": "UP|DOWN|LEFT|RIGHT", "amount": int}
-            - wait: {"ms": int}
-            - screenshot: {}
-            - openApp: {"packageName": "com.example.app"}
-
-            Safety levels:
-            - low: Safe reversible actions (scroll, screenshot, wait)
-            - medium: Standard interactions (tap, type, open app)
-            - high: Destructive or sensitive actions (delete, send, purchase, permission changes)
-        """.trimIndent()
+        return PromptBuilder.buildReasoningUserPrompt(uiTreeHint, taskDescription, 0, 0)
     }
 
     fun extractJsonFromText(text: String): String {
@@ -83,6 +43,9 @@ object GatewayUtils {
             }
         }
 
+        val x = if (json.has("x") && !json.isNull("x")) json.optInt("x") else null
+        val y = if (json.has("y") && !json.isNull("y")) json.optInt("y") else null
+
         return ModelResponse(
             reasoning = json.optString("reasoning", ""),
             action = json.getString("action"),
@@ -90,6 +53,27 @@ object GatewayUtils {
             safetyLevel = json.optString("safetyLevel", "medium"),
             isTaskComplete = json.optBoolean("isTaskComplete", false),
             statusUpdate = json.optString("statusUpdate", ""),
+            x = x,
+            y = y,
         )
+    }
+
+    fun parseQuickCheckResponse(text: String): QuickCheckResult {
+        return try {
+            val jsonStr = extractJsonFromText(text)
+            val json = JSONObject(jsonStr)
+            QuickCheckResult(
+                answer = json.optBoolean("answer", false),
+                category = if (json.has("category") && !json.isNull("category")) json.optString("category") else null,
+                confidence = json.optDouble("confidence", 1.0).toFloat(),
+            )
+        } catch (_: Exception) {
+            // Fallback: try to detect yes/true in text
+            val lower = text.lowercase()
+            QuickCheckResult(
+                answer = lower.contains("true") || lower.contains("yes"),
+                confidence = 0.5f,
+            )
+        }
     }
 }

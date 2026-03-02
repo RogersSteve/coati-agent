@@ -7,6 +7,14 @@ data class ModelResponse(
     val safetyLevel: String,
     val isTaskComplete: Boolean,
     val statusUpdate: String,
+    val x: Int? = null,
+    val y: Int? = null,
+)
+
+data class QuickCheckResult(
+    val answer: Boolean,
+    val category: String? = null,
+    val confidence: Float = 1.0f,
 )
 
 data class Message(
