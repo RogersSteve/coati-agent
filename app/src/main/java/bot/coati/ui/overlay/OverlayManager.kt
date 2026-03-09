@@ -268,6 +268,26 @@ class OverlayManager(
         }
     }
 
+    // ─── GESTURE PASSTHROUGH ───
+
+    /**
+     * Temporarily make the overlay non-touchable so that dispatchGesture injected events
+     * pass through to the target app. Call with enable=true before dispatching, false after.
+     */
+    fun setGesturePassthrough(enable: Boolean) {
+        val view = composeView ?: return
+        layoutParams.flags = if (enable) {
+            layoutParams.flags or LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            layoutParams.flags and LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        try {
+            windowManager.updateViewLayout(view, layoutParams)
+        } catch (_: IllegalArgumentException) {
+            // View might have been removed
+        }
+    }
+
     // ─── LAYOUT MANAGEMENT ───
 
     private enum class LayoutMode {
