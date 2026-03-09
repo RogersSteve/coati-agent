@@ -130,10 +130,22 @@ class AgentRunner(
         }
 
         // Step 5: Execute action
+        // FLAG_NOT_TOUCHABLE is set so that dispatchGesture events pass through the overlay
+        // to the target app. Without this, the full-screen overlay consumes injected gestures.
         val actionName = response.statusUpdate.ifBlank { response.action }
         overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, 0, 0)
         Log.i(TAG, "Step 5: Executing action")
-        val actionResult = actionEngine.execute(action)
+        overlayManager.setGesturePassthrough(true)
+        // WindowManager.updateViewLayout() is processed asynchronously by the system:
+        // WMS schedules the input window list update on its next layout traversal (~1 vsync).
+        // We wait 50ms so the InputDispatcher receives the FLAG_NOT_TOUCHABLE change before
+        // dispatchGesture() injects events, otherwise the gesture is still consumed by the overlay.
+        kotlinx.coroutines.delay(50)
+        val actionResult = try {
+            actionEngine.execute(action)
+        } finally {
+            overlayManager.setGesturePassthrough(false)
+        }
         Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
         // Step 6: Handle completion
