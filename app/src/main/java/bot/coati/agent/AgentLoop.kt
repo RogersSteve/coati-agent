@@ -146,7 +146,13 @@ class AgentLoop(
                 overlayManager.updateProgress(task, "Dismissing popup...", popup.dismissText, stepCount, MAX_STEPS)
                 val tapX = popup.bounds.centerX()
                 val tapY = popup.bounds.centerY()
-                actionEngine.execute(AgentAction.Tap(tapX, tapY))
+                overlayManager.setGesturePassthrough(true)
+                delay(50)
+                try {
+                    actionEngine.execute(AgentAction.Tap(tapX, tapY))
+                } finally {
+                    overlayManager.setGesturePassthrough(false)
+                }
                 delay(randomDelay())
                 prevNodeCount = nodeCount
                 prevApp = screenContext.appPackage
@@ -182,22 +188,6 @@ class AgentLoop(
             conversationHistory.add(Message("user", task))
             conversationHistory.add(Message("assistant", response.reasoning))
 
-            // Check task complete
-            if (response.isTaskComplete) {
-                val elapsed = System.currentTimeMillis() - taskStartTime
-                Log.i(TAG, "Task complete at step $stepCount!")
-                updateTaskStatus("completed")
-                overlayManager.awaitTaskComplete(
-                    taskName = task,
-                    summary = response.statusUpdate,
-                    steps = stepCount,
-                    durationMs = elapsed,
-                )
-                overlayManager.collapse()
-                overlayManager.resetBallState()
-                return
-            }
-
             // f. COORDINATE RESOLUTION
             val action = resolveAction(response.action, response.params, response.x, response.y, quality, uiTree, response.statusUpdate)
             Log.i(TAG, "Resolved action: $action")
@@ -225,9 +215,20 @@ class AgentLoop(
             }
 
             // h. ACT
+            // FLAG_NOT_TOUCHABLE must be set before dispatchGesture so injected touch events
+            // pass through the full-screen overlay to the target app. Without this, the overlay
+            // consumes the gesture and the target app never receives it (same fix as AgentRunner).
             val actionName = response.statusUpdate.ifBlank { response.action }
             overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, stepCount, MAX_STEPS)
-            val actionResult = actionEngine.execute(action)
+            overlayManager.setGesturePassthrough(true)
+            // WMS processes updateViewLayout() asynchronously; wait 50ms for the InputDispatcher
+            // to pick up FLAG_NOT_TOUCHABLE before dispatchGesture() injects events.
+            delay(50)
+            val actionResult = try {
+                actionEngine.execute(action)
+            } finally {
+                overlayManager.setGesturePassthrough(false)
+            }
             Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
             if (!actionResult.success) {
@@ -260,6 +261,22 @@ class AgentLoop(
                         continue
                     }
                 }
+            }
+
+            // Check task complete: action has been executed, now safe to end the loop
+            if (response.isTaskComplete) {
+                val elapsed = System.currentTimeMillis() - taskStartTime
+                Log.i(TAG, "Task complete at step $stepCount!")
+                updateTaskStatus("completed")
+                overlayManager.awaitTaskComplete(
+                    taskName = task,
+                    summary = response.statusUpdate,
+                    steps = stepCount,
+                    durationMs = elapsed,
+                )
+                overlayManager.collapse()
+                overlayManager.resetBallState()
+                return
             }
 
             // i. VERIFY: rules-first, fallback to Fast model + record success
