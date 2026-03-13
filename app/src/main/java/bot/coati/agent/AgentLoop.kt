@@ -109,6 +109,9 @@ class AgentLoop(
 
         var prevNodeCount = 0
         var prevApp = ""
+        // Carry the verify screenshot forward as the next step's observe input, so two
+        // back-to-back takeScreenshot() calls never happen within the same second (BUG-12).
+        var carryOverContext: ScreenContext? = null
 
         while (stepCount < MAX_STEPS && !emergencyStop && currentJob?.isActive == true) {
             stepCount++
@@ -126,8 +129,11 @@ class AgentLoop(
             }
 
             // b. OBSERVE
+            // Reuse the verify screenshot from the previous step when available, to avoid
+            // two rapid takeScreenshot() calls hitting the system rate limit (BUG-12).
             overlayManager.updateProgress(task, "Capturing screen...", "", stepCount, MAX_STEPS)
-            val screenContext = ScreenContext.capture(a11y)
+            val screenContext: ScreenContext = carryOverContext.also { carryOverContext = null }
+                ?: ScreenContext.capture(a11y)
                 ?: throw Exception("Failed to capture screen")
 
             screenshotCache.add(screenContext.screenshotJpeg)
@@ -285,6 +291,8 @@ class AgentLoop(
 
             delay(randomDelay())
             val currContext = ScreenContext.capture(a11y)
+            // Store for next step's OBSERVE so we don't take two screenshots back-to-back.
+            carryOverContext = currContext
             val currTree = a11y.getUiTree()
             val currNodeCount = currTree?.flatCount() ?: 0
             val currApp = currContext?.appPackage ?: screenContext.appPackage
