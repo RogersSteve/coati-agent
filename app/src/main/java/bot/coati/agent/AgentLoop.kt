@@ -109,6 +109,9 @@ class AgentLoop(
 
         var prevNodeCount = 0
         var prevApp = ""
+        // Carry the verify screenshot forward as the next step's observe input, so two
+        // back-to-back takeScreenshot() calls never happen within the same second (BUG-12).
+        var carryOverContext: ScreenContext? = null
 
         while (stepCount < MAX_STEPS && !emergencyStop && currentJob?.isActive == true) {
             stepCount++
@@ -126,8 +129,11 @@ class AgentLoop(
             }
 
             // b. OBSERVE
+            // Reuse the verify screenshot from the previous step when available, to avoid
+            // two rapid takeScreenshot() calls hitting the system rate limit (BUG-12).
             overlayManager.updateProgress(task, "Capturing screen...", "", stepCount, MAX_STEPS)
-            val screenContext = ScreenContext.capture(a11y)
+            val screenContext: ScreenContext = carryOverContext.also { carryOverContext = null }
+                ?: ScreenContext.capture(a11y)
                 ?: throw Exception("Failed to capture screen")
 
             screenshotCache.add(screenContext.screenshotJpeg)
@@ -146,7 +152,13 @@ class AgentLoop(
                 overlayManager.updateProgress(task, "Dismissing popup...", popup.dismissText, stepCount, MAX_STEPS)
                 val tapX = popup.bounds.centerX()
                 val tapY = popup.bounds.centerY()
-                actionEngine.execute(AgentAction.Tap(tapX, tapY))
+                overlayManager.setGesturePassthrough(true)
+                delay(50)
+                try {
+                    actionEngine.execute(AgentAction.Tap(tapX, tapY))
+                } finally {
+                    overlayManager.setGesturePassthrough(false)
+                }
                 delay(randomDelay())
                 prevNodeCount = nodeCount
                 prevApp = screenContext.appPackage
@@ -182,22 +194,6 @@ class AgentLoop(
             conversationHistory.add(Message("user", task))
             conversationHistory.add(Message("assistant", response.reasoning))
 
-            // Check task complete
-            if (response.isTaskComplete) {
-                val elapsed = System.currentTimeMillis() - taskStartTime
-                Log.i(TAG, "Task complete at step $stepCount!")
-                updateTaskStatus("completed")
-                overlayManager.awaitTaskComplete(
-                    taskName = task,
-                    summary = response.statusUpdate,
-                    steps = stepCount,
-                    durationMs = elapsed,
-                )
-                overlayManager.collapse()
-                overlayManager.resetBallState()
-                return
-            }
-
             // f. COORDINATE RESOLUTION
             val action = resolveAction(response.action, response.params, response.x, response.y, quality, uiTree, response.statusUpdate)
             Log.i(TAG, "Resolved action: $action")
@@ -225,9 +221,20 @@ class AgentLoop(
             }
 
             // h. ACT
+            // FLAG_NOT_TOUCHABLE must be set before dispatchGesture so injected touch events
+            // pass through the full-screen overlay to the target app. Without this, the overlay
+            // consumes the gesture and the target app never receives it (same fix as AgentRunner).
             val actionName = response.statusUpdate.ifBlank { response.action }
             overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, stepCount, MAX_STEPS)
-            val actionResult = actionEngine.execute(action)
+            overlayManager.setGesturePassthrough(true)
+            // WMS processes updateViewLayout() asynchronously; wait 50ms for the InputDispatcher
+            // to pick up FLAG_NOT_TOUCHABLE before dispatchGesture() injects events.
+            delay(50)
+            val actionResult = try {
+                actionEngine.execute(action)
+            } finally {
+                overlayManager.setGesturePassthrough(false)
+            }
             Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
             if (!actionResult.success) {
@@ -262,12 +269,30 @@ class AgentLoop(
                 }
             }
 
+            // Check task complete: action has been executed, now safe to end the loop
+            if (response.isTaskComplete) {
+                val elapsed = System.currentTimeMillis() - taskStartTime
+                Log.i(TAG, "Task complete at step $stepCount!")
+                updateTaskStatus("completed")
+                overlayManager.awaitTaskComplete(
+                    taskName = task,
+                    summary = response.statusUpdate,
+                    steps = stepCount,
+                    durationMs = elapsed,
+                )
+                overlayManager.collapse()
+                overlayManager.resetBallState()
+                return
+            }
+
             // i. VERIFY: rules-first, fallback to Fast model + record success
             exceptionHandler.recordSuccess()
             replanHint = null
 
             delay(randomDelay())
             val currContext = ScreenContext.capture(a11y)
+            // Store for next step's OBSERVE so we don't take two screenshots back-to-back.
+            carryOverContext = currContext
             val currTree = a11y.getUiTree()
             val currNodeCount = currTree?.flatCount() ?: 0
             val currApp = currContext?.appPackage ?: screenContext.appPackage

@@ -205,7 +205,7 @@ class OpenAiCompatibleGateway(
             put("model", modelName)
             put("messages", messages)
             put("temperature", 0.2)
-            put("max_tokens", 1024)
+            put("max_tokens", 4096)
         }.toString()
     }
 
