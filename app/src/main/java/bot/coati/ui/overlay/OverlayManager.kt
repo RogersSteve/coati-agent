@@ -268,7 +268,28 @@ class OverlayManager(
         }
     }
 
-    // ─── GESTURE PASSTHROUGH ───
+    // ─── GESTURE PASSTHROUGH & SCREENSHOT ───
+
+    /**
+     * Hide the overlay window from the compositor so screenshots don't include the Coati UI.
+     * Call hideForScreenshot() before taking a screenshot, showAfterScreenshot() after.
+     * Requires a ~50ms delay after hiding for the compositor to re-render before capturing.
+     */
+    fun hideForScreenshot() {
+        val view = composeView ?: return
+        layoutParams.alpha = 0f
+        try {
+            windowManager.updateViewLayout(view, layoutParams)
+        } catch (_: IllegalArgumentException) {}
+    }
+
+    fun showAfterScreenshot() {
+        val view = composeView ?: return
+        layoutParams.alpha = 1f
+        try {
+            windowManager.updateViewLayout(view, layoutParams)
+        } catch (_: IllegalArgumentException) {}
+    }
 
     /**
      * Temporarily make the overlay non-touchable so that dispatchGesture injected events
