@@ -132,8 +132,19 @@ class AgentLoop(
             // Reuse the verify screenshot from the previous step when available, to avoid
             // two rapid takeScreenshot() calls hitting the system rate limit (BUG-12).
             overlayManager.updateProgress(task, "Capturing screen...", "", stepCount, MAX_STEPS)
+            // Hide overlay before capturing so the Coati UI doesn't appear in the screenshot
+            // sent to the model (BUG-5). Same alpha/updateViewLayout pattern as gesture
+            // passthrough; 50ms gives the compositor time to re-render without the overlay.
             val screenContext: ScreenContext = carryOverContext.also { carryOverContext = null }
-                ?: ScreenContext.capture(a11y)
+                ?: run {
+                    overlayManager.hideForScreenshot()
+                    delay(50)
+                    try {
+                        ScreenContext.capture(a11y)
+                    } finally {
+                        overlayManager.showAfterScreenshot()
+                    }
+                }
                 ?: throw Exception("Failed to capture screen")
 
             screenshotCache.add(screenContext.screenshotJpeg)
@@ -290,7 +301,13 @@ class AgentLoop(
             replanHint = null
 
             delay(randomDelay())
-            val currContext = ScreenContext.capture(a11y)
+            overlayManager.hideForScreenshot()
+            delay(50)
+            val currContext = try {
+                ScreenContext.capture(a11y)
+            } finally {
+                overlayManager.showAfterScreenshot()
+            }
             // Store for next step's OBSERVE so we don't take two screenshots back-to-back.
             carryOverContext = currContext
             val currTree = a11y.getUiTree()
