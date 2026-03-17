@@ -198,7 +198,7 @@ class ClaudeCompatibleGateway(
 
         return JSONObject().apply {
             put("model", modelName)
-            put("max_tokens", 1024)
+            put("max_tokens", 4096)
             put("system", PromptBuilder.buildReasoningSystemPrompt())
             put("messages", messages)
         }.toString()
