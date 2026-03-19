@@ -23,6 +23,7 @@ class CoatiAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         Log.i(TAG, "Accessibility service connected")
+        onConnected?.invoke()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -158,5 +159,7 @@ class CoatiAccessibilityService : AccessibilityService() {
         @Volatile
         var instance: CoatiAccessibilityService? = null
             private set
+
+        var onConnected: (() -> Unit)? = null
     }
 }

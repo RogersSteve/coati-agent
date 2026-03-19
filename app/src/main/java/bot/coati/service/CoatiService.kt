@@ -54,12 +54,59 @@ class CoatiService : Service() {
     }
 
     private fun initializeAgent() {
+        // Register reconnection callback before any early returns, so that when the user
+        // manually re-enables A11y in Settings (e.g. after OxygenOS kills it on swipe-away),
+        // onServiceConnected() will trigger initializeAgent() automatically (BUG-4).
+        CoatiAccessibilityService.onConnected = {
+            if (agentLoop == null) {
+                initializeAgent()
+            }
+        }
+
+        val stateManager = StateManager(filesDir)
+
+        // Check for task recovery BEFORE a11y check: the recovery dialog does not need
+        // AccessibilityService, and force-stop kills A11y along with the process (BUG-19).
+        val taskRecovery = TaskRecovery(stateManager)
+        if (taskRecovery.hasIncompleteTask()) {
+            val incompleteTask = taskRecovery.getIncompleteTask()!!
+            serviceScope.launch {
+                val overlay = overlayManager ?: return@launch
+                val resume = overlay.awaitRecoveryDialog(
+                    incompleteTask.goal,
+                    incompleteTask.currentStep,
+                    incompleteTask.totalSteps,
+                    taskRecovery.getInterruptedAgo(incompleteTask),
+                )
+                if (resume) {
+                    val a11y = CoatiAccessibilityService.instance
+                    if (a11y == null) {
+                        // A11y not yet available (e.g. OxygenOS killed it on swipe-away).
+                        // User should manually re-enable A11y in Settings; onConnected will
+                        // trigger initializeAgent() again and show the recovery dialog once more.
+                        Log.w(TAG, "Cannot resume: AccessibilityService not available")
+                        overlay.collapse()
+                        return@launch
+                    }
+                    setupAgent(stateManager, a11y)
+                    agentLoop?.start(incompleteTask.goal)
+                } else {
+                    taskRecovery.markCancelled()
+                    overlay.collapse()
+                }
+            }
+            return
+        }
+
         val a11y = CoatiAccessibilityService.instance
         if (a11y == null) {
             Log.w(TAG, "AccessibilityService not available, agent will not be initialized")
             return
         }
+        setupAgent(stateManager, a11y)
+    }
 
+    private fun setupAgent(stateManager: StateManager, a11y: CoatiAccessibilityService) {
         val configStore = ConfigStore(this)
 
         // Load reasoning config (with fallback to old single config)
@@ -91,7 +138,6 @@ class CoatiService : Service() {
         val actionEngine = ActionEngine(a11y)
         val overlay = overlayManager ?: return
 
-        val stateManager = StateManager(filesDir)
         val experienceManager = AppExperienceManager(stateManager)
         val safetyMode = configStore.getSafetyMode()
 
@@ -105,27 +151,6 @@ class CoatiService : Service() {
         a11y.onEmergencyStop = {
             loop.emergencyStop = true
             loop.stop()
-        }
-
-        // Wire recovery
-        val taskRecovery = TaskRecovery(stateManager)
-        if (taskRecovery.hasIncompleteTask()) {
-            val incompleteTask = taskRecovery.getIncompleteTask()!!
-            serviceScope.launch {
-                val interruptedAgo = taskRecovery.getInterruptedAgo(incompleteTask)
-                val resume = overlay.awaitRecoveryDialog(
-                    incompleteTask.goal,
-                    incompleteTask.currentStep,
-                    incompleteTask.totalSteps,
-                    interruptedAgo,
-                )
-                if (resume) {
-                    loop.start(incompleteTask.goal)
-                } else {
-                    taskRecovery.markCancelled()
-                    overlay.collapse()
-                }
-            }
         }
 
         // Wire overlay callbacks to agent loop

@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -65,8 +66,13 @@ class AgentLoop(
             try {
                 runLoop(task)
             } catch (e: CancellationException) {
-                Log.i(TAG, "Agent loop cancelled")
-                updateTaskStatus("paused")
+                if (emergencyStop) {
+                    Log.i(TAG, "Emergency stop triggered!")
+                    updateTaskStatus("paused")
+                } else {
+                    Log.i(TAG, "Agent loop cancelled")
+                    updateTaskStatus("paused")
+                }
                 overlayManager.collapse()
             } catch (e: Exception) {
                 Log.e(TAG, "Agent loop error: ${e.message}", e)
@@ -447,9 +453,11 @@ class AgentLoop(
     private suspend fun writeTaskState(taskState: TaskState?) {
         if (taskState == null || stateManager == null) return
         try {
-            withContext(Dispatchers.IO) {
+            withContext(NonCancellable + Dispatchers.IO) {
                 stateManager.writeJson("task", taskState.toJson())
             }
+        } catch (_: CancellationException) {
+            // Block completed successfully; CancellationException is normal propagation after cancellation.
         } catch (e: Exception) {
             Log.w(TAG, "Failed to write task state: ${e.message}")
         }
