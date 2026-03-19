@@ -66,8 +66,13 @@ class AgentLoop(
             try {
                 runLoop(task)
             } catch (e: CancellationException) {
-                Log.i(TAG, "Agent loop cancelled")
-                updateTaskStatus("paused")
+                if (emergencyStop) {
+                    Log.i(TAG, "Emergency stop triggered!")
+                    updateTaskStatus("paused")
+                } else {
+                    Log.i(TAG, "Agent loop cancelled")
+                    updateTaskStatus("paused")
+                }
                 overlayManager.collapse()
             } catch (e: Exception) {
                 Log.e(TAG, "Agent loop error: ${e.message}", e)
