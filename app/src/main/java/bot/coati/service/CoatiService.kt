@@ -54,6 +54,15 @@ class CoatiService : Service() {
     }
 
     private fun initializeAgent() {
+        // Register reconnection callback before any early returns, so that when the user
+        // manually re-enables A11y in Settings (e.g. after OxygenOS kills it on swipe-away),
+        // onServiceConnected() will trigger initializeAgent() automatically (BUG-4).
+        CoatiAccessibilityService.onConnected = {
+            if (agentLoop == null) {
+                initializeAgent()
+            }
+        }
+
         val a11y = CoatiAccessibilityService.instance
         if (a11y == null) {
             Log.w(TAG, "AccessibilityService not available, agent will not be initialized")
