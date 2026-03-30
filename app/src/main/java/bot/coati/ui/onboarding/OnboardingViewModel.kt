@@ -31,6 +31,9 @@ class OnboardingViewModel @Inject constructor(
     private val _currentStep = MutableStateFlow(0)
     val currentStep: StateFlow<Int> = _currentStep
 
+    private val _recoveryMode = MutableStateFlow(false)
+    val recoveryMode: StateFlow<Boolean> = _recoveryMode
+
     private val _overlayGranted = MutableStateFlow(false)
     val overlayGranted: StateFlow<Boolean> = _overlayGranted
 
@@ -104,6 +107,12 @@ class OnboardingViewModel @Inject constructor(
 
     fun nextStep() {
         _currentStep.value = (_currentStep.value + 1).coerceAtMost(4)
+    }
+
+    /** Start directly at the A11y step, skipping all other steps. */
+    fun initA11yRecovery() {
+        _recoveryMode.value = true
+        _currentStep.value = 2
     }
 
     fun refreshPermissions() {
@@ -262,18 +271,18 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    private fun hasAccessibilityPermission(context: android.content.Context): Boolean {
-        val pkg = context.packageName
-        val enabled = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ) ?: return false
-        return enabled.contains("$pkg/$pkg.service.CoatiAccessibilityService")
-                || enabled.contains("$pkg/.service.CoatiAccessibilityService")
-    }
-
     companion object {
         val KEY_ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val KEY_REGION = stringPreferencesKey("region")
+
+        fun hasAccessibilityPermission(context: android.content.Context): Boolean {
+            val pkg = context.packageName
+            val enabled = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+            ) ?: return false
+            return enabled.contains("$pkg/$pkg.service.CoatiAccessibilityService")
+                    || enabled.contains("$pkg/.service.CoatiAccessibilityService")
+        }
     }
 }

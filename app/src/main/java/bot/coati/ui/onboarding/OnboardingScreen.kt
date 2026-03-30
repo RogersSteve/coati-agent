@@ -58,6 +58,7 @@ fun OnboardingScreen(
     onFinish: () -> Unit,
 ) {
     val currentStep by viewModel.currentStep.collectAsState()
+    val recoveryMode by viewModel.recoveryMode.collectAsState()
 
     Column(
         modifier = Modifier
@@ -68,15 +69,21 @@ fun OnboardingScreen(
     ) {
         Spacer(modifier = Modifier.height(48.dp))
 
-        StepIndicator(currentStep = currentStep, totalSteps = 5)
-
-        Spacer(modifier = Modifier.height(48.dp))
+        if (!recoveryMode) {
+            StepIndicator(currentStep = currentStep, totalSteps = 5)
+            Spacer(modifier = Modifier.height(48.dp))
+        } else {
+            Spacer(modifier = Modifier.height(48.dp))
+        }
 
         Box(modifier = Modifier.weight(1f)) {
             when (currentStep) {
                 0 -> WelcomeStep(onNext = { viewModel.nextStep() })
                 1 -> OverlayPermissionStep(viewModel = viewModel)
-                2 -> AccessibilityPermissionStep(viewModel = viewModel)
+                2 -> AccessibilityPermissionStep(
+                    viewModel = viewModel,
+                    onGranted = if (recoveryMode) onFinish else ({ viewModel.nextStep() }),
+                )
                 3 -> RegionSelectionStep(viewModel = viewModel)
                 4 -> ApiKeyStep(viewModel = viewModel, onFinish = onFinish)
             }
@@ -196,7 +203,7 @@ private fun OverlayPermissionStep(viewModel: OnboardingViewModel) {
 }
 
 @Composable
-private fun AccessibilityPermissionStep(viewModel: OnboardingViewModel) {
+private fun AccessibilityPermissionStep(viewModel: OnboardingViewModel, onGranted: () -> Unit) {
     val context = LocalContext.current
     val granted by viewModel.accessibilityGranted.collectAsState()
 
@@ -233,7 +240,7 @@ private fun AccessibilityPermissionStep(viewModel: OnboardingViewModel) {
             )
             Spacer(modifier = Modifier.height(24.dp))
             Button(
-                onClick = { viewModel.nextStep() },
+                onClick = onGranted,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),

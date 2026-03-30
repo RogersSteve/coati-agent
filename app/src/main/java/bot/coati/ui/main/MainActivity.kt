@@ -32,6 +32,16 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // Check if A11y permission was revoked (e.g. OxygenOS kills it on swipe-away)
+        if (!OnboardingViewModel.hasAccessibilityPermission(this)) {
+            val intent = Intent(this, OnboardingActivity::class.java).apply {
+                putExtra(OnboardingActivity.EXTRA_A11Y_RECOVERY, true)
+            }
+            startActivity(intent)
+            finish()
+            return
+        }
+
         // Onboarding already done — start service and finish
         CoatiService.start(this)
         finish()

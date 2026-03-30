@@ -17,6 +17,11 @@ class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        if (intent.getBooleanExtra(EXTRA_A11Y_RECOVERY, false)) {
+            viewModel.initA11yRecovery()
+        }
+
         setContent {
             CoatiTheme {
                 OnboardingScreen(
@@ -28,6 +33,10 @@ class OnboardingActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_A11Y_RECOVERY = "a11y_recovery"
     }
 
     override fun onResume() {
