@@ -9,7 +9,14 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -58,6 +65,19 @@ class OverlayManager(
     // Saved position for collapsed/expanded (non-fullscreen) states
     private var savedX = 0
     private var savedY = 300
+
+    // Scrim window — sits behind the panel window, shown only when expanded
+    private var scrimView: ComposeView? = null
+    private val scrimParams = LayoutParams(
+        LayoutParams.MATCH_PARENT,
+        LayoutParams.MATCH_PARENT,
+        LayoutParams.TYPE_APPLICATION_OVERLAY,
+        LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_LAYOUT_IN_SCREEN or LayoutParams.FLAG_NOT_TOUCHABLE,
+        PixelFormat.TRANSLUCENT,
+    ).apply {
+        gravity = Gravity.TOP or Gravity.START
+        alpha = 0f
+    }
 
     // Layout params — mutated when switching states
     private val layoutParams = LayoutParams(
@@ -129,12 +149,34 @@ class OverlayManager(
             }
         }
 
+        // Add scrim FIRST so it sits below the panel in z-order
+        val scrim = ComposeView(context).apply {
+            setViewTreeLifecycleOwner(lifecycleOwner)
+            setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+            setContent {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .pointerInput(Unit) {
+                            detectTapGestures { collapse() }
+                        },
+                )
+            }
+        }
+        windowManager.addView(scrim, scrimParams)
+        scrimView = scrim
+
         setupTouchListener(view)
         windowManager.addView(view, layoutParams)
         composeView = view
     }
 
     fun hide() {
+        scrimView?.let {
+            try { windowManager.removeView(it) } catch (_: IllegalArgumentException) {}
+            scrimView = null
+        }
         composeView?.let {
             try {
                 windowManager.removeView(it)
@@ -150,14 +192,17 @@ class OverlayManager(
     fun collapse() {
         overlayState.value = OverlayState.CollapsedIdle
         applyLayout(LayoutMode.COLLAPSED)
+        hideScrim()
     }
 
     fun expand() {
         overlayState.value = OverlayState.ExpandedIdle
         applyLayout(LayoutMode.EXPANDED)
+        showScrim()
     }
 
     fun enterFrameExecuting(taskName: String) {
+        hideScrim()
         lastTask = taskName
         val state = OverlayState.FrameExecuting(taskName = taskName)
         agentBallState.value = state
@@ -268,6 +313,22 @@ class OverlayManager(
         }
     }
 
+    // ─── SCRIM ───
+
+    private fun showScrim() {
+        val view = scrimView ?: return
+        scrimParams.alpha = 1f
+        scrimParams.flags = LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        try { windowManager.updateViewLayout(view, scrimParams) } catch (_: IllegalArgumentException) {}
+    }
+
+    private fun hideScrim() {
+        val view = scrimView ?: return
+        scrimParams.alpha = 0f
+        scrimParams.flags = LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_LAYOUT_IN_SCREEN or LayoutParams.FLAG_NOT_TOUCHABLE
+        try { windowManager.updateViewLayout(view, scrimParams) } catch (_: IllegalArgumentException) {}
+    }
+
     // ─── GESTURE PASSTHROUGH & SCREENSHOT ───
 
     /**
@@ -335,11 +396,16 @@ class OverlayManager(
                 // Save position for when we go back to collapsed
                 savedX = layoutParams.x
                 savedY = layoutParams.y
+                // Clamp Y so the panel doesn't extend below the screen (~200dp estimated height)
+                val panelHeightPx = (200 * density).toInt()
+                val screenHeight = Resources.getSystem().displayMetrics.heightPixels
+                layoutParams.y = savedY.coerceAtMost((screenHeight - panelHeightPx).coerceAtLeast(0))
                 layoutParams.width = expandedWidthPx
                 layoutParams.height = LayoutParams.WRAP_CONTENT
                 layoutParams.gravity = Gravity.TOP or Gravity.START
-                // Remove NOT_FOCUSABLE to enable keyboard input
-                layoutParams.flags = LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                // Remove NOT_FOCUSABLE to enable keyboard input; NOT_TOUCH_MODAL lets
+                // touches outside the panel bounds fall through to the scrim window behind
+                layoutParams.flags = LayoutParams.FLAG_LAYOUT_IN_SCREEN or LayoutParams.FLAG_NOT_TOUCH_MODAL
             }
             LayoutMode.FULLSCREEN -> {
                 savedX = layoutParams.x

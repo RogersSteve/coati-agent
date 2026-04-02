@@ -14,8 +14,11 @@ import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
 import bot.coati.util.RegionDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import javax.inject.Inject
@@ -30,6 +33,9 @@ class OnboardingViewModel @Inject constructor(
 
     private val _currentStep = MutableStateFlow(0)
     val currentStep: StateFlow<Int> = _currentStep
+
+    private val _recoveryMode = MutableStateFlow(false)
+    val recoveryMode: StateFlow<Boolean> = _recoveryMode
 
     private val _overlayGranted = MutableStateFlow(false)
     val overlayGranted: StateFlow<Boolean> = _overlayGranted
@@ -57,6 +63,9 @@ class OnboardingViewModel @Inject constructor(
 
     private val _verifyError = MutableStateFlow<String?>(null)
     val verifyError: StateFlow<String?> = _verifyError
+
+    private var verifyJob: Job? = null
+    private var fastVerifyJob: Job? = null
 
     // Tab selection (0 = Reasoning, 1 = Fast)
     private val _selectedTab = MutableStateFlow(0)
@@ -106,6 +115,12 @@ class OnboardingViewModel @Inject constructor(
         _currentStep.value = (_currentStep.value + 1).coerceAtMost(4)
     }
 
+    /** Start directly at the A11y step, skipping all other steps. */
+    fun initA11yRecovery() {
+        _recoveryMode.value = true
+        _currentStep.value = 2
+    }
+
     fun refreshPermissions() {
         val context = getApplication<Application>()
         _overlayGranted.value = Settings.canDrawOverlays(context)
@@ -117,9 +132,8 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun selectProvider(providerId: String) {
+        resetVerification()
         _selectedProvider.value = providerId
-        _apiKeyVerified.value = false
-        _verifyError.value = null
         val provider = ModelProviders.findById(providerId)
         if (provider != null) {
             _selectedEndpoint.value = provider.defaultEndpoint
@@ -131,11 +145,21 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun updateEndpoint(endpoint: String) {
+        resetVerification()
         _selectedEndpoint.value = endpoint
     }
 
     fun updateModelName(modelName: String) {
+        resetVerification()
         _selectedModelName.value = modelName
+    }
+
+    fun resetVerification() {
+        verifyJob?.cancel()
+        verifyJob = null
+        _verifying.value = false
+        _apiKeyVerified.value = false
+        _verifyError.value = null
     }
 
     fun selectTab(tab: Int) {
@@ -147,9 +171,8 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun selectFastProvider(providerId: String) {
+        resetFastVerification()
         _fastProvider.value = providerId
-        _fastApiKeyVerified.value = false
-        _fastVerifyError.value = null
         val provider = ModelProviders.findById(providerId)
         if (provider != null) {
             _fastEndpoint.value = provider.defaultEndpoint
@@ -161,11 +184,21 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun updateFastEndpoint(endpoint: String) {
+        resetFastVerification()
         _fastEndpoint.value = endpoint
     }
 
     fun updateFastModelName(modelName: String) {
+        resetFastVerification()
         _fastModelName.value = modelName
+    }
+
+    fun resetFastVerification() {
+        fastVerifyJob?.cancel()
+        fastVerifyJob = null
+        _fastVerifying.value = false
+        _fastApiKeyVerified.value = false
+        _fastVerifyError.value = null
     }
 
     fun verifyFastApiKey(provider: String, key: String) {
@@ -179,7 +212,7 @@ class OnboardingViewModel @Inject constructor(
         _fastVerifying.value = true
         _fastVerifyError.value = null
 
-        viewModelScope.launch {
+        fastVerifyJob = viewModelScope.launch {
             try {
                 val modelProvider = ModelProviders.findById(provider)
                 if (modelProvider == null) {
@@ -189,6 +222,7 @@ class OnboardingViewModel @Inject constructor(
                 }
                 val gateway = GatewayFactory.create(modelProvider, okHttpClient, key, endpoint, modelName)
                 val result = gateway.testConnection()
+                if (!isActive) return@launch  // cancelled while network was in-flight
                 if (result.isSuccess) {
                     configStore.saveRoleConfig("fast", provider, key, endpoint, modelName)
                     _fastApiKeyVerified.value = true
@@ -196,10 +230,12 @@ class OnboardingViewModel @Inject constructor(
                 } else {
                     _fastVerifyError.value = result.exceptionOrNull()?.message ?: "Unknown error"
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _fastVerifyError.value = e.message ?: "Connection failed"
+                if (isActive) _fastVerifyError.value = e.message ?: "Connection failed"
             } finally {
-                _fastVerifying.value = false
+                if (isActive) _fastVerifying.value = false
             }
         }
     }
@@ -215,7 +251,7 @@ class OnboardingViewModel @Inject constructor(
         _verifying.value = true
         _verifyError.value = null
 
-        viewModelScope.launch {
+        verifyJob = viewModelScope.launch {
             try {
                 val modelProvider = ModelProviders.findById(provider)
                 if (modelProvider == null) {
@@ -225,6 +261,7 @@ class OnboardingViewModel @Inject constructor(
                 }
                 val gateway = GatewayFactory.create(modelProvider, okHttpClient, key, endpoint, modelName)
                 val result = gateway.testConnection()
+                if (!isActive) return@launch  // cancelled while network was in-flight
                 if (result.isSuccess) {
                     configStore.saveApiKey(provider, key)
                     configStore.saveEndpoint(provider, endpoint)
@@ -237,10 +274,12 @@ class OnboardingViewModel @Inject constructor(
                 } else {
                     _verifyError.value = result.exceptionOrNull()?.message ?: "Unknown error"
                 }
+            } catch (e: CancellationException) {
+                throw e  // must re-throw so coroutine machinery cleans up correctly
             } catch (e: Exception) {
-                _verifyError.value = e.message ?: "Connection failed"
+                if (isActive) _verifyError.value = e.message ?: "Connection failed"
             } finally {
-                _verifying.value = false
+                if (isActive) _verifying.value = false
             }
         }
     }
@@ -262,18 +301,18 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    private fun hasAccessibilityPermission(context: android.content.Context): Boolean {
-        val pkg = context.packageName
-        val enabled = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ) ?: return false
-        return enabled.contains("$pkg/$pkg.service.CoatiAccessibilityService")
-                || enabled.contains("$pkg/.service.CoatiAccessibilityService")
-    }
-
     companion object {
         val KEY_ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val KEY_REGION = stringPreferencesKey("region")
+
+        fun hasAccessibilityPermission(context: android.content.Context): Boolean {
+            val pkg = context.packageName
+            val enabled = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+            ) ?: return false
+            return enabled.contains("$pkg/$pkg.service.CoatiAccessibilityService")
+                    || enabled.contains("$pkg/.service.CoatiAccessibilityService")
+        }
     }
 }

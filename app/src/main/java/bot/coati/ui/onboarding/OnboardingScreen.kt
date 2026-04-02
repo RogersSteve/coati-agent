@@ -58,6 +58,7 @@ fun OnboardingScreen(
     onFinish: () -> Unit,
 ) {
     val currentStep by viewModel.currentStep.collectAsState()
+    val recoveryMode by viewModel.recoveryMode.collectAsState()
 
     Column(
         modifier = Modifier
@@ -68,15 +69,21 @@ fun OnboardingScreen(
     ) {
         Spacer(modifier = Modifier.height(48.dp))
 
-        StepIndicator(currentStep = currentStep, totalSteps = 5)
-
-        Spacer(modifier = Modifier.height(48.dp))
+        if (!recoveryMode) {
+            StepIndicator(currentStep = currentStep, totalSteps = 5)
+            Spacer(modifier = Modifier.height(48.dp))
+        } else {
+            Spacer(modifier = Modifier.height(48.dp))
+        }
 
         Box(modifier = Modifier.weight(1f)) {
             when (currentStep) {
                 0 -> WelcomeStep(onNext = { viewModel.nextStep() })
                 1 -> OverlayPermissionStep(viewModel = viewModel)
-                2 -> AccessibilityPermissionStep(viewModel = viewModel)
+                2 -> AccessibilityPermissionStep(
+                    viewModel = viewModel,
+                    onGranted = if (recoveryMode) onFinish else ({ viewModel.nextStep() }),
+                )
                 3 -> RegionSelectionStep(viewModel = viewModel)
                 4 -> ApiKeyStep(viewModel = viewModel, onFinish = onFinish)
             }
@@ -196,7 +203,7 @@ private fun OverlayPermissionStep(viewModel: OnboardingViewModel) {
 }
 
 @Composable
-private fun AccessibilityPermissionStep(viewModel: OnboardingViewModel) {
+private fun AccessibilityPermissionStep(viewModel: OnboardingViewModel, onGranted: () -> Unit) {
     val context = LocalContext.current
     val granted by viewModel.accessibilityGranted.collectAsState()
 
@@ -233,7 +240,7 @@ private fun AccessibilityPermissionStep(viewModel: OnboardingViewModel) {
             )
             Spacer(modifier = Modifier.height(24.dp))
             Button(
-                onClick = { viewModel.nextStep() },
+                onClick = onGranted,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -500,7 +507,10 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
     // API key input
     OutlinedTextField(
         value = apiKeyInput,
-        onValueChange = { apiKeyInput = it },
+        onValueChange = {
+            apiKeyInput = it
+            viewModel.resetVerification()
+        },
         modifier = Modifier.fillMaxWidth(),
         label = { Text(stringResource(R.string.onboarding_apikey_input_hint)) },
         singleLine = true,
@@ -515,23 +525,25 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Verify button
-    Button(
-        onClick = { viewModel.verifyApiKey(selectedProvider, apiKeyInput) },
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp),
-        shape = RoundedCornerShape(16.dp),
-        enabled = apiKeyInput.isNotBlank() && !verifying,
-    ) {
-        if (verifying) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                color = MaterialTheme.colorScheme.onPrimary,
-                strokeWidth = 2.dp,
-            )
-        } else {
-            Text(stringResource(R.string.onboarding_apikey_verify))
+    // Verify button — hidden once verified
+    if (!verified) {
+        Button(
+            onClick = { viewModel.verifyApiKey(selectedProvider, apiKeyInput) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            enabled = apiKeyInput.isNotBlank() && !verifying,
+        ) {
+            if (verifying) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Text(stringResource(R.string.onboarding_apikey_verify))
+            }
         }
     }
 
@@ -724,7 +736,10 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
         // API key
         OutlinedTextField(
             value = fastApiKeyInput,
-            onValueChange = { fastApiKeyInput = it },
+            onValueChange = {
+                fastApiKeyInput = it
+                viewModel.resetFastVerification()
+            },
             modifier = Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.onboarding_apikey_input_hint)) },
             singleLine = true,
@@ -739,23 +754,25 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Verify button
-        Button(
-            onClick = { viewModel.verifyFastApiKey(fastProvider, fastApiKeyInput) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            enabled = fastApiKeyInput.isNotBlank() && !fastVerifying,
-        ) {
-            if (fastVerifying) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                Text(stringResource(R.string.onboarding_apikey_verify))
+        // Verify button — hidden once verified
+        if (!fastVerified) {
+            Button(
+                onClick = { viewModel.verifyFastApiKey(fastProvider, fastApiKeyInput) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                enabled = fastApiKeyInput.isNotBlank() && !fastVerifying,
+            ) {
+                if (fastVerifying) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text(stringResource(R.string.onboarding_apikey_verify))
+                }
             }
         }
 
