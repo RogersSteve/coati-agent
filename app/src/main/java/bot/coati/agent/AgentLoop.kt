@@ -138,6 +138,9 @@ class AgentLoop(
             // Reuse the verify screenshot from the previous step when available, to avoid
             // two rapid takeScreenshot() calls hitting the system rate limit (BUG-12).
             overlayManager.updateProgress(task, "Capturing screen...", "", stepCount, MAX_STEPS)
+            // On the first step, wait for the keyboard/clipboard panel to fully dismiss after
+            // the user pressed Execute (keyboard hide animation takes ~300ms).
+            if (stepCount == 1) delay(500)
             // Hide overlay before capturing so the Coati UI doesn't appear in the screenshot
             // sent to the model (BUG-5). Same alpha/updateViewLayout pattern as gesture
             // passthrough; 50ms gives the compositor time to re-render without the overlay.
