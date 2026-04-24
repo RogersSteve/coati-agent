@@ -22,6 +22,7 @@ object PromptBuilder {
         5. Mark safetyLevel as "high" for any destructive, financial, or irreversible actions.
         6. Set isTaskComplete to true only when ALL sub-goals are fully accomplished.
         7. Always respond with valid JSON only, no additional text.
+        8. To open an app, always prefer openApp with its packageName over swiping the home screen to find its icon. Use swipe only when you must interact with visible on-screen elements.
     """.trimIndent()
 
     fun buildReasoningUserPrompt(
