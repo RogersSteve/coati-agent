@@ -152,4 +152,17 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("\"plan\""))
         assertTrue(prompt.contains("\"currentStep\""))
     }
+
+    @Test
+    fun `reasoning user prompt includes isPopupDismissal field`() {
+        val prompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
+        assertTrue(prompt.contains("isPopupDismissal"))
+    }
+
+    @Test
+    fun `reasoning user prompt explains isPopupDismissal usage`() {
+        val prompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
+        assertTrue(prompt.contains("unexpected popup"))
+        assertTrue(prompt.contains("permission request"))
+    }
 }

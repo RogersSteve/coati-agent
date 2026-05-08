@@ -6,6 +6,7 @@ import bot.coati.action.AgentAction
 import bot.coati.data.SafetyMode
 import bot.coati.model.ExperienceNote
 import bot.coati.model.Message
+import bot.coati.model.ModelResponse
 import bot.coati.model.ModelRouter
 import bot.coati.model.ScreenContext
 import bot.coati.model.VerifyOutcome
@@ -35,9 +36,17 @@ class AgentLoop(
     private val experienceManager: AppExperienceManager? = null,
     private val safetyMode: SafetyMode = SafetyMode.STANDARD,
 ) {
+    private data class ActionRecord(
+        val action: String,
+        val statusUpdate: String,
+        val screenSignature: String,
+        val outcome: VerifyOutcome,
+    )
+
     private var currentJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
     private val conversationHistory = mutableListOf<Message>()
+    private val actionHistory = mutableListOf<ActionRecord>()
     private var taskStartTime = 0L
     private var stepCount = 0
 
@@ -55,6 +64,7 @@ class AgentLoop(
         stop()
         conversationHistory.clear()
         screenshotCache.clear()
+        actionHistory.clear()
         taskStartTime = System.currentTimeMillis()
         stepCount = 0
         emergencyStop = false
@@ -165,13 +175,14 @@ class AgentLoop(
             val nodeCount = uiTree?.flatCount() ?: 0
             val textNodeCount = uiTree?.nodesWithText() ?: 0
 
-            // c. RULE CHECK: assess quality, detect popup
+            // c. RULE CHECK: assess quality, detect popup (experience-based only)
             val quality = RuleEngine.assessQuality(nodeCount, textNodeCount)
             Log.i(TAG, "UI quality=$quality, nodes=$nodeCount, textNodes=$textNodeCount")
 
-            val popup = RuleEngine.detectKnownPopup(uiTree)
+            val popupExperience = experienceManager?.loadPopupPatterns(screenContext.appPackage) ?: emptyList()
+            val popup = RuleEngine.detectKnownPopup(uiTree, popupExperience)
             if (popup != null) {
-                Log.i(TAG, "Auto-dismissing popup: ${popup.dismissText}")
+                Log.i(TAG, "Auto-handling known popup: ${popup.dismissText}")
                 overlayManager.updateProgress(task, "Dismissing popup...", popup.dismissText, stepCount, MAX_STEPS)
                 val tapX = popup.bounds.centerX()
                 val tapY = popup.bounds.centerY()
@@ -183,6 +194,14 @@ class AgentLoop(
                     overlayManager.setGesturePassthrough(false)
                 }
                 delay(randomDelay())
+                if (popup.popupSignature != null) {
+                    experienceManager?.recordPopup(
+                        screenContext.appPackage, popup.popupSignature,
+                        RuleEngine.extractPopupTitle(uiTree!!),
+                        RuleEngine.extractPopupKeywords(uiTree),
+                        popup.dismissText,
+                    )
+                }
                 prevNodeCount = nodeCount
                 prevApp = screenContext.appPackage
                 continue
@@ -243,8 +262,10 @@ class AgentLoop(
                 overlayManager.enterFrameExecuting(task)
             }
 
-            // Save before-screenshot for verification
+            // Save before-context for verification
             val beforeScreenshot = screenContext.screenshotJpeg
+            val beforeUiTree = uiTree
+            val screenSig = RuleEngine.buildScreenSignature(uiTree)
 
             // h. ACT
             // FLAG_NOT_TOUCHABLE must be set before dispatchGesture so injected touch events
@@ -311,8 +332,7 @@ class AgentLoop(
                 return
             }
 
-            // i. VERIFY: 4-state action verification with retry
-            var verifyRetryCount = 0
+            // i. VERIFY: action verification with popup fast path + replan on failure
             var popupDismissCount = 0
             var verifyObservation: String? = null
 
@@ -327,8 +347,9 @@ class AgentLoop(
                 } ?: throw Exception("Failed to capture verification screenshot")
                 val afterTree = a11y.getUiTree()
 
-                // Fast path: known popup (rules, no model call needed)
-                val verifyPopup = RuleEngine.detectKnownPopup(afterTree)
+                // Fast path: known popup from experience
+                val verifyPopupExp = experienceManager?.loadPopupPatterns(screenContext.appPackage) ?: emptyList()
+                val verifyPopup = RuleEngine.detectKnownPopup(afterTree, verifyPopupExp)
                 if (verifyPopup != null) {
                     popupDismissCount++
                     if (popupDismissCount > MAX_POPUP_DISMISSALS) {
@@ -352,6 +373,14 @@ class AgentLoop(
                     delay(50)
                     try { actionEngine.execute(action) }
                     finally { overlayManager.setGesturePassthrough(false) }
+                    if (verifyPopup.popupSignature != null && afterTree != null) {
+                        experienceManager?.recordPopup(
+                            screenContext.appPackage, verifyPopup.popupSignature,
+                            RuleEngine.extractPopupTitle(afterTree),
+                            RuleEngine.extractPopupKeywords(afterTree),
+                            verifyPopup.dismissText,
+                        )
+                    }
                     continue@verifyLoop
                 }
 
@@ -366,10 +395,32 @@ class AgentLoop(
 
                 Log.i(TAG, "Verify: ${verifyResult.outcome} - ${verifyResult.reason}")
 
+                // Record action history
+                actionHistory.add(ActionRecord(
+                    action = response.action,
+                    statusUpdate = response.statusUpdate,
+                    screenSignature = screenSig,
+                    outcome = verifyResult.outcome,
+                ))
+
                 when (verifyResult.outcome) {
                     VerifyOutcome.SUCCESS -> {
                         exceptionHandler.recordSuccess()
                         replanHint = null
+
+                        // Learn popup experience
+                        if (response.isPopupDismissal && beforeUiTree != null) {
+                            val sig = RuleEngine.buildPopupSignature(beforeUiTree)
+                            val title = RuleEngine.extractPopupTitle(beforeUiTree)
+                            val keywords = RuleEngine.extractPopupKeywords(beforeUiTree)
+                            val clickedButton = response.statusUpdate
+                            if (sig != null) {
+                                experienceManager?.recordPopup(
+                                    screenContext.appPackage, sig, title, keywords, clickedButton)
+                                Log.i(TAG, "Learned popup: title=$title, button=$clickedButton")
+                            }
+                        }
+
                         carryOverContext = afterContext
                         break@verifyLoop
                     }
@@ -380,44 +431,48 @@ class AgentLoop(
                         carryOverContext = afterContext
                         break@verifyLoop
                     }
-                    VerifyOutcome.DRIFTED -> {
-                        verifyRetryCount++
-                        if (verifyRetryCount > MAX_VERIFY_RETRIES) {
-                            updateTaskStatus("failed", "Action drifted: ${verifyResult.reason}")
-                            val retry = overlayManager.awaitTaskFailed(
-                                taskName = task,
-                                reason = "Action drifted: ${verifyResult.reason}",
-                                stepsCompleted = stepCount,
-                                totalSteps = MAX_STEPS,
-                            )
-                            if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
-                        }
-                        // Press Back to return to previous state
-                        actionEngine.execute(AgentAction.PressKey("BACK"))
-                        delay(randomDelay())
-                        // Re-execute original action
-                        overlayManager.setGesturePassthrough(true)
-                        delay(50)
-                        try { actionEngine.execute(action) }
-                        finally { overlayManager.setGesturePassthrough(false) }
-                    }
                     VerifyOutcome.FAILED -> {
-                        verifyRetryCount++
-                        if (verifyRetryCount > MAX_VERIFY_RETRIES) {
-                            updateTaskStatus("failed", "Action ineffective: ${verifyResult.reason}")
+                        val sameActionFailCount = actionHistory.count {
+                            it.statusUpdate == response.statusUpdate &&
+                            it.screenSignature == screenSig &&
+                            it.outcome in listOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+                        }
+                        if (sameActionFailCount >= MAX_VERIFY_RETRIES) {
+                            updateTaskStatus("failed", "Action repeatedly ineffective: ${verifyResult.reason}")
                             val retry = overlayManager.awaitTaskFailed(
                                 taskName = task,
-                                reason = "Action ineffective: ${verifyResult.reason}",
+                                reason = "Action repeatedly ineffective: ${verifyResult.reason}",
                                 stepsCompleted = stepCount,
                                 totalSteps = MAX_STEPS,
                             )
                             if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
                         }
-                        // Re-execute same action
-                        overlayManager.setGesturePassthrough(true)
-                        delay(50)
-                        try { actionEngine.execute(action) }
-                        finally { overlayManager.setGesturePassthrough(false) }
+                        replanHint = "Previous action FAILED (attempt $sameActionFailCount/$MAX_VERIFY_RETRIES): " +
+                            "${verifyResult.reason}. The screen did not change. Re-observe and try a different approach."
+                        carryOverContext = afterContext
+                        break@verifyLoop
+                    }
+                    VerifyOutcome.DRIFTED -> {
+                        val sameActionFailCount = actionHistory.count {
+                            it.statusUpdate == response.statusUpdate &&
+                            it.screenSignature == screenSig &&
+                            it.outcome in listOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+                        }
+                        if (sameActionFailCount >= MAX_VERIFY_RETRIES) {
+                            updateTaskStatus("failed", "Action repeatedly drifted: ${verifyResult.reason}")
+                            val retry = overlayManager.awaitTaskFailed(
+                                taskName = task,
+                                reason = "Action repeatedly drifted: ${verifyResult.reason}",
+                                stepsCompleted = stepCount,
+                                totalSteps = MAX_STEPS,
+                            )
+                            if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
+                        }
+                        replanHint = "Previous action DRIFTED (attempt $sameActionFailCount/$MAX_VERIFY_RETRIES): " +
+                            "${verifyResult.reason}. The screen changed to an unexpected state. " +
+                            "Assess current screen and decide how to recover."
+                        carryOverContext = afterContext
+                        break@verifyLoop
                     }
                 }
             }

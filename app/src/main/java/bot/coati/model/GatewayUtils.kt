@@ -67,6 +67,7 @@ object GatewayUtils {
             y = y,
             experienceNote = experienceNote,
             expectedOutcome = json.optString("expectedOutcome", ""),
+            isPopupDismissal = json.optBoolean("isPopupDismissal", false),
         )
     }
 

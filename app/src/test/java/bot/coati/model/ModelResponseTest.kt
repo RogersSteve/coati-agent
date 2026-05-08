@@ -272,4 +272,31 @@ class ModelResponseTest {
         )
         assertEquals("", response.expectedOutcome)
     }
+
+    @Test
+    fun `ModelResponse isPopupDismissal defaults to false`() {
+        val response = ModelResponse(
+            reasoning = "test",
+            action = "tap",
+            params = emptyMap(),
+            safetyLevel = "low",
+            isTaskComplete = false,
+            statusUpdate = "test",
+        )
+        assertFalse(response.isPopupDismissal)
+    }
+
+    @Test
+    fun `ModelResponse isPopupDismissal set to true`() {
+        val response = ModelResponse(
+            reasoning = "Dismissing permission dialog",
+            action = "tap",
+            params = mapOf("x" to 500, "y" to 800),
+            safetyLevel = "low",
+            isTaskComplete = false,
+            statusUpdate = "Tapping Allow",
+            isPopupDismissal = true,
+        )
+        assertTrue(response.isPopupDismissal)
+    }
 }

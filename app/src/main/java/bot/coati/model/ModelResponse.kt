@@ -13,6 +13,7 @@ data class ModelResponse(
     val y: Int? = null,
     val experienceNote: ExperienceNote? = null,
     val expectedOutcome: String = "",
+    val isPopupDismissal: Boolean = false,
 )
 
 enum class VerifyOutcome { SUCCESS, FAILED, DRIFTED, UNEXPECTED }

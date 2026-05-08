@@ -53,8 +53,11 @@ object PromptBuilder {
           "isTaskComplete": false,
           "statusUpdate": "Short status message for the user",
           "expectedOutcome": "Brief description of what should visibly change on screen after this action",
+          "isPopupDismissal": false,
           "experienceNote": {"page": "page_name", "observation": "what you learned about this page"} (optional, include when you discover something new about the app)
         }
+
+        isPopupDismissal: Set to true ONLY when dismissing an unexpected popup/dialog that interrupted your task (permission request, ad, update prompt, privacy agreement). Do NOT set true for dialogs you intentionally triggered as part of the task.
 
         Planning fields:
         - "plan": Array of sub-goal strings. Set on the first response, update if the plan changes.
