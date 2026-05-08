@@ -121,6 +121,77 @@ class OpenAiCompatibleGateway(
         }
     }
 
+    override suspend fun verifyAction(
+        beforeScreenshot: ByteArray,
+        afterScreenshot: ByteArray,
+        actionDescription: String,
+        expectedOutcome: String,
+    ): Result<VerifyResult> = withContext(Dispatchers.IO) {
+        try {
+            val base64Before = Base64.encodeToString(beforeScreenshot, Base64.NO_WRAP)
+            val base64After = Base64.encodeToString(afterScreenshot, Base64.NO_WRAP)
+            val messages = JSONArray()
+
+            messages.put(JSONObject().apply {
+                put("role", "system")
+                put("content", PromptBuilder.buildVerifySystemPrompt())
+            })
+
+            val userContent = JSONArray()
+            userContent.put(JSONObject().apply {
+                put("type", "image_url")
+                put("image_url", JSONObject().apply {
+                    put("url", "data:image/jpeg;base64,$base64Before")
+                })
+            })
+            userContent.put(JSONObject().apply {
+                put("type", "image_url")
+                put("image_url", JSONObject().apply {
+                    put("url", "data:image/jpeg;base64,$base64After")
+                })
+            })
+            userContent.put(JSONObject().apply {
+                put("type", "text")
+                put("text", PromptBuilder.buildVerifyUserPrompt(actionDescription, expectedOutcome))
+            })
+            messages.put(JSONObject().apply {
+                put("role", "user")
+                put("content", userContent)
+            })
+
+            val requestBody = JSONObject().apply {
+                put("model", modelName)
+                put("messages", messages)
+                put("temperature", 0.1)
+                put("max_tokens", 256)
+            }.toString()
+
+            val request = Request.Builder()
+                .url("$endpoint/v1/chat/completions")
+                .addHeader("Authorization", "Bearer $apiKey")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+            }
+
+            val text = JSONObject(body)
+                .getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .getString("content")
+
+            Result.success(GatewayUtils.parseVerifyResponse(text))
+        } catch (e: Exception) {
+            Log.e(TAG, "verifyAction failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
         try {
             val requestBody = JSONObject().apply {

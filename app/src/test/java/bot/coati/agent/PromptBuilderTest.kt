@@ -105,6 +105,39 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `reasoning user prompt includes expectedOutcome field`() {
+        val prompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
+        assertTrue(prompt.contains("expectedOutcome"))
+    }
+
+    // ─── Verify prompts ───
+
+    @Test
+    fun `verify system prompt mentions verification`() {
+        val prompt = PromptBuilder.buildVerifySystemPrompt()
+        assertTrue(prompt.contains("verification"))
+        assertTrue(prompt.contains("JSON"))
+    }
+
+    @Test
+    fun `verify user prompt includes action and expected outcome`() {
+        val prompt = PromptBuilder.buildVerifyUserPrompt("tap: Tapping search", "Search bar should open")
+        assertTrue(prompt.contains("tap: Tapping search"))
+        assertTrue(prompt.contains("Search bar should open"))
+        assertTrue(prompt.contains("SUCCESS"))
+        assertTrue(prompt.contains("FAILED"))
+        assertTrue(prompt.contains("DRIFTED"))
+        assertTrue(prompt.contains("UNEXPECTED"))
+    }
+
+    @Test
+    fun `verify user prompt mentions BEFORE and AFTER`() {
+        val prompt = PromptBuilder.buildVerifyUserPrompt("tap", "screen changes")
+        assertTrue(prompt.contains("BEFORE"))
+        assertTrue(prompt.contains("AFTER"))
+    }
+
+    @Test
     fun `reasoning system prompt contains task planning instructions`() {
         val prompt = PromptBuilder.buildReasoningSystemPrompt()
         assertTrue(prompt.contains("Task Planning"))

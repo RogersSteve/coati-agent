@@ -4,9 +4,12 @@ import android.util.Log
 import bot.coati.action.ActionEngine
 import bot.coati.action.AgentAction
 import bot.coati.data.SafetyMode
+import bot.coati.model.ExperienceNote
 import bot.coati.model.Message
 import bot.coati.model.ModelRouter
 import bot.coati.model.ScreenContext
+import bot.coati.model.VerifyOutcome
+import bot.coati.model.VerifyResult
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.UiTreeNode
 import bot.coati.state.AppExperienceManager
@@ -240,6 +243,9 @@ class AgentLoop(
                 overlayManager.enterFrameExecuting(task)
             }
 
+            // Save before-screenshot for verification
+            val beforeScreenshot = screenContext.screenshotJpeg
+
             // h. ACT
             // FLAG_NOT_TOUCHABLE must be set before dispatchGesture so injected touch events
             // pass through the full-screen overlay to the target app. Without this, the overlay
@@ -305,42 +311,126 @@ class AgentLoop(
                 return
             }
 
-            // i. VERIFY: rules-first, fallback to Fast model + record success
-            exceptionHandler.recordSuccess()
-            replanHint = null
+            // i. VERIFY: 4-state action verification with retry
+            var verifyRetryCount = 0
+            var popupDismissCount = 0
+            var verifyObservation: String? = null
 
-            delay(randomDelay())
-            overlayManager.hideForScreenshot()
-            delay(50)
-            val currContext = try {
-                ScreenContext.capture(a11y)
-            } finally {
-                overlayManager.showAfterScreenshot()
+            verifyLoop@ while (true) {
+                delay(randomDelay())
+                overlayManager.hideForScreenshot()
+                delay(50)
+                val afterContext = try {
+                    ScreenContext.capture(a11y)
+                } finally {
+                    overlayManager.showAfterScreenshot()
+                } ?: throw Exception("Failed to capture verification screenshot")
+                val afterTree = a11y.getUiTree()
+
+                // Fast path: known popup (rules, no model call needed)
+                val verifyPopup = RuleEngine.detectKnownPopup(afterTree)
+                if (verifyPopup != null) {
+                    popupDismissCount++
+                    if (popupDismissCount > MAX_POPUP_DISMISSALS) {
+                        updateTaskStatus("failed", "Persistent popup could not be dismissed")
+                        val retry = overlayManager.awaitTaskFailed(
+                            taskName = task,
+                            reason = "Persistent popup could not be dismissed",
+                            stepsCompleted = stepCount,
+                            totalSteps = MAX_STEPS,
+                        )
+                        if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
+                    }
+                    // Dismiss popup
+                    overlayManager.setGesturePassthrough(true)
+                    delay(50)
+                    try { actionEngine.execute(AgentAction.Tap(verifyPopup.bounds.centerX(), verifyPopup.bounds.centerY())) }
+                    finally { overlayManager.setGesturePassthrough(false) }
+                    delay(randomDelay())
+                    // Re-execute original action
+                    overlayManager.setGesturePassthrough(true)
+                    delay(50)
+                    try { actionEngine.execute(action) }
+                    finally { overlayManager.setGesturePassthrough(false) }
+                    continue@verifyLoop
+                }
+
+                // Model verification: send BEFORE + AFTER screenshots
+                val actionDesc = "${response.action}: ${response.reasoning}"
+                val verifyResult = modelRouter.fast.verifyAction(
+                    beforeScreenshot = beforeScreenshot,
+                    afterScreenshot = afterContext.screenshotJpeg,
+                    actionDescription = actionDesc,
+                    expectedOutcome = response.expectedOutcome,
+                ).getOrNull() ?: VerifyResult(VerifyOutcome.FAILED, "Verify model call failed")
+
+                Log.i(TAG, "Verify: ${verifyResult.outcome} - ${verifyResult.reason}")
+
+                when (verifyResult.outcome) {
+                    VerifyOutcome.SUCCESS -> {
+                        exceptionHandler.recordSuccess()
+                        replanHint = null
+                        carryOverContext = afterContext
+                        break@verifyLoop
+                    }
+                    VerifyOutcome.UNEXPECTED -> {
+                        exceptionHandler.recordSuccess()
+                        replanHint = null
+                        verifyObservation = verifyResult.observation
+                        carryOverContext = afterContext
+                        break@verifyLoop
+                    }
+                    VerifyOutcome.DRIFTED -> {
+                        verifyRetryCount++
+                        if (verifyRetryCount > MAX_VERIFY_RETRIES) {
+                            updateTaskStatus("failed", "Action drifted: ${verifyResult.reason}")
+                            val retry = overlayManager.awaitTaskFailed(
+                                taskName = task,
+                                reason = "Action drifted: ${verifyResult.reason}",
+                                stepsCompleted = stepCount,
+                                totalSteps = MAX_STEPS,
+                            )
+                            if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
+                        }
+                        // Press Back to return to previous state
+                        actionEngine.execute(AgentAction.PressKey("BACK"))
+                        delay(randomDelay())
+                        // Re-execute original action
+                        overlayManager.setGesturePassthrough(true)
+                        delay(50)
+                        try { actionEngine.execute(action) }
+                        finally { overlayManager.setGesturePassthrough(false) }
+                    }
+                    VerifyOutcome.FAILED -> {
+                        verifyRetryCount++
+                        if (verifyRetryCount > MAX_VERIFY_RETRIES) {
+                            updateTaskStatus("failed", "Action ineffective: ${verifyResult.reason}")
+                            val retry = overlayManager.awaitTaskFailed(
+                                taskName = task,
+                                reason = "Action ineffective: ${verifyResult.reason}",
+                                stepsCompleted = stepCount,
+                                totalSteps = MAX_STEPS,
+                            )
+                            if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
+                        }
+                        // Re-execute same action
+                        overlayManager.setGesturePassthrough(true)
+                        delay(50)
+                        try { actionEngine.execute(action) }
+                        finally { overlayManager.setGesturePassthrough(false) }
+                    }
+                }
             }
-            // Store for next step's OBSERVE so we don't take two screenshots back-to-back.
-            carryOverContext = currContext
-            val currTree = a11y.getUiTree()
-            val currNodeCount = currTree?.flatCount() ?: 0
-            val currApp = currContext?.appPackage ?: screenContext.appPackage
 
-            val changeResult = RuleEngine.detectScreenChange(nodeCount, screenContext.appPackage, currNodeCount, currApp)
-            Log.i(TAG, "Screen change: $changeResult")
-
-            if (changeResult == ChangeResult.UNCERTAIN && currContext != null) {
-                Log.i(TAG, "Calling fast model for verification")
-                val checkResult = modelRouter.fast.quickCheck(
-                    currContext.screenshotJpeg,
-                    "Did the screen change after performing action '${response.action}'? Answer true if the screen looks different.",
-                )
-                val check = checkResult.getOrNull()
-                Log.i(TAG, "Fast model check: answer=${check?.answer}, confidence=${check?.confidence}")
+            // j. LEARN: record experience (UNEXPECTED observation takes priority)
+            val learnNote = if (verifyObservation != null) {
+                ExperienceNote(page = screenContext.appPackage, observation = verifyObservation!!)
+            } else {
+                response.experienceNote
             }
-
-            // j. LEARN: record experienceNote
-            if (response.experienceNote != null && experienceManager != null) {
-                val note = response.experienceNote
-                experienceManager.recordObservation(screenContext.appPackage, note.page, note.observation)
-                Log.i(TAG, "Recorded experience: page=${note.page}")
+            if (learnNote != null && experienceManager != null) {
+                experienceManager.recordObservation(screenContext.appPackage, learnNote.page, learnNote.observation)
+                Log.i(TAG, "Recorded experience: page=${learnNote.page}")
             }
 
             // k. UPDATE: write step to task.json
@@ -368,9 +458,9 @@ class AgentLoop(
                 }
             }
 
-            // m. DELAY
-            prevNodeCount = currNodeCount
-            prevApp = currApp
+            // m. UPDATE TRACKING
+            prevNodeCount = nodeCount
+            prevApp = carryOverContext?.appPackage ?: screenContext.appPackage
         }
 
         // Loop ended
@@ -575,5 +665,7 @@ class AgentLoop(
         private const val TAG = "CoatiLoop"
         const val MAX_STEPS = 200
         private const val MAX_CONSECUTIVE_FAILURES = 3
+        private const val MAX_VERIFY_RETRIES = 2
+        private const val MAX_POPUP_DISMISSALS = 3
     }
 }

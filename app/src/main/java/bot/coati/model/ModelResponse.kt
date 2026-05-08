@@ -12,6 +12,15 @@ data class ModelResponse(
     val x: Int? = null,
     val y: Int? = null,
     val experienceNote: ExperienceNote? = null,
+    val expectedOutcome: String = "",
+)
+
+enum class VerifyOutcome { SUCCESS, FAILED, DRIFTED, UNEXPECTED }
+
+data class VerifyResult(
+    val outcome: VerifyOutcome,
+    val reason: String,
+    val observation: String? = null,
 )
 
 data class QuickCheckResult(

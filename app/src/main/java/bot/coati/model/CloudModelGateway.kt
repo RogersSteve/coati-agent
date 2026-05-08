@@ -13,5 +13,12 @@ interface CloudModelGateway {
         question: String,
     ): Result<QuickCheckResult>
 
+    suspend fun verifyAction(
+        beforeScreenshot: ByteArray,
+        afterScreenshot: ByteArray,
+        actionDescription: String,
+        expectedOutcome: String,
+    ): Result<VerifyResult>
+
     suspend fun testConnection(): Result<String>
 }

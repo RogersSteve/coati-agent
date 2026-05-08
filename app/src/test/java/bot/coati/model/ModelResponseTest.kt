@@ -199,4 +199,77 @@ class ModelResponseTest {
         assertNull(result.category)
         assertEquals(1.0f, result.confidence)
     }
+
+    // ─── VerifyOutcome and VerifyResult ───
+
+    @Test
+    fun `VerifyOutcome enum has 4 values`() {
+        val values = VerifyOutcome.values()
+        assertEquals(4, values.size)
+        assertTrue(values.contains(VerifyOutcome.SUCCESS))
+        assertTrue(values.contains(VerifyOutcome.FAILED))
+        assertTrue(values.contains(VerifyOutcome.DRIFTED))
+        assertTrue(values.contains(VerifyOutcome.UNEXPECTED))
+    }
+
+    @Test
+    fun `VerifyResult holds correct values`() {
+        val result = VerifyResult(
+            outcome = VerifyOutcome.SUCCESS,
+            reason = "Screen changed as expected",
+            observation = null,
+        )
+        assertEquals(VerifyOutcome.SUCCESS, result.outcome)
+        assertEquals("Screen changed as expected", result.reason)
+        assertNull(result.observation)
+    }
+
+    @Test
+    fun `VerifyResult with observation for UNEXPECTED`() {
+        val result = VerifyResult(
+            outcome = VerifyOutcome.UNEXPECTED,
+            reason = "Different path taken",
+            observation = "A dialog appeared offering a shortcut",
+        )
+        assertEquals(VerifyOutcome.UNEXPECTED, result.outcome)
+        assertNotNull(result.observation)
+        assertEquals("A dialog appeared offering a shortcut", result.observation)
+    }
+
+    @Test
+    fun `VerifyResult DRIFTED without observation`() {
+        val result = VerifyResult(
+            outcome = VerifyOutcome.DRIFTED,
+            reason = "Navigated to wrong page",
+        )
+        assertEquals(VerifyOutcome.DRIFTED, result.outcome)
+        assertNull(result.observation)
+    }
+
+    @Test
+    fun `ModelResponse with expectedOutcome`() {
+        val response = ModelResponse(
+            reasoning = "Tapping search",
+            action = "tap",
+            params = mapOf("x" to 500, "y" to 200),
+            safetyLevel = "low",
+            isTaskComplete = false,
+            statusUpdate = "Tapping search button",
+            expectedOutcome = "Search input field should appear",
+        )
+        assertEquals("Search input field should appear", response.expectedOutcome)
+    }
+
+    @Test
+    fun `ModelResponse expectedOutcome defaults to empty string`() {
+        val response = ModelResponse(
+            reasoning = "test",
+            action = "tap",
+            params = emptyMap(),
+            safetyLevel = "low",
+            isTaskComplete = false,
+            statusUpdate = "test",
+        )
+        assertEquals("", response.expectedOutcome)
+    }
 }
