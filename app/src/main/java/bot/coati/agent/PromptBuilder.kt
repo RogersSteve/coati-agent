@@ -23,6 +23,7 @@ object PromptBuilder {
         6. Set isTaskComplete to true only when ALL sub-goals are fully accomplished.
         7. Always respond with valid JSON only, no additional text.
         8. To open an app, always prefer openApp with its packageName over swiping the home screen to find its icon. Use swipe only when you must interact with visible on-screen elements.
+        9. Before outputting inputText, check the "[Input focus]" line at the top of the UI tree. If the target field is already focused, output inputText directly. If "[Input focus: none]" or a different field is focused, tap the target field first, then inputText on the next step.
     """.trimIndent()
 
     fun buildReasoningUserPrompt(
