@@ -135,8 +135,12 @@ class ActionEngine(private val a11y: CoatiAccessibilityService) {
         val intent = a11y.packageManager.getLaunchIntentForPackage(packageName)
             ?: return ActionResult(success = false, message = "App not found: $packageName")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Return to home screen before launching to avoid cross-app permission dialogs
+        // covering Coati's overlay during app transitions.
+        a11y.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        delay(300)
         a11y.startActivity(intent)
-        delay(500) // Brief delay for app to start
+        delay(500)
         return ActionResult(success = true, message = "Opened $packageName")
     }
 
