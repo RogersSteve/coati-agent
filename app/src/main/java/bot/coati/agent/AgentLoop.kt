@@ -424,7 +424,9 @@ class AgentLoop(
 
             // j. LEARN: record experience (UNEXPECTED observation takes priority)
             val learnNote = if (verifyObservation != null) {
-                ExperienceNote(page = screenContext.appPackage, observation = verifyObservation!!)
+                val pageName = response.experienceNote?.page
+                    ?: response.statusUpdate.ifBlank { screenContext.appPackage }
+                ExperienceNote(page = pageName, observation = verifyObservation!!)
             } else {
                 response.experienceNote
             }
