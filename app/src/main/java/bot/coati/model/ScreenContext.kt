@@ -2,6 +2,7 @@ package bot.coati.model
 
 import android.graphics.Bitmap
 import android.util.Log
+import android.view.accessibility.AccessibilityNodeInfo
 import bot.coati.service.CoatiAccessibilityService
 import java.io.ByteArrayOutputStream
 
@@ -51,14 +52,26 @@ data class ScreenContext(
             val uiTreeStr = uiTree?.toSimpleString() ?: ""
             Log.i(TAG, "UI tree: ${uiTree?.flatCount() ?: 0} nodes")
 
-            // Get current app package
+            // Get current app package and input focus state
             val rootNode = a11y.rootInActiveWindow
             val appPackage = rootNode?.packageName?.toString() ?: "unknown"
+            val focusedInput = rootNode?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            val focusHint = if (focusedInput != null) {
+                val cls = focusedInput.className?.toString()?.substringAfterLast('.') ?: "View"
+                val label = focusedInput.hintText?.toString()?.takeIf { it.isNotBlank() }
+                    ?: focusedInput.text?.toString()?.takeIf { it.isNotBlank() }
+                    ?: focusedInput.viewIdResourceName?.substringAfterLast('/')
+                    ?: "field"
+                "[Input focus: $cls \"$label\" is focused]\n"
+            } else {
+                "[Input focus: none]\n"
+            }
+            focusedInput?.recycle()
             rootNode?.recycle()
 
             return ScreenContext(
                 screenshotJpeg = screenshotBytes,
-                uiTreeJson = uiTreeStr,
+                uiTreeJson = focusHint + uiTreeStr,
                 appPackage = appPackage,
             )
         }
