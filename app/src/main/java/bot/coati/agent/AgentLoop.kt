@@ -238,6 +238,10 @@ class AgentLoop(
                     return
                 }
                 overlayManager.enterFrameExecuting(task)
+                // Dialog dismissal + overlay layout change are async WMS operations.
+                // Without this delay the subsequent gesture dispatches before FLAG_NOT_TOUCHABLE
+                // takes effect and gets consumed by the overlay instead of the target app.
+                delay(300)
             }
 
             // h. ACT
