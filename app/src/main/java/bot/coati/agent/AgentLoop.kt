@@ -293,8 +293,12 @@ class AgentLoop(
                 }
             }
 
-            // Check task complete: action has been executed, now safe to end the loop
-            if (response.isTaskComplete) {
+            // Check task complete. Completion is only accepted when action == "screenshot",
+            // which means the model already saw the post-action state and confirmed the result.
+            // Any other action + isTaskComplete=true is intercepted: the action executes normally
+            // and the VERIFY step captures a fresh screenshot (stored as carryOverContext), so
+            // the next step the model sees the result and can issue screenshot + isTaskComplete=true.
+            if (response.isTaskComplete && response.action.lowercase() == "screenshot") {
                 val elapsed = System.currentTimeMillis() - taskStartTime
                 Log.i(TAG, "Task complete at step $stepCount!")
                 updateTaskStatus("completed")
@@ -307,6 +311,8 @@ class AgentLoop(
                 overlayManager.collapse()
                 overlayManager.resetBallState()
                 return
+            } else if (response.isTaskComplete) {
+                Log.i(TAG, "isTaskComplete with action '${response.action}' — deferring: model must confirm via screenshot")
             }
 
             // i. VERIFY: rules-first, fallback to Fast model + record success
