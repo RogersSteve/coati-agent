@@ -159,7 +159,7 @@ class ClaudeCompatibleGateway(
 
             val requestBody = JSONObject().apply {
                 put("model", modelName)
-                put("max_tokens", 256)
+                put("max_tokens", 512)
                 put("system", PromptBuilder.buildVerifySystemPrompt())
                 put("messages", messages)
             }.toString()
