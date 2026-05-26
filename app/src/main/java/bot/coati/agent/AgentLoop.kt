@@ -56,6 +56,7 @@ class AgentLoop(
     private var currentTask: TaskState? = null
     private var resumedFromPause = false
     private var replanHint: String? = null
+    private var lastStepFeedback: String? = null
 
     @Volatile
     var emergencyStop = false
@@ -71,6 +72,7 @@ class AgentLoop(
         exceptionHandler.reset()
         resumedFromPause = false
         replanHint = null
+        lastStepFeedback = null
         Log.i(TAG, "Starting agent loop for task: $task")
 
         overlayManager.enterFrameExecuting(task)
@@ -427,6 +429,7 @@ class AgentLoop(
                     VerifyOutcome.SUCCESS -> {
                         exceptionHandler.recordSuccess()
                         replanHint = null
+                        lastStepFeedback = "Previous action SUCCEEDED: ${verifyResult.reason}"
 
                         // Learn popup experience
                         if (response.isPopupDismissal && beforeUiTree != null) {
@@ -447,11 +450,13 @@ class AgentLoop(
                     VerifyOutcome.UNEXPECTED -> {
                         exceptionHandler.recordSuccess()
                         replanHint = null
+                        lastStepFeedback = "Previous action had an UNEXPECTED but task-compatible result: ${verifyResult.reason}"
                         verifyObservation = verifyResult.observation
                         carryOverContext = afterContext
                         break@verifyLoop
                     }
                     VerifyOutcome.FAILED -> {
+                        lastStepFeedback = null
                         val sameActionFailCount = actionHistory.count {
                             it.statusUpdate == response.statusUpdate &&
                             it.screenSignature == screenSig &&
@@ -473,6 +478,7 @@ class AgentLoop(
                         break@verifyLoop
                     }
                     VerifyOutcome.DRIFTED -> {
+                        lastStepFeedback = null
                         val sameActionFailCount = actionHistory.count {
                             it.statusUpdate == response.statusUpdate &&
                             it.screenSignature == screenSig &&
@@ -611,6 +617,9 @@ class AgentLoop(
 
     private fun buildTaskDescription(task: String, experienceSection: String?): String {
         val sb = StringBuilder(task)
+        if (lastStepFeedback != null) {
+            sb.append("\n\n[LAST STEP] $lastStepFeedback")
+        }
         if (replanHint != null) {
             sb.append("\n\n[REPLAN] $replanHint")
         }
