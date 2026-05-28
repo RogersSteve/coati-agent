@@ -78,30 +78,32 @@ class AgentLoop(
         overlayManager.enterFrameExecuting(task)
 
         currentJob = scope.launch {
+            val myJob = coroutineContext[Job]
             try {
                 runLoop(task)
             } catch (e: CancellationException) {
-                if (emergencyStop) {
-                    Log.i(TAG, "Emergency stop triggered!")
+                Log.i(TAG, if (emergencyStop) "Emergency stop triggered!" else "Agent loop cancelled")
+                // Guard: only do cleanup if no new task has started since we were launched
+                if (currentJob == null || currentJob === myJob) {
                     updateTaskStatus("paused")
-                } else {
-                    Log.i(TAG, "Agent loop cancelled")
-                    updateTaskStatus("paused")
+                    overlayManager.collapse()
                 }
-                overlayManager.collapse()
             } catch (e: Exception) {
                 Log.e(TAG, "Agent loop error: ${e.message}", e)
-                updateTaskStatus("failed", e.message)
-                val retry = overlayManager.awaitTaskFailed(
-                    taskName = task,
-                    reason = e.message ?: "Unknown error",
-                    stepsCompleted = stepCount,
-                    totalSteps = MAX_STEPS,
-                )
-                if (retry) {
-                    start(task)
-                } else {
-                    overlayManager.collapse()
+                // Guard: only show failure dialog if no new task has started since we were launched
+                if (currentJob == null || currentJob === myJob) {
+                    updateTaskStatus("failed", e.message)
+                    val retry = overlayManager.awaitTaskFailed(
+                        taskName = task,
+                        reason = e.message ?: "Unknown error",
+                        stepsCompleted = stepCount,
+                        totalSteps = MAX_STEPS,
+                    )
+                    if (retry) {
+                        start(task)
+                    } else {
+                        overlayManager.collapse()
+                    }
                 }
             }
         }
