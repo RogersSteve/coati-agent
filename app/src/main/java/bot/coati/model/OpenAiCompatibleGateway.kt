@@ -163,7 +163,7 @@ class OpenAiCompatibleGateway(
                 put("model", modelName)
                 put("messages", messages)
                 put("temperature", 0.1)
-                put("max_tokens", 256)
+                put("max_tokens", 512)
             }.toString()
 
             val request = Request.Builder()

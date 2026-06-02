@@ -170,7 +170,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.1)
-                    put("maxOutputTokens", 256)
+                    put("maxOutputTokens", 512)
                 })
             }.toString()
 

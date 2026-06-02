@@ -72,26 +72,19 @@ object GatewayUtils {
     }
 
     fun parseVerifyResponse(text: String): VerifyResult {
-        return try {
-            val jsonStr = extractJsonFromText(text)
-            val json = JSONObject(jsonStr)
-            val outcomeStr = json.optString("outcome", "FAILED").uppercase()
-            val outcome = try {
-                VerifyOutcome.valueOf(outcomeStr)
-            } catch (_: IllegalArgumentException) {
-                VerifyOutcome.FAILED
-            }
-            VerifyResult(
-                outcome = outcome,
-                reason = json.optString("reason", ""),
-                observation = if (json.has("observation") && !json.isNull("observation")) json.optString("observation") else null,
-            )
-        } catch (_: Exception) {
-            VerifyResult(
-                outcome = VerifyOutcome.FAILED,
-                reason = "Failed to parse verify response",
-            )
+        val jsonStr = extractJsonFromText(text)
+        val json = JSONObject(jsonStr) // throws JSONException if not valid JSON
+        val outcomeStr = json.optString("outcome", "FAILED").uppercase()
+        val outcome = try {
+            VerifyOutcome.valueOf(outcomeStr)
+        } catch (_: IllegalArgumentException) {
+            VerifyOutcome.FAILED
         }
+        return VerifyResult(
+            outcome = outcome,
+            reason = json.optString("reason", ""),
+            observation = if (json.has("observation") && !json.isNull("observation")) json.optString("observation") else null,
+        )
     }
 
     fun parseQuickCheckResponse(text: String): QuickCheckResult {

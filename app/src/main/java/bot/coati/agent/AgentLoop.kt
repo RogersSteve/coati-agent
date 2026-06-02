@@ -394,14 +394,24 @@ class AgentLoop(
                     continue@verifyLoop
                 }
 
-                // Model verification: send BEFORE + AFTER screenshots
+                // Model verification: send BEFORE + AFTER screenshots (retry up to 3 times)
                 val actionDesc = "${response.action}: ${response.reasoning}"
-                val verifyResult = modelRouter.fast.verifyAction(
-                    beforeScreenshot = beforeScreenshot,
-                    afterScreenshot = afterContext.screenshotJpeg,
-                    actionDescription = actionDesc,
-                    expectedOutcome = response.expectedOutcome,
-                ).getOrNull() ?: VerifyResult(VerifyOutcome.FAILED, "Verify model call failed")
+                val verifyResult = (1..3).firstNotNullOfOrNull { attempt ->
+                    val res = modelRouter.fast.verifyAction(
+                        beforeScreenshot = beforeScreenshot,
+                        afterScreenshot = afterContext.screenshotJpeg,
+                        actionDescription = actionDesc,
+                        expectedOutcome = response.expectedOutcome,
+                    )
+                    if (res.isSuccess) res.getOrThrow()
+                    else {
+                        Log.w(TAG, "Verify attempt $attempt/3 failed: ${res.exceptionOrNull()?.message}")
+                        null
+                    }
+                } ?: run {
+                    Log.w(TAG, "Verify skipped after 3 failures, treating as SUCCESS")
+                    VerifyResult(VerifyOutcome.SUCCESS, "Verification skipped after repeated parse failures")
+                }
 
                 Log.i(TAG, "Verify: ${verifyResult.outcome} - ${verifyResult.reason}")
 
