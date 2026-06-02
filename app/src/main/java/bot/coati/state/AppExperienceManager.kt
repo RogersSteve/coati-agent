@@ -23,6 +23,21 @@ class AppExperienceManager(private val stateManager: StateManager) {
         saveProfile(profile)
     }
 
+    fun recordPopup(packageName: String, signature: String, title: String, keywords: List<String>, buttonText: String) {
+        val profile = loadProfile(packageName)
+        profile.upsertPopup(signature, title, keywords, buttonText)
+        saveProfile(profile)
+    }
+
+    fun loadPopupPatterns(packageName: String): List<PopupPattern> {
+        val json = stateManager.readAppJson(packageName) ?: return emptyList()
+        return try {
+            AppProfile.fromJson(json).popupPatterns
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     fun markPageOutdated(packageName: String, pageName: String) {
         val profile = loadProfile(packageName)
         profile.markOutdated(pageName)

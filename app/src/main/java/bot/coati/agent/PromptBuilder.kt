@@ -53,8 +53,12 @@ object PromptBuilder {
           "safetyLevel": "low|medium|high",
           "isTaskComplete": false,
           "statusUpdate": "Short status message for the user",
+          "expectedOutcome": "Brief description of what should visibly change on screen after this action",
+          "isPopupDismissal": false,
           "experienceNote": {"page": "page_name", "observation": "what you learned about this page"} (optional, include when you discover something new about the app)
         }
+
+        isPopupDismissal: Set to true ONLY when dismissing an unexpected popup/dialog that interrupted your task (permission request, ad, update prompt, privacy agreement). Do NOT set true for dialogs you intentionally triggered as part of the task.
 
         Planning fields:
         - "plan": Array of sub-goal strings. Set on the first response, update if the plan changes.
@@ -108,6 +112,29 @@ object PromptBuilder {
             Use this knowledge to navigate more efficiently. If something has changed, include an "experienceNote" to update.
         """.trimIndent()
     }
+
+    fun buildVerifySystemPrompt(): String = """
+        You are a verification assistant for an Android AI agent.
+        You compare two screenshots (BEFORE and AFTER an action) to determine if the action achieved its intended result.
+        Always respond with valid JSON only.
+    """.trimIndent()
+
+    fun buildVerifyUserPrompt(actionDescription: String, expectedOutcome: String): String = """
+        Action performed: $actionDescription
+        Expected outcome: $expectedOutcome
+
+        [Image 1: BEFORE action]
+        [Image 2: AFTER action]
+
+        Classify the result into exactly one category:
+        - SUCCESS: The AFTER screenshot shows the expected outcome was achieved
+        - FAILED: The AFTER screenshot looks identical to BEFORE — the action had no visible effect
+        - DRIFTED: The screen changed but to a wrong/unintended state (wrong page opened, unexpected dialog/popup appeared, navigated somewhere unrelated)
+        - UNEXPECTED: The screen changed differently than expected, but the change is still compatible with the overall goal — something useful happened that wasn't predicted
+
+        Respond ONLY with JSON:
+        {"outcome": "SUCCESS|FAILED|DRIFTED|UNEXPECTED", "reason": "brief explanation", "observation": "describe what actually happened (required for UNEXPECTED, optional otherwise)"}
+    """.trimIndent()
 
     fun buildQuickCheckPrompt(question: String): String = """
         $question

@@ -119,6 +119,81 @@ class GeminiGateway(
         }
     }
 
+    override suspend fun verifyAction(
+        beforeScreenshot: ByteArray,
+        afterScreenshot: ByteArray,
+        actionDescription: String,
+        expectedOutcome: String,
+    ): Result<VerifyResult> = withContext(Dispatchers.IO) {
+        try {
+            val base64Before = Base64.encodeToString(beforeScreenshot, Base64.NO_WRAP)
+            val base64After = Base64.encodeToString(afterScreenshot, Base64.NO_WRAP)
+            val contents = JSONArray()
+
+            // System instruction
+            contents.put(JSONObject().apply {
+                put("role", "user")
+                put("parts", JSONArray().put(JSONObject().apply {
+                    put("text", PromptBuilder.buildVerifySystemPrompt())
+                }))
+            })
+            contents.put(JSONObject().apply {
+                put("role", "model")
+                put("parts", JSONArray().put(JSONObject().apply {
+                    put("text", "Understood. I will compare the screenshots and respond with JSON.")
+                }))
+            })
+
+            // Two screenshots + prompt
+            val userParts = JSONArray()
+            userParts.put(JSONObject().apply {
+                put("inline_data", JSONObject().apply {
+                    put("mime_type", "image/jpeg")
+                    put("data", base64Before)
+                })
+            })
+            userParts.put(JSONObject().apply {
+                put("inline_data", JSONObject().apply {
+                    put("mime_type", "image/jpeg")
+                    put("data", base64After)
+                })
+            })
+            userParts.put(JSONObject().apply {
+                put("text", PromptBuilder.buildVerifyUserPrompt(actionDescription, expectedOutcome))
+            })
+            contents.put(JSONObject().apply {
+                put("role", "user")
+                put("parts", userParts)
+            })
+
+            val requestBody = JSONObject().apply {
+                put("contents", contents)
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.1)
+                    put("maxOutputTokens", 256)
+                })
+            }.toString()
+
+            val request = Request.Builder()
+                .url("$endpoint/v1beta/models/$modelName:generateContent?key=$apiKey")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+            }
+
+            val text = extractResponseText(body)
+            Result.success(GatewayUtils.parseVerifyResponse(text))
+        } catch (e: Exception) {
+            Log.e(TAG, "verifyAction failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
         try {
             val requestBody = JSONObject().apply {

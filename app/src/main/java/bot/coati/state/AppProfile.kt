@@ -8,6 +8,14 @@ data class AppPage(val name: String, var description: String, var outdated: Bool
 
 data class CommonPath(val name: String, val steps: List<String>, var lastUsed: String, var successCount: Int)
 
+data class PopupPattern(
+    val signature: String,
+    val title: String,
+    val keywords: List<String>,
+    val buttonText: String,
+    var hitCount: Int,
+)
+
 data class AppProfile(
     val packageName: String,
     var appName: String = "",
@@ -16,6 +24,7 @@ data class AppProfile(
     val pages: MutableList<AppPage> = mutableListOf(),
     val commonPaths: MutableList<CommonPath> = mutableListOf(),
     val knownIssues: MutableList<String> = mutableListOf(),
+    val popupPatterns: MutableList<PopupPattern> = mutableListOf(),
 ) {
     fun upsertPage(name: String, description: String) {
         val existing = pages.find { it.name == name }
@@ -44,6 +53,16 @@ data class AppProfile(
         lastUpdated = timestamp()
     }
 
+    fun upsertPopup(signature: String, title: String, keywords: List<String>, buttonText: String) {
+        val existing = popupPatterns.find { it.signature == signature }
+        if (existing != null) {
+            existing.hitCount++
+        } else {
+            popupPatterns.add(PopupPattern(signature, title, keywords, buttonText, 1))
+        }
+        lastUpdated = timestamp()
+    }
+
     fun toJson(): String {
         val pagesJson = pages.joinToString(",") { page ->
             """{"name":"${escapeJson(page.name)}","description":"${escapeJson(page.description)}","outdated":${page.outdated}}"""
@@ -53,6 +72,10 @@ data class AppProfile(
             """{"name":"${escapeJson(path.name)}","steps":[$stepsJson],"lastUsed":"${escapeJson(path.lastUsed)}","successCount":${path.successCount}}"""
         }
         val issuesJson = knownIssues.joinToString(",") { "\"${escapeJson(it)}\"" }
+        val popupsJson = popupPatterns.joinToString(",") { popup ->
+            val kw = popup.keywords.joinToString(",") { "\"${escapeJson(it)}\"" }
+            """{"signature":"${escapeJson(popup.signature)}","title":"${escapeJson(popup.title)}","keywords":[$kw],"buttonText":"${escapeJson(popup.buttonText)}","hitCount":${popup.hitCount}}"""
+        }
         return """{
   "packageName": "${escapeJson(packageName)}",
   "appName": "${escapeJson(appName)}",
@@ -60,7 +83,8 @@ data class AppProfile(
   "lastUpdated": "${escapeJson(lastUpdated)}",
   "pages": [$pagesJson],
   "commonPaths": [$pathsJson],
-  "knownIssues": [$issuesJson]
+  "knownIssues": [$issuesJson],
+  "popupPatterns": [$popupsJson]
 }"""
     }
 
@@ -93,6 +117,13 @@ data class AppProfile(
             knownIssues.forEach { sb.appendLine("- $it") }
         }
 
+        if (popupPatterns.isNotEmpty()) {
+            sb.appendLine("\n## Known Popups")
+            popupPatterns.forEach { popup ->
+                sb.appendLine("- **${popup.title}**: click \"${popup.buttonText}\" (seen ${popup.hitCount}x)")
+            }
+        }
+
         return sb.toString().trimEnd()
     }
 
@@ -116,7 +147,7 @@ data class AppProfile(
             }
 
             // Parse commonPaths
-            val pathsRegex = Regex(""""commonPaths"\s*:\s*\[(.*?)](?=\s*,\s*"knownIssues")""", RegexOption.DOT_MATCHES_ALL)
+            val pathsRegex = Regex(""""commonPaths"\s*:\s*\[(.*?)](?=\s*,\s*"(?:knownIssues|popupPatterns)")""", RegexOption.DOT_MATCHES_ALL)
             val pathsMatch = pathsRegex.find(json)?.groupValues?.get(1) ?: ""
             val paths = if (pathsMatch.isBlank()) {
                 mutableListOf()
@@ -140,6 +171,41 @@ data class AppProfile(
                 strRegex.findAll(issuesMatch).map { it.groupValues[1].unescapeJson() }.toMutableList()
             }
 
+            // Parse popupPatterns — use greedy match to handle nested arrays in keywords
+            val popupsStart = json.indexOf("\"popupPatterns\"")
+            val popupsMatch = if (popupsStart >= 0) {
+                val bracketStart = json.indexOf('[', popupsStart)
+                if (bracketStart >= 0) {
+                    // Find matching closing bracket, accounting for nesting
+                    var depth = 0
+                    var bracketEnd = -1
+                    for (i in bracketStart until json.length) {
+                        when (json[i]) {
+                            '[' -> depth++
+                            ']' -> { depth--; if (depth == 0) { bracketEnd = i; break } }
+                        }
+                    }
+                    if (bracketEnd > bracketStart + 1) json.substring(bracketStart + 1, bracketEnd) else ""
+                } else ""
+            } else ""
+            val popups = if (popupsMatch.isBlank()) {
+                mutableListOf()
+            } else {
+                val popupRegex = Regex("""\{"signature"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"title"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"keywords"\s*:\s*\[(.*?)]\s*,\s*"buttonText"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"hitCount"\s*:\s*(\d+)\}""", RegexOption.DOT_MATCHES_ALL)
+                popupRegex.findAll(popupsMatch).map { m ->
+                    val kwStr = m.groupValues[3]
+                    val kwRegex = Regex(""""((?:[^"\\]|\\.)*)"""")
+                    val kws = kwRegex.findAll(kwStr).map { it.groupValues[1].unescapeJson() }.toList()
+                    PopupPattern(
+                        m.groupValues[1].unescapeJson(),
+                        m.groupValues[2].unescapeJson(),
+                        kws,
+                        m.groupValues[4].unescapeJson(),
+                        m.groupValues[5].toInt(),
+                    )
+                }.toMutableList()
+            }
+
             return AppProfile(
                 packageName = extractString("packageName"),
                 appName = extractString("appName"),
@@ -148,6 +214,7 @@ data class AppProfile(
                 pages = pages,
                 commonPaths = paths,
                 knownIssues = issues,
+                popupPatterns = popups,
             )
         }
 

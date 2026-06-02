@@ -120,6 +120,77 @@ class ClaudeCompatibleGateway(
         }
     }
 
+    override suspend fun verifyAction(
+        beforeScreenshot: ByteArray,
+        afterScreenshot: ByteArray,
+        actionDescription: String,
+        expectedOutcome: String,
+    ): Result<VerifyResult> = withContext(Dispatchers.IO) {
+        try {
+            val base64Before = Base64.encodeToString(beforeScreenshot, Base64.NO_WRAP)
+            val base64After = Base64.encodeToString(afterScreenshot, Base64.NO_WRAP)
+            val messages = JSONArray()
+
+            val userContent = JSONArray()
+            userContent.put(JSONObject().apply {
+                put("type", "image")
+                put("source", JSONObject().apply {
+                    put("type", "base64")
+                    put("media_type", "image/jpeg")
+                    put("data", base64Before)
+                })
+            })
+            userContent.put(JSONObject().apply {
+                put("type", "image")
+                put("source", JSONObject().apply {
+                    put("type", "base64")
+                    put("media_type", "image/jpeg")
+                    put("data", base64After)
+                })
+            })
+            userContent.put(JSONObject().apply {
+                put("type", "text")
+                put("text", PromptBuilder.buildVerifyUserPrompt(actionDescription, expectedOutcome))
+            })
+            messages.put(JSONObject().apply {
+                put("role", "user")
+                put("content", userContent)
+            })
+
+            val requestBody = JSONObject().apply {
+                put("model", modelName)
+                put("max_tokens", 256)
+                put("system", PromptBuilder.buildVerifySystemPrompt())
+                put("messages", messages)
+            }.toString()
+
+            val request = Request.Builder()
+                .url("$endpoint/v1/messages")
+                .addHeader("x-api-key", apiKey)
+                .addHeader("anthropic-version", ANTHROPIC_VERSION)
+                .addHeader("content-type", "application/json")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+            }
+
+            val text = JSONObject(body)
+                .getJSONArray("content")
+                .getJSONObject(0)
+                .getString("text")
+
+            Result.success(GatewayUtils.parseVerifyResponse(text))
+        } catch (e: Exception) {
+            Log.e(TAG, "verifyAction failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
         try {
             val requestBody = JSONObject().apply {
