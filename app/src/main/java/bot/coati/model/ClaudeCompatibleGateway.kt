@@ -191,6 +191,48 @@ class ClaudeCompatibleGateway(
         }
     }
 
+    override suspend fun summarizeText(prompt: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val messages = JSONArray()
+            messages.put(JSONObject().apply {
+                put("role", "user")
+                put("content", prompt)
+            })
+
+            val requestBody = JSONObject().apply {
+                put("model", modelName)
+                put("max_tokens", 1024)
+                put("system", "You summarize Android agent history. Return concise plain text only.")
+                put("messages", messages)
+            }.toString()
+
+            val request = Request.Builder()
+                .url("$endpoint/v1/messages")
+                .addHeader("x-api-key", apiKey)
+                .addHeader("anthropic-version", ANTHROPIC_VERSION)
+                .addHeader("content-type", "application/json")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+            }
+
+            val text = JSONObject(body)
+                .getJSONArray("content")
+                .getJSONObject(0)
+                .getString("text")
+
+            Result.success(text.trim())
+        } catch (e: Exception) {
+            Log.e(TAG, "summarizeText failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
         try {
             val requestBody = JSONObject().apply {
