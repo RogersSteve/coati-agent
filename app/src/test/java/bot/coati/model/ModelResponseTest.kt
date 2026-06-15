@@ -203,13 +203,14 @@ class ModelResponseTest {
     // ─── VerifyOutcome and VerifyResult ───
 
     @Test
-    fun `VerifyOutcome enum has 4 values`() {
+    fun `VerifyOutcome enum has 5 values`() {
         val values = VerifyOutcome.values()
-        assertEquals(4, values.size)
+        assertEquals(5, values.size)
         assertTrue(values.contains(VerifyOutcome.SUCCESS))
         assertTrue(values.contains(VerifyOutcome.FAILED))
         assertTrue(values.contains(VerifyOutcome.DRIFTED))
         assertTrue(values.contains(VerifyOutcome.UNEXPECTED))
+        assertTrue(values.contains(VerifyOutcome.UNKNOWN))
     }
 
     @Test

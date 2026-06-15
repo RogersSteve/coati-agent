@@ -100,6 +100,13 @@ class AgentLoopTest {
         assertEquals("A shortcut dialog appeared", result.observation)
     }
 
+    @Test
+    fun `VerifyOutcome UNKNOWN means verification was inconclusive`() {
+        val result = VerifyResult(VerifyOutcome.UNKNOWN, "Verifier response could not be parsed")
+        assertEquals(VerifyOutcome.UNKNOWN, result.outcome)
+        assertNull(result.observation)
+    }
+
     // ─── ActionRecord and retry counting ───
 
     @Test

@@ -16,7 +16,7 @@ data class ModelResponse(
     val isPopupDismissal: Boolean = false,
 )
 
-enum class VerifyOutcome { SUCCESS, FAILED, DRIFTED, UNEXPECTED }
+enum class VerifyOutcome { SUCCESS, FAILED, DRIFTED, UNEXPECTED, UNKNOWN }
 
 data class VerifyResult(
     val outcome: VerifyOutcome,

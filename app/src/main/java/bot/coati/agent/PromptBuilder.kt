@@ -131,9 +131,10 @@ object PromptBuilder {
         - FAILED: The AFTER screenshot looks identical to BEFORE — the action had no visible effect
         - DRIFTED: The screen changed but to a wrong/unintended state (wrong page opened, unexpected dialog/popup appeared, navigated somewhere unrelated)
         - UNEXPECTED: The screen changed differently than expected, but the change is still compatible with the overall goal — something useful happened that wasn't predicted
+        - UNKNOWN: The screenshots are insufficient to determine whether the action succeeded or failed
 
         Respond ONLY with JSON:
-        {"outcome": "SUCCESS|FAILED|DRIFTED|UNEXPECTED", "reason": "brief explanation", "observation": "describe what actually happened (required for UNEXPECTED, optional otherwise)"}
+        {"outcome": "SUCCESS|FAILED|DRIFTED|UNEXPECTED|UNKNOWN", "reason": "brief explanation", "observation": "describe what actually happened (required for UNEXPECTED, optional otherwise)"}
     """.trimIndent()
 
     fun buildQuickCheckPrompt(question: String): String = """
