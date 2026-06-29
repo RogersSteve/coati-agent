@@ -1,6 +1,7 @@
 package bot.coati.action
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,7 +72,30 @@ class ActionEngineTest {
     fun `fromMap parses openApp action`() {
         val action = AgentAction.fromMap("openApp", mapOf("packageName" to "com.android.settings"))
         assertTrue(action is AgentAction.OpenApp)
-        assertEquals("com.android.settings", (action as AgentAction.OpenApp).packageName)
+        val openApp = action as AgentAction.OpenApp
+        assertEquals("com.android.settings", openApp.packageName)
+        assertNull(openApp.appName)
+    }
+
+    @Test
+    fun `fromMap parses openApp with appName`() {
+        val action = AgentAction.fromMap("openApp", mapOf("appName" to "Calendar"))
+        assertTrue(action is AgentAction.OpenApp)
+        val openApp = action as AgentAction.OpenApp
+        assertNull(openApp.packageName)
+        assertEquals("Calendar", openApp.appName)
+    }
+
+    @Test
+    fun `fromMap parses openApp with packageName and appName`() {
+        val action = AgentAction.fromMap(
+            "openApp",
+            mapOf("packageName" to "com.coloros.calendar", "appName" to "Calendar"),
+        )
+        assertTrue(action is AgentAction.OpenApp)
+        val openApp = action as AgentAction.OpenApp
+        assertEquals("com.coloros.calendar", openApp.packageName)
+        assertEquals("Calendar", openApp.appName)
     }
 
     @Test
@@ -108,6 +132,11 @@ class ActionEngineTest {
     @Test(expected = IllegalArgumentException::class)
     fun `fromMap throws for unknown action`() {
         AgentAction.fromMap("unknown", emptyMap())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `fromMap throws for openApp without packageName or appName`() {
+        AgentAction.fromMap("openApp", emptyMap())
     }
 
     @Test

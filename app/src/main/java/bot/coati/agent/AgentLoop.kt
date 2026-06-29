@@ -146,7 +146,7 @@ class AgentLoop(
                 resumedFromPause = false
                 val targetPkg = currentTask?.targetPackage
                 if (targetPkg != null) {
-                    actionEngine.execute(AgentAction.OpenApp(targetPkg))
+                    actionEngine.execute(AgentAction.OpenApp(packageName = targetPkg))
                     delay(randomDelay())
                 }
             }
@@ -293,6 +293,8 @@ class AgentLoop(
             Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
             if (!actionResult.success) {
+                val actionFailure = "Previous action FAILED: ${actionResult.message}"
+                lastStepFeedback = actionFailure
                 val failAction = exceptionHandler.recordFailure()
                 when (failAction) {
                     FailureAction.ABORT -> {
@@ -313,7 +315,7 @@ class AgentLoop(
                         }
                     }
                     FailureAction.REPLAN -> {
-                        replanHint = exceptionHandler.buildReplanHint()
+                        replanHint = "$actionFailure\n${exceptionHandler.buildReplanHint()}"
                         Log.i(TAG, "Replan after action failure: $replanHint")
                         continue
                     }

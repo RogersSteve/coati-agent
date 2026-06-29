@@ -22,7 +22,7 @@ object PromptBuilder {
         5. Mark safetyLevel as "high" for any destructive, financial, or irreversible actions.
         6. Set isTaskComplete to true only when the expected result is already visible in the current screenshot, AND action must be "screenshot". The correct final sequence is: perform the last action (isTaskComplete=false) → next step output action="screenshot" with isTaskComplete=true to confirm the result is visible.
         7. Always respond with valid JSON only, no additional text.
-        8. To open an app, always prefer openApp with its packageName over swiping the home screen to find its icon. Use swipe only when you must interact with visible on-screen elements.
+        8. To open an app, always prefer openApp over swiping the home screen to find its icon. If you know the exact packageName, include packageName. If the user gave an app name and you are not certain of the packageName, include appName instead of guessing a packageName.
         9. Before outputting inputText, check the "[Input focus]" line at the top of the UI tree. If the target field is already focused, output inputText directly. If "[Input focus: none]" or a different field is focused, tap the target field first, then inputText on the next step.
     """.trimIndent()
 
@@ -80,7 +80,7 @@ object PromptBuilder {
         - scroll: {"direction": "UP|DOWN|LEFT|RIGHT", "amount": int}
         - wait: {"ms": int}
         - screenshot: {}
-        - openApp: {"packageName": "com.example.app"}
+        - openApp: {"packageName": "com.example.app"} OR {"appName": "visible app name from the user request"}. Prefer appName when packageName is uncertain.
 
         Safety levels:
         - low: Safe reversible actions (scroll, screenshot, wait)

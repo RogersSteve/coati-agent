@@ -15,7 +15,7 @@ sealed class AgentAction {
     data class Scroll(val direction: String, val amount: Int = 500) : AgentAction()
     data class Wait(val ms: Long) : AgentAction()
     data object Screenshot : AgentAction()
-    data class OpenApp(val packageName: String) : AgentAction()
+    data class OpenApp(val packageName: String? = null, val appName: String? = null) : AgentAction()
 
     companion object {
         fun fromMap(action: String, params: Map<String, Any>): AgentAction {
@@ -50,9 +50,14 @@ sealed class AgentAction {
                     ms = (params["ms"] as Number).toLong(),
                 )
                 "screenshot" -> Screenshot
-                "openapp", "open_app" -> OpenApp(
-                    packageName = params["packageName"] as String,
-                )
+                "openapp", "open_app" -> {
+                    val packageName = (params["packageName"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+                    val appName = (params["appName"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+                    if (packageName == null && appName == null) {
+                        throw IllegalArgumentException("openApp requires packageName or appName")
+                    }
+                    OpenApp(packageName = packageName, appName = appName)
+                }
                 else -> throw IllegalArgumentException("Unknown action: $action")
             }
         }
