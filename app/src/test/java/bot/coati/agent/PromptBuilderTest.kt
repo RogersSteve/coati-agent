@@ -71,6 +71,28 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `reasoning system prompt prefers dedicated apps before browser`() {
+        val prompt = PromptBuilder.buildReasoningSystemPrompt()
+
+        assertTrue(prompt.contains("Preferred App Routing"))
+        assertTrue(prompt.contains("prefer the dedicated installed app before using a browser"))
+        assertTrue(prompt.contains("weather/forecast/rain/temperature"))
+        assertTrue(prompt.contains("日历"))
+        assertTrue(prompt.contains("地图"))
+        assertTrue(prompt.contains("Fall back to browser/web search only if"))
+    }
+
+    @Test
+    fun `reasoning prompts allow appName inferred from task domain`() {
+        val systemPrompt = PromptBuilder.buildReasoningSystemPrompt()
+        val userPrompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
+
+        assertTrue(systemPrompt.contains("openApp with appName \"天气\""))
+        assertTrue(systemPrompt.contains("The system can resolve installed launcher apps by visible name"))
+        assertTrue(userPrompt.contains("such as 天气/日历/地图/时钟/笔记"))
+    }
+
+    @Test
     fun `reasoning system prompt does not mention pixel coordinates`() {
         val prompt = PromptBuilder.buildReasoningSystemPrompt()
         assertFalse(prompt.contains("pixel"))
