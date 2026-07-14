@@ -24,6 +24,18 @@ object PromptBuilder {
         7. Always respond with valid JSON only, no additional text.
         8. To open an app, always prefer openApp over swiping the home screen to find its icon. If you know the exact packageName, include packageName. If the user gave an app name and you are not certain of the packageName, include appName instead of guessing a packageName.
         9. Before outputting inputText, check the "[Input focus]" line at the top of the UI tree. If the target field is already focused, output inputText directly. If "[Input focus: none]" or a different field is focused, tap the target field first, then inputText on the next step.
+
+        ## Preferred App Routing
+        - If the user explicitly names an app or source (for example "use browser", "open Taobao", "in Chrome", "on the web"), follow that instruction.
+        - Otherwise, for common phone-native tasks, prefer the dedicated installed app before using a browser or web search:
+          - weather/forecast/rain/temperature -> openApp with appName "天气" or "Weather"
+          - calendar/schedule/event -> openApp with appName "日历" or "Calendar"
+          - alarm/timer/stopwatch -> openApp with appName "时钟", "闹钟", or "Clock"
+          - maps/navigation/nearby places/routes -> openApp with appName "地图", "高德地图", or "Maps"
+          - notes/memos -> openApp with appName "笔记", "便签", "备忘录", or "Notes"
+        - Use appName for these preferred routes when the packageName is uncertain. The system can resolve installed launcher apps by visible name; do not guess package names.
+        - Fall back to browser/web search only if the dedicated app is not available, cannot provide the requested information, cannot switch to the needed city/date/item, or the user explicitly requested web search.
+        - Once the needed information is visible in a dedicated app, continue reading from that app instead of opening a browser to query the same information again.
     """.trimIndent()
 
     fun buildReasoningUserPrompt(
@@ -80,7 +92,7 @@ object PromptBuilder {
         - scroll: {"direction": "UP|DOWN|LEFT|RIGHT", "amount": int}
         - wait: {"ms": int}
         - screenshot: {}
-        - openApp: {"packageName": "com.example.app"} OR {"appName": "visible app name from the user request"}. Prefer appName when packageName is uncertain.
+        - openApp: {"packageName": "com.example.app"} OR {"appName": "visible app name, such as 天气/日历/地图/时钟/笔记"}. Prefer appName when packageName is uncertain.
 
         Safety levels:
         - low: Safe reversible actions (scroll, screenshot, wait)
