@@ -1,10 +1,17 @@
 package bot.coati.agent
 
 import bot.coati.model.Message
+import bot.coati.model.CloudModelGateway
+import bot.coati.model.ModelResponse
+import bot.coati.model.QuickCheckResult
+import bot.coati.model.VerifyResult
+import bot.coati.state.StateManager
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.file.Files
 
 class AutocompactTest {
 
@@ -69,5 +76,69 @@ class AutocompactTest {
         val cache = mutableListOf(byteArrayOf(1), byteArrayOf(2), byteArrayOf(3))
         autocompact.pruneScreenshotCache(cache, keep = 3)
         assertEquals(3, cache.size)
+    }
+
+    @Test
+    fun `compact uses text-only summary and keeps recent entries`() = runTest {
+        val gateway = FakeGateway("Opened search. Last action tapped the search box.")
+        val stateManager = StateManager(Files.createTempDirectory("coati-autocompact-test").toFile())
+        val history = mutableListOf(
+            Message("user", "Task: search for tea"),
+            Message("assistant", "Plan: open app"),
+            Message("user", "Task: search for tea"),
+            Message("assistant", "Opened app"),
+            Message("user", "Task: search for tea"),
+            Message("assistant", "Tapped search"),
+        )
+
+        autocompact.compact(gateway, history, stateManager, "task123")
+
+        assertTrue(gateway.prompt!!.contains("Tapped search"))
+        assertEquals(4, history.size)
+        assertEquals("user", history[0].role)
+        assertTrue(history[0].content.contains("[History Summary]"))
+        assertTrue(history[0].content.contains("Opened search"))
+        assertEquals("assistant", history[1].role)
+        assertEquals("Opened app", history[1].content)
+        assertEquals("user", history[2].role)
+        assertEquals("Task: search for tea", history[2].content)
+        assertEquals("assistant", history[3].role)
+        assertEquals("Tapped search", history[3].content)
+        assertEquals("Opened search. Last action tapped the search box.", stateManager.readMarkdown("history_task123"))
+        assertFalse(gateway.analyzeScreenCalled)
+    }
+
+    private class FakeGateway(private val summary: String) : CloudModelGateway {
+        var prompt: String? = null
+        var analyzeScreenCalled = false
+
+        override suspend fun analyzeScreen(
+            screenshot: ByteArray,
+            uiTreeHint: String,
+            taskDescription: String,
+            conversationHistory: List<Message>,
+        ): Result<ModelResponse> {
+            analyzeScreenCalled = true
+            return Result.failure(AssertionError("Autocompact should use summarizeText"))
+        }
+
+        override suspend fun quickCheck(
+            screenshot: ByteArray,
+            question: String,
+        ): Result<QuickCheckResult> = Result.failure(UnsupportedOperationException())
+
+        override suspend fun verifyAction(
+            beforeScreenshot: ByteArray,
+            afterScreenshot: ByteArray,
+            actionDescription: String,
+            expectedOutcome: String,
+        ): Result<VerifyResult> = Result.failure(UnsupportedOperationException())
+
+        override suspend fun summarizeText(prompt: String): Result<String> {
+            this.prompt = prompt
+            return Result.success(summary)
+        }
+
+        override suspend fun testConnection(): Result<String> = Result.failure(UnsupportedOperationException())
     }
 }

@@ -20,5 +20,7 @@ interface CloudModelGateway {
         expectedOutcome: String,
     ): Result<VerifyResult>
 
+    suspend fun summarizeText(prompt: String): Result<String>
+
     suspend fun testConnection(): Result<String>
 }

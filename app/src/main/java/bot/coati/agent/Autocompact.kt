@@ -19,21 +19,28 @@ class Autocompact(private val compactInterval: Int = 15) {
         if (conversationHistory.size < 6) return
 
         val historyText = conversationHistory.joinToString("\n") { "[${it.role}] ${it.content}" }
-        val summarizationPrompt = "Summarize the following agent conversation history into a concise summary. " +
-            "Focus on: what actions were taken, what was accomplished, what remains to do, and any errors encountered.\n\n$historyText"
+        val summarizationPrompt = """
+            Summarize the following Android agent conversation history into a compact handoff note.
 
-        val result = reasoningGateway.analyzeScreen(
-            screenshot = DUMMY_SCREENSHOT,
-            uiTreeHint = historyText,
-            taskDescription = summarizationPrompt,
-            conversationHistory = emptyList(),
-        )
+            Focus on:
+            - user goal and current sub-goal
+            - actions already taken
+            - visible progress accomplished
+            - errors, failed attempts, drifted states, or unknown verification results
+            - what remains to do next
 
-        val summary = result.getOrNull()?.reasoning ?: return
+            Do not invent screen details that are not present in the text.
+            Return concise plain text only.
+
+            Conversation history:
+            $historyText
+        """.trimIndent()
+
+        val summary = reasoningGateway.summarizeText(summarizationPrompt).getOrNull() ?: return
 
         val lastEntries = conversationHistory.takeLast(3)
         conversationHistory.clear()
-        conversationHistory.add(Message("assistant", "[History Summary] $summary"))
+        conversationHistory.add(Message("user", "[History Summary]\n$summary"))
         conversationHistory.addAll(lastEntries)
 
         stateManager.writeMarkdown("history_$taskId", summary)
@@ -45,7 +52,4 @@ class Autocompact(private val compactInterval: Int = 15) {
         }
     }
 
-    companion object {
-        private val DUMMY_SCREENSHOT = ByteArray(4) { 0xFF.toByte() }
-    }
 }

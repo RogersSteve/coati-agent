@@ -194,6 +194,56 @@ class GeminiGateway(
         }
     }
 
+    override suspend fun summarizeText(prompt: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val contents = JSONArray()
+
+            contents.put(JSONObject().apply {
+                put("role", "user")
+                put("parts", JSONArray().put(JSONObject().apply {
+                    put("text", "You summarize Android agent history. Return concise plain text only.")
+                }))
+            })
+            contents.put(JSONObject().apply {
+                put("role", "model")
+                put("parts", JSONArray().put(JSONObject().apply {
+                    put("text", "Understood. I will return a concise plain-text summary.")
+                }))
+            })
+            contents.put(JSONObject().apply {
+                put("role", "user")
+                put("parts", JSONArray().put(JSONObject().apply {
+                    put("text", prompt)
+                }))
+            })
+
+            val requestBody = JSONObject().apply {
+                put("contents", contents)
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.2)
+                    put("maxOutputTokens", 1024)
+                })
+            }.toString()
+
+            val request = Request.Builder()
+                .url("$endpoint/v1beta/models/$modelName:generateContent?key=$apiKey")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+            }
+
+            Result.success(extractResponseText(body).trim())
+        } catch (e: Exception) {
+            Log.e(TAG, "summarizeText failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
         try {
             val requestBody = JSONObject().apply {
