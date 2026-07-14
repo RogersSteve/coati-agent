@@ -14,7 +14,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
 
-class ActionEngine(private val a11y: CoatiAccessibilityService) {
+class ActionEngine(
+    private val a11y: CoatiAccessibilityService,
+    private val appResolver: AppResolver = AppResolver(a11y.packageManager),
+) {
 
     suspend fun execute(action: AgentAction): ActionResult {
         Log.i(TAG, "Executing action: $action")
@@ -28,7 +31,7 @@ class ActionEngine(private val a11y: CoatiAccessibilityService) {
                 is AgentAction.Scroll -> executeScroll(action.direction, action.amount)
                 is AgentAction.Wait -> executeWait(action.ms)
                 is AgentAction.Screenshot -> executeScreenshot()
-                is AgentAction.OpenApp -> executeOpenApp(action.packageName)
+                is AgentAction.OpenApp -> executeOpenApp(action)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Action failed: ${e.message}", e)
@@ -131,9 +134,50 @@ class ActionEngine(private val a11y: CoatiAccessibilityService) {
         return ActionResult(success = true, message = "Screenshot captured", screenshotBytes = stream.toByteArray())
     }
 
-    private suspend fun executeOpenApp(packageName: String): ActionResult {
-        val intent = a11y.packageManager.getLaunchIntentForPackage(packageName)
-            ?: return ActionResult(success = false, message = "App not found: $packageName")
+    private suspend fun executeOpenApp(action: AgentAction.OpenApp): ActionResult {
+        val packageName = action.packageName?.trim()?.takeIf { it.isNotBlank() }
+        val appName = action.appName?.trim()?.takeIf { it.isNotBlank() }
+
+        if (packageName != null && AppResolver.looksLikePackageName(packageName)) {
+            val intent = a11y.packageManager.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                return launchApp(intent, packageName, appName)
+            }
+        }
+
+        val query = appName ?: packageName
+            ?: return ActionResult(success = false, message = "openApp requires packageName or appName")
+
+        return when (val resolved = appResolver.resolve(query)) {
+            is AppResolver.Result.Resolved -> {
+                val resolvedPackage = resolved.app.packageName
+                val intent = a11y.packageManager.getLaunchIntentForPackage(resolvedPackage)
+                    ?: return ActionResult(
+                        success = false,
+                        message = "Resolved ${resolved.app.label} to $resolvedPackage, but no launch intent was available",
+                    )
+                launchApp(intent, resolvedPackage, resolved.app.label)
+            }
+            is AppResolver.Result.Ambiguous -> {
+                val candidates = resolved.candidates
+                    .take(MAX_APP_CANDIDATES_IN_ERROR)
+                    .joinToString { "${it.label} (${it.packageName})" }
+                ActionResult(
+                    success = false,
+                    message = "App name '${resolved.query}' is ambiguous. Candidates: $candidates",
+                )
+            }
+            is AppResolver.Result.NotFound -> {
+                val packageFailure = packageName?.let { " Package not found: $it." }.orEmpty()
+                ActionResult(
+                    success = false,
+                    message = "App not found for '${resolved.query}'.$packageFailure Use openApp with appName from the user's request instead of guessing packageName.",
+                )
+            }
+        }
+    }
+
+    private suspend fun launchApp(intent: Intent, packageName: String, appName: String?): ActionResult {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         // Return to home screen before launching to avoid cross-app permission dialogs
         // covering Coati's overlay during app transitions.
@@ -141,7 +185,8 @@ class ActionEngine(private val a11y: CoatiAccessibilityService) {
         delay(300)
         a11y.startActivity(intent)
         delay(500)
-        return ActionResult(success = true, message = "Opened $packageName")
+        val label = appName?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+        return ActionResult(success = true, message = "Opened $packageName$label")
     }
 
     private suspend fun dispatchGesture(stroke: GestureDescription.StrokeDescription): Boolean {
@@ -155,5 +200,6 @@ class ActionEngine(private val a11y: CoatiAccessibilityService) {
 
     companion object {
         private const val TAG = "CoatiAction"
+        private const val MAX_APP_CANDIDATES_IN_ERROR = 5
     }
 }

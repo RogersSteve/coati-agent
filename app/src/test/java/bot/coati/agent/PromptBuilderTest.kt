@@ -61,6 +61,16 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `reasoning prompts allow openApp appName when package is uncertain`() {
+        val systemPrompt = PromptBuilder.buildReasoningSystemPrompt()
+        val userPrompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
+
+        assertTrue(systemPrompt.contains("appName"))
+        assertTrue(systemPrompt.contains("guessing a packageName"))
+        assertTrue(userPrompt.contains("{\"appName\""))
+    }
+
+    @Test
     fun `reasoning system prompt does not mention pixel coordinates`() {
         val prompt = PromptBuilder.buildReasoningSystemPrompt()
         assertFalse(prompt.contains("pixel"))
