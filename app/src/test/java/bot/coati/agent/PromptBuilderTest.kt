@@ -128,6 +128,7 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("FAILED"))
         assertTrue(prompt.contains("DRIFTED"))
         assertTrue(prompt.contains("UNEXPECTED"))
+        assertTrue(prompt.contains("UNKNOWN"))
     }
 
     @Test

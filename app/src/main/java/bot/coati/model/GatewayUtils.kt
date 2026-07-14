@@ -74,11 +74,11 @@ object GatewayUtils {
     fun parseVerifyResponse(text: String): VerifyResult {
         val jsonStr = extractJsonFromText(text)
         val json = JSONObject(jsonStr) // throws JSONException if not valid JSON
-        val outcomeStr = json.optString("outcome", "FAILED").uppercase()
+        val outcomeStr = json.optString("outcome", "UNKNOWN").uppercase()
         val outcome = try {
             VerifyOutcome.valueOf(outcomeStr)
         } catch (_: IllegalArgumentException) {
-            VerifyOutcome.FAILED
+            VerifyOutcome.UNKNOWN
         }
         return VerifyResult(
             outcome = outcome,

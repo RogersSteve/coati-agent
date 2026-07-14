@@ -349,6 +349,7 @@ class AgentLoop(
             // i. VERIFY: action verification with popup fast path + replan on failure
             var popupDismissCount = 0
             var verifyObservation: String? = null
+            var shouldRecordExperience = false
 
             verifyLoop@ while (true) {
                 delay(randomDelay())
@@ -413,8 +414,8 @@ class AgentLoop(
                         null
                     }
                 } ?: run {
-                    Log.w(TAG, "Verify skipped after 3 failures, treating as SUCCESS")
-                    VerifyResult(VerifyOutcome.SUCCESS, "Verification skipped after repeated parse failures")
+                    Log.w(TAG, "Verify unavailable after 3 failures, treating as UNKNOWN")
+                    VerifyResult(VerifyOutcome.UNKNOWN, "Verification unavailable after repeated parse/API failures")
                 }
 
                 Log.i(TAG, "Verify: ${verifyResult.outcome} - ${verifyResult.reason}")
@@ -432,6 +433,7 @@ class AgentLoop(
                         exceptionHandler.recordSuccess()
                         replanHint = null
                         lastStepFeedback = "Previous action SUCCEEDED: ${verifyResult.reason}"
+                        shouldRecordExperience = true
 
                         // Learn popup experience
                         if (response.isPopupDismissal && beforeUiTree != null) {
@@ -454,6 +456,14 @@ class AgentLoop(
                         replanHint = null
                         lastStepFeedback = "Previous action had an UNEXPECTED but task-compatible result: ${verifyResult.reason}"
                         verifyObservation = verifyResult.observation
+                        shouldRecordExperience = true
+                        carryOverContext = afterContext
+                        break@verifyLoop
+                    }
+                    VerifyOutcome.UNKNOWN -> {
+                        replanHint = null
+                        lastStepFeedback = "Previous action result UNKNOWN: ${verifyResult.reason}. " +
+                            "Re-observe the current screenshot and do not assume the previous action succeeded."
                         carryOverContext = afterContext
                         break@verifyLoop
                     }
@@ -506,7 +516,9 @@ class AgentLoop(
             }
 
             // j. LEARN: record experience (UNEXPECTED observation takes priority)
-            val learnNote = if (verifyObservation != null) {
+            val learnNote = if (!shouldRecordExperience) {
+                null
+            } else if (verifyObservation != null) {
                 val pageName = response.experienceNote?.page
                     ?: response.statusUpdate.ifBlank { screenContext.appPackage }
                 ExperienceNote(page = pageName, observation = verifyObservation!!)
