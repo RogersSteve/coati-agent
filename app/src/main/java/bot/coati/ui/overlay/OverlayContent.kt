@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -48,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import bot.coati.data.SafetyMode
 import bot.coati.ui.theme.BallError
 import bot.coati.ui.theme.BallExecuting
 import bot.coati.ui.theme.BallIdle
@@ -63,7 +65,9 @@ private val DialogScrim = Color.Black.copy(alpha = 0.5f)
 fun OverlayContent(
     state: OverlayState,
     ballState: OverlayState = state,
+    safetyMode: SafetyMode = SafetyMode.STANDARD,
     onExecute: (String) -> Unit = {},
+    onSafetyModeChanged: (SafetyMode) -> Unit = {},
     onStop: () -> Unit = {},
     onPause: () -> Unit = {},
     onResume: () -> Unit = {},
@@ -80,7 +84,9 @@ fun OverlayContent(
     when (state) {
         is OverlayState.CollapsedIdle -> CollapsedBall(ballState = ballState)
         is OverlayState.ExpandedIdle -> ExpandedInputPanel(
+            safetyMode = safetyMode,
             onExecute = onExecute,
+            onSafetyModeChanged = onSafetyModeChanged,
             onCollapse = onCollapse,
             onSettings = onSettings,
             onExit = onExit,
@@ -184,7 +190,9 @@ fun CollapsedBall(ballState: OverlayState) {
 
 @Composable
 private fun ExpandedInputPanel(
+    safetyMode: SafetyMode,
     onExecute: (String) -> Unit,
+    onSafetyModeChanged: (SafetyMode) -> Unit,
     onCollapse: () -> Unit,
     onSettings: () -> Unit,
     onExit: () -> Unit,
@@ -223,6 +231,11 @@ private fun ExpandedInputPanel(
             shape = RoundedCornerShape(12.dp),
         )
         Spacer(modifier = Modifier.height(8.dp))
+        SafetyModeSelector(
+            selectedMode = safetyMode,
+            onModeSelected = onSafetyModeChanged,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Button(
             onClick = {
                 if (taskInput.isNotBlank()) onExecute(taskInput)
@@ -236,6 +249,53 @@ private fun ExpandedInputPanel(
             Text("Execute")
         }
     }
+}
+
+@Composable
+private fun SafetyModeSelector(
+    selectedMode: SafetyMode,
+    onModeSelected: (SafetyMode) -> Unit,
+) {
+    val options = listOf(
+        SafetyMode.TRUST to "Auto",
+        SafetyMode.STANDARD to "Risk check",
+        SafetyMode.CAUTIOUS to "Every step",
+    )
+
+    Text(
+        text = "Execution mode",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Medium,
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEach { (mode, label) ->
+            FilterChip(
+                selected = selectedMode == mode,
+                onClick = { onModeSelected(mode) },
+                label = {
+                    Text(
+                        text = label,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                    )
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+    Text(
+        text = when (selectedMode) {
+            SafetyMode.TRUST -> "Low and medium-risk actions run automatically. High-risk actions still require confirmation."
+            SafetyMode.STANDARD -> "Low-risk actions run automatically. Medium and high-risk actions require confirmation."
+            SafetyMode.CAUTIOUS -> "Every action requires confirmation before execution."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 // ─── FRAME EXECUTING OVERLAY ───

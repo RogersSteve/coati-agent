@@ -50,6 +50,8 @@ object RuleEngine {
         "删除", "支付", "付款", "购买", "转账", "汇款", "卸载",
     )
 
+    private val CONTEXT_FREE_ACTIONS = setOf("screenshot", "wait")
+
     fun assessQuality(nodeCount: Int, textNodeCount: Int): UiTreeQuality {
         return when {
             nodeCount >= 20 && textNodeCount >= 5 -> UiTreeQuality.HIGH
@@ -115,15 +117,25 @@ object RuleEngine {
         return texts.filter { it.length >= 2 }.take(5)
     }
 
-    fun assessSafety(appPackage: String, actionText: String, modelSafetyLevel: String): SafetyAssessment {
+    fun assessSafety(
+        appPackage: String,
+        actionName: String,
+        actionContext: String,
+        modelSafetyLevel: String,
+    ): SafetyAssessment {
         if (appPackage in BANKING_PACKAGES) {
             return SafetyAssessment("high", "Banking/payment app detected: $appPackage")
         }
 
-        val lowerAction = actionText.lowercase()
-        for (keyword in DANGEROUS_KEYWORDS) {
-            if (lowerAction.contains(keyword.lowercase())) {
-                return SafetyAssessment("high", "Dangerous keyword detected: $keyword")
+        // Screenshot and wait cannot perform the dangerous operation mentioned in a task/status
+        // description. Scanning their inherited context creates sticky high-risk false positives
+        // after the real destructive action has already completed.
+        if (actionName.lowercase() !in CONTEXT_FREE_ACTIONS) {
+            val lowerAction = "$actionName: $actionContext".lowercase()
+            for (keyword in DANGEROUS_KEYWORDS) {
+                if (lowerAction.contains(keyword.lowercase())) {
+                    return SafetyAssessment("high", "Dangerous keyword detected: $keyword")
+                }
             }
         }
 
@@ -134,7 +146,8 @@ object RuleEngine {
         "high" -> true
         "medium" -> safetyMode != SafetyMode.TRUST
         "low" -> safetyMode == SafetyMode.CAUTIOUS
-        else -> false
+        // Unknown or malformed risk must fail closed instead of being auto-approved.
+        else -> true
     }
 
     fun detectScreenChange(

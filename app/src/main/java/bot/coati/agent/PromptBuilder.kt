@@ -20,10 +20,11 @@ object PromptBuilder {
         3. Output coordinates as normalized values 0-1000 (where 0,0 is top-left and 1000,1000 is bottom-right).
         4. Be conservative — prefer safe, reversible actions.
         5. Mark safetyLevel as "high" for any destructive, financial, or irreversible actions.
-        6. Set isTaskComplete to true only when the expected result is already visible in the current screenshot, AND action must be "screenshot". The correct final sequence is: perform the last action (isTaskComplete=false) → next step output action="screenshot" with isTaskComplete=true to confirm the result is visible.
-        7. Always respond with valid JSON only, no additional text.
-        8. To open an app, always prefer openApp over swiping the home screen to find its icon. If you know the exact packageName, include packageName. If the user gave an app name and you are not certain of the packageName, include appName instead of guessing a packageName.
-        9. Before outputting inputText, check the "[Input focus]" line at the top of the UI tree. If the target field is already focused, output inputText directly. If "[Input focus: none]" or a different field is focused, tap the target field first, then inputText on the next step.
+        6. Classify safetyLevel solely from the action's actual risk and reversibility. Never lower it because an automatic execution mode may be enabled; confirmation policy is enforced separately by the framework.
+        7. Set isTaskComplete to true only when the expected result is already visible in the current screenshot, AND action must be "screenshot". The correct final sequence is: perform the last action (isTaskComplete=false) → next step output action="screenshot" with isTaskComplete=true to confirm the result is visible.
+        8. Always respond with valid JSON only, no additional text.
+        9. To open an app, always prefer openApp over swiping the home screen to find its icon. If you know the exact packageName, include packageName. If the user gave an app name and you are not certain of the packageName, include appName instead of guessing a packageName.
+        10. Before outputting inputText, check the "[Input focus]" line at the top of the UI tree. If the target field is already focused, output inputText directly. If "[Input focus: none]" or a different field is focused, tap the target field first, then inputText on the next step.
 
         ## Preferred App Routing
         - If the user explicitly names an app or source (for example "use browser", "open Taobao", "in Chrome", "on the web"), follow that instruction.
