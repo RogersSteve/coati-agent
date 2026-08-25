@@ -36,6 +36,7 @@ class CoatiService : Service() {
 
     private var overlayManager: OverlayManager? = null
     private var agentLoop: AgentLoop? = null
+    private lateinit var configStore: ConfigStore
     private var telephonyManager: TelephonyManager? = null
     private var callStateCallback: TelephonyCallback? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main)
@@ -45,9 +46,16 @@ class CoatiService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
+        configStore = ConfigStore(this)
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        overlayManager = OverlayManager(this, wm)
-        overlayManager?.show()
+        overlayManager = OverlayManager(this, wm).also { overlay ->
+            overlay.setSafetyMode(configStore.getSafetyMode())
+            overlay.onSafetyModeChanged = { mode ->
+                configStore.setSafetyMode(mode)
+                Log.i(TAG, "Confirmation mode selected: $mode")
+            }
+            overlay.show()
+        }
 
         initializeAgent()
         registerCallStateListener()
@@ -107,8 +115,6 @@ class CoatiService : Service() {
     }
 
     private fun setupAgent(stateManager: StateManager, a11y: CoatiAccessibilityService) {
-        val configStore = ConfigStore(this)
-
         // Load reasoning config (with fallback to old single config)
         val reasoningConfig = configStore.getReasoningConfig() ?: configStore.getActiveProviderConfig()
         if (reasoningConfig == null) {
@@ -139,11 +145,10 @@ class CoatiService : Service() {
         val overlay = overlayManager ?: return
 
         val experienceManager = AppExperienceManager(stateManager)
-        val safetyMode = configStore.getSafetyMode()
-
         val loop = AgentLoop(
             overlay, modelRouter, actionEngine, a11y,
-            stateManager, experienceManager, safetyMode,
+            stateManager, experienceManager,
+            safetyModeProvider = { configStore.getSafetyMode() },
         )
         agentLoop = loop
 
@@ -177,7 +182,11 @@ class CoatiService : Service() {
             stop(this)
         }
 
-        Log.i(TAG, "Agent initialized: reasoning=${reasoningConfig.providerId}/${reasoningConfig.modelName}, fast=${fastConfig.providerId}/${fastConfig.modelName}")
+        Log.i(
+            TAG,
+            "Agent initialized: reasoning=${reasoningConfig.providerId}/${reasoningConfig.modelName}, " +
+                "fast=${fastConfig.providerId}/${fastConfig.modelName}, confirmationMode=${configStore.getSafetyMode()}",
+        )
     }
 
     private fun registerCallStateListener() {

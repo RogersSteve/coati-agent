@@ -25,6 +25,7 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import bot.coati.data.SafetyMode
 import kotlinx.coroutines.CompletableDeferred
 
 class OverlayManager(
@@ -33,12 +34,14 @@ class OverlayManager(
 ) {
     private var composeView: ComposeView? = null
     val overlayState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
+    private val safetyMode = mutableStateOf(SafetyMode.STANDARD)
 
     // Background agent state for ball color when collapsed
     private var agentBallState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
 
     // Callbacks wired by CoatiService
     var onExecuteTask: ((String) -> Unit)? = null
+    var onSafetyModeChanged: ((SafetyMode) -> Unit)? = null
     var onStopTask: (() -> Unit)? = null
     var onPauseTask: (() -> Unit)? = null
     var onResumeTask: (() -> Unit)? = null
@@ -109,9 +112,14 @@ class OverlayManager(
                 OverlayContent(
                     state = state,
                     ballState = ballState,
+                    safetyMode = safetyMode.value,
                     onExecute = { task ->
                         lastTask = task
                         onExecuteTask?.invoke(task)
+                    },
+                    onSafetyModeChanged = { mode ->
+                        setSafetyMode(mode)
+                        onSafetyModeChanged?.invoke(mode)
                     },
                     onStop = { onStopTask?.invoke() },
                     onPause = { onPauseTask?.invoke() },
@@ -188,6 +196,10 @@ class OverlayManager(
     }
 
     // ─── STATE TRANSITIONS ───
+
+    fun setSafetyMode(mode: SafetyMode) {
+        safetyMode.value = mode
+    }
 
     fun collapse() {
         overlayState.value = OverlayState.CollapsedIdle

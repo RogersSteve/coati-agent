@@ -83,6 +83,15 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `reasoning system prompt keeps risk classification independent of execution mode`() {
+        val prompt = PromptBuilder.buildReasoningSystemPrompt()
+
+        assertTrue(prompt.contains("solely from the action's actual risk and reversibility"))
+        assertTrue(prompt.contains("Never lower it because an automatic execution mode may be enabled"))
+        assertTrue(prompt.contains("confirmation policy is enforced separately by the framework"))
+    }
+
+    @Test
     fun `reasoning prompts allow appName inferred from task domain`() {
         val systemPrompt = PromptBuilder.buildReasoningSystemPrompt()
         val userPrompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)

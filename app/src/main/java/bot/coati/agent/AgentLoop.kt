@@ -34,7 +34,7 @@ class AgentLoop(
     private val a11y: CoatiAccessibilityService,
     private val stateManager: StateManager? = null,
     private val experienceManager: AppExperienceManager? = null,
-    private val safetyMode: SafetyMode = SafetyMode.STANDARD,
+    private val safetyModeProvider: () -> SafetyMode = { SafetyMode.STANDARD },
 ) {
     private data class ActionRecord(
         val action: String,
@@ -63,6 +63,7 @@ class AgentLoop(
 
     fun start(task: String) {
         stop()
+        val taskSafetyMode = safetyModeProvider()
         conversationHistory.clear()
         screenshotCache.clear()
         actionHistory.clear()
@@ -73,14 +74,14 @@ class AgentLoop(
         resumedFromPause = false
         replanHint = null
         lastStepFeedback = null
-        Log.i(TAG, "Starting agent loop for task: $task")
+        Log.i(TAG, "Starting agent loop for task: $task (confirmationMode=$taskSafetyMode)")
 
         overlayManager.enterFrameExecuting(task)
 
         currentJob = scope.launch {
             val myJob = coroutineContext[Job]
             try {
-                runLoop(task)
+                runLoop(task, taskSafetyMode)
             } catch (e: CancellationException) {
                 Log.i(TAG, if (emergencyStop) "Emergency stop triggered!" else "Agent loop cancelled")
                 // Guard: only do cleanup if no new task has started since we were launched
@@ -124,7 +125,7 @@ class AgentLoop(
         }
     }
 
-    private suspend fun runLoop(task: String) {
+    private suspend fun runLoop(task: String, safetyMode: SafetyMode) {
         // INIT: create TaskState
         val taskState = TaskState.newTask(task)
         currentTask = taskState
@@ -246,14 +247,19 @@ class AgentLoop(
 
             // g. SAFETY CHECK: use shouldConfirm with safety mode
             val safety = RuleEngine.assessSafety(
-                screenContext.appPackage,
-                "${response.action}: ${response.statusUpdate}",
-                response.safetyLevel,
+                appPackage = screenContext.appPackage,
+                actionName = response.action,
+                actionContext = response.statusUpdate,
+                modelSafetyLevel = response.safetyLevel,
             )
             if (RuleEngine.shouldConfirm(safety.level, safetyMode)) {
                 Log.i(TAG, "Safety confirmation needed (${safety.level}/$safetyMode): ${safety.reason}")
                 val confirmed = overlayManager.requestConfirmation(
-                    title = "Confirm Action",
+                    title = when (safetyMode) {
+                        SafetyMode.TRUST -> "High-Risk Action"
+                        SafetyMode.STANDARD -> "Risk Confirmation"
+                        SafetyMode.CAUTIOUS -> "Review Next Action"
+                    },
                     detail = "${response.action}: ${response.reasoning}",
                 )
                 if (!confirmed) {

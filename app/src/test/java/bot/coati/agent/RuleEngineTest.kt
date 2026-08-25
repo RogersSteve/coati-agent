@@ -236,40 +236,79 @@ class RuleEngineTest {
 
     @Test
     fun `assessSafety forces high for Alipay`() {
-        val result = RuleEngine.assessSafety("com.eg.android.AlipayGphone", "tap button", "low")
+        val result = RuleEngine.assessSafety("com.eg.android.AlipayGphone", "tap", "button", "low")
         assertEquals("high", result.level)
         assertNotNull(result.reason)
     }
 
     @Test
     fun `assessSafety forces high for WeChat`() {
-        val result = RuleEngine.assessSafety("com.tencent.mm", "tap", "low")
+        val result = RuleEngine.assessSafety("com.tencent.mm", "tap", "", "low")
         assertEquals("high", result.level)
     }
 
     @Test
     fun `assessSafety escalates on delete keyword`() {
-        val result = RuleEngine.assessSafety("com.example.app", "Delete this file", "low")
+        val result = RuleEngine.assessSafety("com.example.app", "tap", "Delete this file", "low")
         assertEquals("high", result.level)
     }
 
     @Test
     fun `assessSafety escalates on payment keyword`() {
-        val result = RuleEngine.assessSafety("com.example.app", "Confirm payment", "medium")
+        val result = RuleEngine.assessSafety("com.example.app", "tap", "Confirm payment", "medium")
         assertEquals("high", result.level)
     }
 
     @Test
     fun `assessSafety escalates on chinese payment keyword`() {
-        val result = RuleEngine.assessSafety("com.example.app", "确认支付", "low")
+        val result = RuleEngine.assessSafety("com.example.app", "tap", "确认支付", "low")
         assertEquals("high", result.level)
     }
 
     @Test
     fun `assessSafety uses model level when no rules match`() {
-        val result = RuleEngine.assessSafety("com.example.app", "tap search button", "medium")
+        val result = RuleEngine.assessSafety("com.example.app", "tap", "search button", "medium")
         assertEquals("medium", result.level)
         assertNull(result.reason)
+    }
+
+    @Test
+    fun `assessSafety does not inherit dangerous keywords for screenshot`() {
+        val result = RuleEngine.assessSafety(
+            "com.example.app",
+            "screenshot",
+            "The note was deleted successfully",
+            "low",
+        )
+
+        assertEquals("low", result.level)
+        assertNull(result.reason)
+    }
+
+    @Test
+    fun `assessSafety does not inherit dangerous keywords for wait`() {
+        val result = RuleEngine.assessSafety(
+            "com.example.app",
+            "wait",
+            "Wait for payment confirmation",
+            "low",
+        )
+
+        assertEquals("low", result.level)
+        assertNull(result.reason)
+    }
+
+    @Test
+    fun `assessSafety keeps banking override for context-free actions`() {
+        val result = RuleEngine.assessSafety(
+            "com.eg.android.AlipayGphone",
+            "screenshot",
+            "Payment completed",
+            "low",
+        )
+
+        assertEquals("high", result.level)
+        assertNotNull(result.reason)
     }
 
     // ─── shouldConfirm ───
@@ -300,10 +339,10 @@ class RuleEngineTest {
     }
 
     @Test
-    fun `shouldConfirm unknown level returns false`() {
-        assertFalse(RuleEngine.shouldConfirm("unknown", SafetyMode.CAUTIOUS))
-        assertFalse(RuleEngine.shouldConfirm("unknown", SafetyMode.STANDARD))
-        assertFalse(RuleEngine.shouldConfirm("unknown", SafetyMode.TRUST))
+    fun `shouldConfirm unknown level always fails closed`() {
+        assertTrue(RuleEngine.shouldConfirm("unknown", SafetyMode.CAUTIOUS))
+        assertTrue(RuleEngine.shouldConfirm("unknown", SafetyMode.STANDARD))
+        assertTrue(RuleEngine.shouldConfirm("unknown", SafetyMode.TRUST))
     }
 
     // ─── detectScreenChange ───
