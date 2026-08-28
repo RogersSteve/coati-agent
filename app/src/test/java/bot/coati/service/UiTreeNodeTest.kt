@@ -58,6 +58,27 @@ class UiTreeNodeTest {
     }
 
     @Test
+    fun `toSimpleString includes editable input metadata`() {
+        val node = createNode(
+            "EditText",
+            hintText = "Body",
+            isEditable = true,
+            isFocused = true,
+            isMultiLine = true,
+            isShowingHintText = true,
+            actions = listOf("SET_TEXT"),
+        )
+        val result = node.toSimpleString()
+
+        assertTrue(result.contains("hint=\"Body\""))
+        assertTrue(result.contains("[editable]"))
+        assertTrue(result.contains("[focused]"))
+        assertTrue(result.contains("[multiline]"))
+        assertTrue(result.contains("[showing-hint]"))
+        assertTrue(result.contains("actions=SET_TEXT"))
+    }
+
+    @Test
     fun `toSimpleString indents children`() {
         val tree = createNode(
             "Root",
@@ -73,17 +94,29 @@ class UiTreeNodeTest {
         className: String,
         text: String? = null,
         contentDescription: String? = null,
+        hintText: String? = null,
         isClickable: Boolean = false,
         isScrollable: Boolean = false,
+        isEditable: Boolean = false,
+        isFocused: Boolean = false,
+        isMultiLine: Boolean = false,
+        isShowingHintText: Boolean = false,
+        actions: List<String> = emptyList(),
         children: List<UiTreeNode> = emptyList(),
     ) = UiTreeNode(
         className = className,
         text = text,
         contentDescription = contentDescription,
+        hintText = hintText,
         bounds = Rect(0, 0, 100, 100),
         isClickable = isClickable,
         isScrollable = isScrollable,
+        isEditable = isEditable,
+        isFocused = isFocused,
+        isMultiLine = isMultiLine,
+        isShowingHintText = isShowingHintText,
         viewIdResourceName = null,
+        actions = actions,
         children = children,
     )
 }

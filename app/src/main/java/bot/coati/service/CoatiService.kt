@@ -154,6 +154,7 @@ class CoatiService : Service() {
 
         // Wire emergency stop from accessibility service
         a11y.onEmergencyStop = {
+            Log.i(TAG, "Stopping agent: source=accessibility_emergency_stop")
             loop.emergencyStop = true
             loop.stop()
         }
@@ -161,10 +162,12 @@ class CoatiService : Service() {
         // Wire overlay callbacks to agent loop
         overlay.onExecuteTask = { task -> loop.start(task) }
         overlay.onStopTask = {
+            Log.i(TAG, "Stopping agent: source=overlay_stop")
             loop.stop()
             overlay.collapse()
         }
         overlay.onPauseTask = {
+            Log.i(TAG, "Stopping agent: source=overlay_pause")
             loop.stop()
             overlay.collapse()
         }

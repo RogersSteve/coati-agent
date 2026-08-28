@@ -6,10 +6,16 @@ data class UiTreeNode(
     val className: String?,
     val text: String?,
     val contentDescription: String?,
+    val hintText: String? = null,
     val bounds: Rect,
     val isClickable: Boolean,
     val isScrollable: Boolean,
+    val isEditable: Boolean = false,
+    val isFocused: Boolean = false,
+    val isMultiLine: Boolean = false,
+    val isShowingHintText: Boolean = false,
     val viewIdResourceName: String?,
+    val actions: List<String> = emptyList(),
     val children: List<UiTreeNode>,
 ) {
     fun toSimpleString(indent: Int = 0): String {
@@ -19,9 +25,15 @@ data class UiTreeNode(
             className?.substringAfterLast('.')?.let { append(it) }
             text?.let { append(" text=\"$it\"") }
             contentDescription?.let { append(" desc=\"$it\"") }
+            hintText?.let { append(" hint=\"$it\"") }
             if (isClickable) append(" [clickable]")
             if (isScrollable) append(" [scrollable]")
+            if (isEditable) append(" [editable]")
+            if (isFocused) append(" [focused]")
+            if (isMultiLine) append(" [multiline]")
+            if (isShowingHintText) append(" [showing-hint]")
             viewIdResourceName?.let { append(" id=$it") }
+            if (actions.isNotEmpty()) append(" actions=${actions.joinToString("|")}")
             append(" bounds=[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]")
         }
         sb.appendLine("$prefix$label")

@@ -2,12 +2,15 @@ package bot.coati.agent
 
 import android.util.Log
 import bot.coati.action.ActionEngine
+import bot.coati.action.ActionFailureCode
 import bot.coati.action.AgentAction
+import bot.coati.action.toLogSummary
 import bot.coati.data.SafetyMode
 import bot.coati.model.ExperienceNote
 import bot.coati.model.Message
 import bot.coati.model.ModelResponse
 import bot.coati.model.ModelRouter
+import bot.coati.model.QuickCheckResult
 import bot.coati.model.ScreenContext
 import bot.coati.model.VerifyOutcome
 import bot.coati.model.VerifyResult
@@ -26,6 +29,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+
+internal enum class CompletionAuditDecision {
+    ACCEPT,
+    REJECT,
+    UNAVAILABLE,
+}
 
 class AgentLoop(
     private val overlayManager: OverlayManager,
@@ -52,11 +61,13 @@ class AgentLoop(
 
     private val autocompact = Autocompact()
     private val exceptionHandler = ExceptionHandler()
+    private val capabilityFailureLedger = CapabilityFailureLedger()
     private val screenshotCache = mutableListOf<ByteArray>()
     private var currentTask: TaskState? = null
     private var resumedFromPause = false
     private var replanHint: String? = null
     private var lastStepFeedback: String? = null
+    private var taskCompletionAuditRejects = 0
 
     @Volatile
     var emergencyStop = false
@@ -71,9 +82,11 @@ class AgentLoop(
         stepCount = 0
         emergencyStop = false
         exceptionHandler.reset()
+        capabilityFailureLedger.reset()
         resumedFromPause = false
         replanHint = null
         lastStepFeedback = null
+        taskCompletionAuditRejects = 0
         Log.i(TAG, "Starting agent loop for task: $task (confirmationMode=$taskSafetyMode)")
 
         overlayManager.enterFrameExecuting(task)
@@ -179,6 +192,15 @@ class AgentLoop(
             val uiTree = a11y.getUiTree()
             val nodeCount = uiTree?.flatCount() ?: 0
             val textNodeCount = uiTree?.nodesWithText() ?: 0
+            val screenSig = RuleEngine.buildScreenSignature(uiTree)
+            val inputSessionId = a11y.currentInputSessionId()
+            capabilityFailureLedger.activateScope(
+                capabilityScope(
+                    packageName = screenContext.appPackage,
+                    screenSignature = screenSig,
+                    inputSessionId = inputSessionId,
+                ),
+            )
 
             // c. RULE CHECK: assess quality, detect popup (experience-based only)
             val quality = RuleEngine.assessQuality(nodeCount, textNodeCount)
@@ -191,12 +213,8 @@ class AgentLoop(
                 overlayManager.updateProgress(task, "Dismissing popup...", popup.dismissText, stepCount, MAX_STEPS)
                 val tapX = popup.bounds.centerX()
                 val tapY = popup.bounds.centerY()
-                overlayManager.setGesturePassthrough(true)
-                delay(50)
-                try {
+                overlayManager.withGesturePassthrough {
                     actionEngine.execute(AgentAction.Tap(tapX, tapY))
-                } finally {
-                    overlayManager.setGesturePassthrough(false)
                 }
                 delay(randomDelay())
                 if (popup.popupSignature != null) {
@@ -243,7 +261,7 @@ class AgentLoop(
 
             // f. COORDINATE RESOLUTION
             val action = resolveAction(response.action, response.params, response.x, response.y, quality, uiTree, response.statusUpdate)
-            Log.i(TAG, "Resolved action: $action")
+            Log.i(TAG, "Resolved action: ${action.toLogSummary()}")
 
             // g. SAFETY CHECK: use shouldConfirm with safety mode
             val safety = RuleEngine.assessSafety(
@@ -279,35 +297,54 @@ class AgentLoop(
             // Save before-context for verification
             val beforeScreenshot = screenContext.screenshotJpeg
             val beforeUiTree = uiTree
-            val screenSig = RuleEngine.buildScreenSignature(uiTree)
-
             // h. ACT
             // FLAG_NOT_TOUCHABLE must be set before dispatchGesture so injected touch events
             // pass through the full-screen overlay to the target app. Without this, the overlay
             // consumes the gesture and the target app never receives it (same fix as AgentRunner).
             val actionName = response.statusUpdate.ifBlank { response.action }
             overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, stepCount, MAX_STEPS)
-            overlayManager.setGesturePassthrough(true)
-            // WMS processes updateViewLayout() asynchronously; wait 50ms for the InputDispatcher
-            // to pick up FLAG_NOT_TOUCHABLE before dispatchGesture() injects events.
-            delay(50)
-            val actionResult = try {
+            val actionResult = overlayManager.withGesturePassthrough {
                 actionEngine.execute(action)
-            } finally {
-                overlayManager.setGesturePassthrough(false)
             }
             Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
             if (!actionResult.success) {
                 val actionFailure = "Previous action FAILED: ${actionResult.message}"
                 lastStepFeedback = actionFailure
+                val capabilityDecision = actionResult.failureCode?.let { failureCode ->
+                    val key = capabilityFailureKey(
+                        actionName = response.action,
+                        failureCode = failureCode,
+                    )
+                    val decision = capabilityFailureLedger.recordFailure(
+                        key = key,
+                        constraint = capabilityConstraint(failureCode),
+                    )
+                    Log.w(
+                        TAG,
+                        "Capability failure: package=${screenContext.appPackage}, " +
+                            "code=$failureCode, count=${capabilityFailureLedger.count(key)}, " +
+                            "decision=$decision",
+                    )
+                    decision
+                }
                 val failAction = exceptionHandler.recordFailure()
-                when (failAction) {
-                    FailureAction.ABORT -> {
-                        updateTaskStatus("failed", "Action failed: ${actionResult.message}")
+                val shouldAbort = capabilityDecision == CapabilityFailureDecision.ABORT ||
+                    failAction == FailureAction.ABORT
+                val shouldReplan = capabilityDecision == CapabilityFailureDecision.REPLAN ||
+                    failAction == FailureAction.REPLAN
+                when {
+                    shouldAbort -> {
+                        val reason = if (capabilityDecision == CapabilityFailureDecision.ABORT) {
+                            "The same text-input capability failed repeatedly; stopped to avoid an action loop. " +
+                                actionResult.message
+                        } else {
+                            "Action failed: ${actionResult.message}"
+                        }
+                        updateTaskStatus("failed", reason)
                         val retry = overlayManager.awaitTaskFailed(
                             taskName = task,
-                            reason = "Action failed: ${actionResult.message}",
+                            reason = reason,
                             stepsCompleted = stepCount,
                             totalSteps = MAX_STEPS,
                         )
@@ -320,12 +357,19 @@ class AgentLoop(
                             return
                         }
                     }
-                    FailureAction.REPLAN -> {
-                        replanHint = "$actionFailure\n${exceptionHandler.buildReplanHint()}"
+                    shouldReplan -> {
+                        replanHint = if (isTextInputAction(response.action)) {
+                            buildTextInputReplanHint(
+                                outcome = "FAILED",
+                                reason = actionResult.message,
+                            )
+                        } else {
+                            "$actionFailure\n${exceptionHandler.buildReplanHint()}"
+                        }
                         Log.i(TAG, "Replan after action failure: $replanHint")
                         continue
                     }
-                    FailureAction.RETRY -> {
+                    else -> {
                         Log.i(TAG, "Retrying after action failure...")
                         continue
                     }
@@ -338,18 +382,69 @@ class AgentLoop(
             // and the VERIFY step captures a fresh screenshot (stored as carryOverContext), so
             // the next step the model sees the result and can issue screenshot + isTaskComplete=true.
             if (response.isTaskComplete && response.action.lowercase() == "screenshot") {
-                val elapsed = System.currentTimeMillis() - taskStartTime
-                Log.i(TAG, "Task complete at step $stepCount!")
-                updateTaskStatus("completed")
-                overlayManager.awaitTaskComplete(
-                    taskName = task,
-                    summary = response.statusUpdate,
-                    steps = stepCount,
-                    durationMs = elapsed,
+                val audit = withTimeoutOrNull(TASK_COMPLETION_AUDIT_TIMEOUT_MS) {
+                    modelRouter.fast.quickCheck(
+                        // screenshot is a read-only completion action, so the current
+                        // overlay-free OBSERVE frame is the authoritative final state.
+                        screenshot = screenContext.screenshotJpeg,
+                        question = buildTaskCompletionAuditQuestion(task),
+                    )
+                }?.getOrNull()
+                val auditDecision = classifyTaskCompletionAudit(audit)
+                Log.i(
+                    TAG,
+                    "Task completion audit: decision=$auditDecision, valid=${audit?.isValid}, " +
+                        "answer=${audit?.answer}, confidence=${audit?.confidence}, " +
+                        "category=${audit?.category ?: "unavailable"}",
                 )
-                overlayManager.collapse()
-                overlayManager.resetBallState()
-                return
+                if (auditDecision != CompletionAuditDecision.REJECT) {
+                    if (auditDecision == CompletionAuditDecision.UNAVAILABLE) {
+                        Log.w(
+                            TAG,
+                            "Independent completion audit unavailable; accepting the reasoning " +
+                                "model's current-screen completion evidence",
+                        )
+                    }
+                    val elapsed = System.currentTimeMillis() - taskStartTime
+                    Log.i(TAG, "Task complete at step $stepCount!")
+                    updateTaskStatus("completed")
+                    overlayManager.awaitTaskComplete(
+                        taskName = task,
+                        summary = response.statusUpdate,
+                        steps = stepCount,
+                        durationMs = elapsed,
+                    )
+                    overlayManager.collapse()
+                    overlayManager.resetBallState()
+                    return
+                }
+
+                taskCompletionAuditRejects++
+                val auditReason = audit?.category ?: "completion evidence unavailable"
+                lastStepFeedback = "Task completion audit REJECTED: $auditReason. " +
+                    "The current screen does not yet prove every explicit user requirement."
+                replanHint = "Re-check the original task against the current screenshot. Fix only the " +
+                    "missing or misplaced result; do not declare completion again without visible evidence."
+                carryOverContext = screenContext
+                if (taskCompletionAuditRejects >= MAX_TASK_COMPLETION_AUDIT_REJECTS) {
+                    val reason = "Task completion could not be verified after " +
+                        "$taskCompletionAuditRejects attempts: $auditReason"
+                    updateTaskStatus("failed", reason)
+                    val retry = overlayManager.awaitTaskFailed(
+                        taskName = task,
+                        reason = reason,
+                        stepsCompleted = stepCount,
+                        totalSteps = MAX_STEPS,
+                    )
+                    if (retry) {
+                        start(task)
+                    } else {
+                        overlayManager.collapse()
+                        overlayManager.resetBallState()
+                    }
+                    return
+                }
+                continue
             } else if (response.isTaskComplete) {
                 Log.i(TAG, "isTaskComplete with action '${response.action}' — deferring: model must confirm via screenshot")
             }
@@ -386,16 +481,12 @@ class AgentLoop(
                         if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
                     }
                     // Dismiss popup
-                    overlayManager.setGesturePassthrough(true)
-                    delay(50)
-                    try { actionEngine.execute(AgentAction.Tap(verifyPopup.bounds.centerX(), verifyPopup.bounds.centerY())) }
-                    finally { overlayManager.setGesturePassthrough(false) }
+                    overlayManager.withGesturePassthrough {
+                        actionEngine.execute(AgentAction.Tap(verifyPopup.bounds.centerX(), verifyPopup.bounds.centerY()))
+                    }
                     delay(randomDelay())
                     // Re-execute original action
-                    overlayManager.setGesturePassthrough(true)
-                    delay(50)
-                    try { actionEngine.execute(action) }
-                    finally { overlayManager.setGesturePassthrough(false) }
+                    overlayManager.withGesturePassthrough { actionEngine.execute(action) }
                     if (verifyPopup.popupSignature != null && afterTree != null) {
                         experienceManager?.recordPopup(
                             screenContext.appPackage, verifyPopup.popupSignature,
@@ -461,7 +552,14 @@ class AgentLoop(
                     }
                     VerifyOutcome.UNEXPECTED -> {
                         exceptionHandler.recordSuccess()
-                        replanHint = null
+                        replanHint = if (isTextInputAction(response.action)) {
+                            buildTextInputReplanHint(
+                                outcome = verifyResult.outcome.name,
+                                reason = verifyResult.reason,
+                            )
+                        } else {
+                            null
+                        }
                         lastStepFeedback = "Previous action had an UNEXPECTED but task-compatible result: ${verifyResult.reason}"
                         verifyObservation = verifyResult.observation
                         shouldRecordExperience = true
@@ -478,9 +576,13 @@ class AgentLoop(
                     VerifyOutcome.FAILED -> {
                         lastStepFeedback = null
                         val sameActionFailCount = actionHistory.count {
-                            it.statusUpdate == response.statusUpdate &&
-                            it.screenSignature == screenSig &&
-                            it.outcome in listOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+                            matchesIneffectiveAttempt(
+                                recordedAction = it.action,
+                                currentAction = response.action,
+                                recordedScreenSignature = it.screenSignature,
+                                currentScreenSignature = screenSig,
+                                outcome = it.outcome,
+                            )
                         }
                         if (sameActionFailCount >= MAX_VERIFY_RETRIES) {
                             updateTaskStatus("failed", "Action repeatedly ineffective: ${verifyResult.reason}")
@@ -492,17 +594,28 @@ class AgentLoop(
                             )
                             if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
                         }
-                        replanHint = "Previous action FAILED (attempt $sameActionFailCount/$MAX_VERIFY_RETRIES): " +
-                            "${verifyResult.reason}. The screen did not change. Re-observe and try a different approach."
+                        replanHint = if (isTextInputAction(response.action)) {
+                            buildTextInputReplanHint(
+                                outcome = "FAILED",
+                                reason = verifyResult.reason,
+                            )
+                        } else {
+                            "Previous action FAILED (attempt $sameActionFailCount/$MAX_VERIFY_RETRIES): " +
+                                "${verifyResult.reason}. The screen did not change. Re-observe and try a different approach."
+                        }
                         carryOverContext = afterContext
                         break@verifyLoop
                     }
                     VerifyOutcome.DRIFTED -> {
                         lastStepFeedback = null
                         val sameActionFailCount = actionHistory.count {
-                            it.statusUpdate == response.statusUpdate &&
-                            it.screenSignature == screenSig &&
-                            it.outcome in listOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+                            matchesIneffectiveAttempt(
+                                recordedAction = it.action,
+                                currentAction = response.action,
+                                recordedScreenSignature = it.screenSignature,
+                                currentScreenSignature = screenSig,
+                                outcome = it.outcome,
+                            )
                         }
                         if (sameActionFailCount >= MAX_VERIFY_RETRIES) {
                             updateTaskStatus("failed", "Action repeatedly drifted: ${verifyResult.reason}")
@@ -514,9 +627,16 @@ class AgentLoop(
                             )
                             if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
                         }
-                        replanHint = "Previous action DRIFTED (attempt $sameActionFailCount/$MAX_VERIFY_RETRIES): " +
-                            "${verifyResult.reason}. The screen changed to an unexpected state. " +
-                            "Assess current screen and decide how to recover."
+                        replanHint = if (isTextInputAction(response.action)) {
+                            buildTextInputReplanHint(
+                                outcome = "DRIFTED",
+                                reason = verifyResult.reason,
+                            )
+                        } else {
+                            "Previous action DRIFTED (attempt $sameActionFailCount/$MAX_VERIFY_RETRIES): " +
+                                "${verifyResult.reason}. The screen changed to an unexpected state. " +
+                                "Assess current screen and decide how to recover."
+                        }
                         carryOverContext = afterContext
                         break@verifyLoop
                     }
@@ -645,6 +765,13 @@ class AgentLoop(
         if (replanHint != null) {
             sb.append("\n\n[REPLAN] $replanHint")
         }
+        val capabilityConstraints = capabilityFailureLedger.persistentConstraints()
+        if (capabilityConstraints.isNotEmpty()) {
+            sb.append("\n\n[CAPABILITY CONSTRAINTS]")
+            capabilityConstraints.forEach { constraint ->
+                sb.append("\n- $constraint")
+            }
+        }
         if (experienceSection != null) {
             sb.append("\n\n$experienceSection")
         }
@@ -735,6 +862,11 @@ class AgentLoop(
                 pixelX, pixelY,
                 (params["durationMs"] as? Number)?.toLong() ?: 1000,
             )
+            "focusandinputtext", "focus_and_input_text" -> AgentAction.FocusAndInputText(
+                x = pixelX,
+                y = pixelY,
+                text = params["text"] as String,
+            )
             "swipe" -> {
                 val x1 = ((params["x1"] as? Number)?.toInt() ?: 0) * screenWidth / 1000
                 val y1 = ((params["y1"] as? Number)?.toInt() ?: 0) * screenHeight / 1000
@@ -767,6 +899,46 @@ class AgentLoop(
         return null
     }
 
+    private fun isTextInputAction(action: String): Boolean {
+        return action.lowercase() in setOf(
+            "inputtext",
+            "input_text",
+            "focusandinputtext",
+            "focus_and_input_text",
+        )
+    }
+
+    private fun buildTextInputReplanHint(outcome: String, reason: String): String {
+        return "Previous inputText $outcome: $reason. Re-observe the focused editor metadata. " +
+            "Do not recover by selecting all, guessing offsets, or replacing multiline/rich text. " +
+            "Use mode=type only after focusing the intended caret. For separate visible title/body fields, " +
+            "focus and fill each once. If caret input or append was blocked, do not repeat the same input " +
+            "strategy on the unchanged editor; choose a non-destructive alternative or stop."
+    }
+
+    private fun capabilityConstraint(failureCode: ActionFailureCode): String {
+        return when (failureCode) {
+            ActionFailureCode.TEXT_REPLACE_UNSAFE ->
+                "The current editor is not a confirmed simple single-line field. Do not use whole-field " +
+                    "replacement; preserve its structure and use mode=type only at a verified caret."
+            ActionFailureCode.TEXT_DIRECT_INPUT_UNAVAILABLE,
+            ActionFailureCode.TEXT_LEGACY_UNSUPPORTED,
+            -> "This app does not currently expose the safe direct-input backend. Do not retry " +
+                "type or append in the same editor. Do not fall back to clipboard or rich-text replacement."
+            ActionFailureCode.TEXT_CARET_NOT_CONFIRMED ->
+                "This editor does not expose a stable collapsed caret. Do not retry typing or guess offsets; " +
+                    "refocus once using visible evidence, then stop if the caret remains unconfirmed."
+            ActionFailureCode.TEXT_NO_FOCUS ->
+                "No editable field is focused. Focus one visible target field before any further inputText."
+            ActionFailureCode.TEXT_NOT_EDITABLE ->
+                "The focused accessibility node is not editable. Do not retry text replacement until " +
+                    "a different editable field is focused."
+            ActionFailureCode.TEXT_EDIT_FAILED ->
+                "The current editor rejected the requested text-edit backend. Do not repeat the same " +
+                    "input strategy on the unchanged page."
+        }
+    }
+
     private fun randomDelay(): Long = (300L..1500L).random()
 
     companion object {
@@ -775,5 +947,65 @@ class AgentLoop(
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val MAX_VERIFY_RETRIES = 2
         private const val MAX_POPUP_DISMISSALS = 3
+        private const val TASK_COMPLETION_AUDIT_TIMEOUT_MS = 15_000L
+        private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
+
+        internal fun buildTaskCompletionAuditQuestion(task: String): String {
+            return """
+                Independently audit whether the CURRENT screenshot visibly satisfies every explicit requirement of this original Android task:
+                $task
+
+                Return answer=true only when the result itself is visibly complete and correctly structured. Do not trust the agent's status, history, or claim of completion.
+                If the task specifies a title and body, require a genuinely distinct rendered title region/style and the body in its body region. Text merely appearing as the first line of the body does not count as a title. A still-visible empty title placeholder means failure.
+                If the task specifies multiple lines, require the exact visible line structure; collapsed, missing, duplicated, or misplaced text means failure.
+                Use category to name the missing or incorrect requirement briefly.
+            """.trimIndent()
+        }
+
+        internal fun classifyTaskCompletionAudit(result: QuickCheckResult?): CompletionAuditDecision {
+            if (result == null || !result.isValid || result.confidence < 0.7f) {
+                return CompletionAuditDecision.UNAVAILABLE
+            }
+            return if (result.answer) {
+                CompletionAuditDecision.ACCEPT
+            } else {
+                CompletionAuditDecision.REJECT
+            }
+        }
+
+        internal fun capabilityScope(
+            packageName: String,
+            screenSignature: String,
+            inputSessionId: Long?,
+        ): String = "$packageName:$screenSignature:session=${inputSessionId ?: "none"}"
+
+        internal fun capabilityFailureKey(
+            actionName: String,
+            failureCode: ActionFailureCode,
+        ): String {
+            val capability = when (failureCode) {
+                ActionFailureCode.TEXT_DIRECT_INPUT_UNAVAILABLE,
+                ActionFailureCode.TEXT_LEGACY_UNSUPPORTED,
+                -> "direct-input-unavailable"
+                ActionFailureCode.TEXT_CARET_NOT_CONFIRMED -> "caret-not-confirmed"
+                ActionFailureCode.TEXT_REPLACE_UNSAFE -> "replace-unsafe"
+                ActionFailureCode.TEXT_NO_FOCUS -> "input-focus"
+                ActionFailureCode.TEXT_NOT_EDITABLE -> "editable-node"
+                ActionFailureCode.TEXT_EDIT_FAILED -> "text-edit"
+            }
+            return "${actionName.lowercase()}:$capability"
+        }
+
+        internal fun matchesIneffectiveAttempt(
+            recordedAction: String,
+            currentAction: String,
+            recordedScreenSignature: String,
+            currentScreenSignature: String,
+            outcome: VerifyOutcome,
+        ): Boolean {
+            return recordedAction.equals(currentAction, ignoreCase = true) &&
+                recordedScreenSignature == currentScreenSignature &&
+                outcome in setOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+        }
     }
 }

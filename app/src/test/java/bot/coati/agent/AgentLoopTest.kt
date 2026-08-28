@@ -1,8 +1,10 @@
 package bot.coati.agent
 
 import android.graphics.Rect
+import bot.coati.action.ActionFailureCode
 import bot.coati.model.VerifyOutcome
 import bot.coati.model.VerifyResult
+import bot.coati.model.QuickCheckResult
 import bot.coati.service.UiTreeNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +13,64 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentLoopTest {
+
+    @Test
+    fun `task completion audit distinguishes accepted rejected and unavailable`() {
+        assertEquals(
+            CompletionAuditDecision.ACCEPT,
+            AgentLoop.classifyTaskCompletionAudit(
+                QuickCheckResult(answer = true, category = "complete", confidence = 0.9f),
+            ),
+        )
+        assertEquals(
+            CompletionAuditDecision.REJECT,
+            AgentLoop.classifyTaskCompletionAudit(
+                QuickCheckResult(answer = false, category = "missing_title", confidence = 0.9f),
+            ),
+        )
+        assertEquals(
+            CompletionAuditDecision.UNAVAILABLE,
+            AgentLoop.classifyTaskCompletionAudit(
+                QuickCheckResult(
+                    answer = false,
+                    confidence = 0.5f,
+                    isValid = false,
+                ),
+            ),
+        )
+        assertEquals(
+            CompletionAuditDecision.UNAVAILABLE,
+            AgentLoop.classifyTaskCompletionAudit(null),
+        )
+    }
+
+    @Test
+    fun `capability scope changes with input session and action strategy`() {
+        val firstEditor = AgentLoop.capabilityScope("com.notes", "screen", 12)
+        val nextEditor = AgentLoop.capabilityScope("com.notes", "screen", 13)
+        val atomic = AgentLoop.capabilityFailureKey(
+            "focusAndInputText",
+            ActionFailureCode.TEXT_CARET_NOT_CONFIRMED,
+        )
+        val direct = AgentLoop.capabilityFailureKey(
+            "inputText",
+            ActionFailureCode.TEXT_CARET_NOT_CONFIRMED,
+        )
+
+        assertTrue(firstEditor != nextEditor)
+        assertTrue(atomic != direct)
+    }
+
+    @Test
+    fun `task completion audit explicitly rejects body text masquerading as title`() {
+        val question = AgentLoop.buildTaskCompletionAuditQuestion(
+            "新建便签，标题是会议安排，正文分三行填写",
+        )
+
+        assertTrue(question.contains("first line of the body does not count as a title"))
+        assertTrue(question.contains("still-visible empty title placeholder means failure"))
+        assertTrue(question.contains("exact visible line structure"))
+    }
 
     @Test
     fun `MAX_STEPS is 200`() {
@@ -110,8 +170,7 @@ class AgentLoopTest {
     // ─── ActionRecord and retry counting ───
 
     @Test
-    fun `same action same screen counts as retry`() {
-        // Simulate action history where same action on same screen fails multiple times
+    fun `same action and screen count despite different status wording`() {
         data class ActionRecord(
             val action: String,
             val statusUpdate: String,
@@ -120,14 +179,18 @@ class AgentLoopTest {
         )
 
         val history = mutableListOf(
-            ActionRecord("tap", "Tapping search", "abc123", VerifyOutcome.FAILED),
-            ActionRecord("tap", "Tapping search", "abc123", VerifyOutcome.FAILED),
+            ActionRecord("tap", "Trying body start", "abc123", VerifyOutcome.FAILED),
+            ActionRecord("TAP", "Relocating the caret", "abc123", VerifyOutcome.DRIFTED),
         )
 
         val failCount = history.count {
-            it.statusUpdate == "Tapping search" &&
-            it.screenSignature == "abc123" &&
-            it.outcome in listOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+            AgentLoop.matchesIneffectiveAttempt(
+                recordedAction = it.action,
+                currentAction = "tap",
+                recordedScreenSignature = it.screenSignature,
+                currentScreenSignature = "abc123",
+                outcome = it.outcome,
+            )
         }
         assertEquals(2, failCount)
     }
@@ -150,9 +213,13 @@ class AgentLoopTest {
 
         // Count failures for "Tap confirm delete" on screen_c
         val failCount = history.count {
-            it.statusUpdate == "Tap confirm delete" &&
-            it.screenSignature == "screen_c" &&
-            it.outcome in listOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+            AgentLoop.matchesIneffectiveAttempt(
+                recordedAction = it.action,
+                currentAction = "tap",
+                recordedScreenSignature = it.screenSignature,
+                currentScreenSignature = "screen_c",
+                outcome = it.outcome,
+            )
         }
         assertEquals(1, failCount) // Only 1, not 3 — different screens don't count
     }
@@ -172,9 +239,13 @@ class AgentLoopTest {
         )
 
         val failCount = history.count {
-            it.statusUpdate == "Tapping button" &&
-            it.screenSignature == "sig1" &&
-            it.outcome in listOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+            AgentLoop.matchesIneffectiveAttempt(
+                recordedAction = it.action,
+                currentAction = "tap",
+                recordedScreenSignature = it.screenSignature,
+                currentScreenSignature = "sig1",
+                outcome = it.outcome,
+            )
         }
         assertEquals(2, failCount)
     }

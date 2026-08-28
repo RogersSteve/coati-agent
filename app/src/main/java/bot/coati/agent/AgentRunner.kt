@@ -3,6 +3,7 @@ package bot.coati.agent
 import android.util.Log
 import bot.coati.action.ActionEngine
 import bot.coati.action.AgentAction
+import bot.coati.action.toLogSummary
 import bot.coati.model.CloudModelGateway
 import bot.coati.model.Message
 import bot.coati.model.ModelRouter
@@ -108,7 +109,7 @@ class AgentRunner(
         } catch (e: Exception) {
             throw Exception("Failed to parse action '${response.action}': ${e.message}")
         }
-        Log.i(TAG, "Parsed action: $action")
+        Log.i(TAG, "Parsed action: ${action.toLogSummary()}")
 
         // Step 4: Safety check
         if (response.safetyLevel == "high") {
@@ -135,16 +136,8 @@ class AgentRunner(
         val actionName = response.statusUpdate.ifBlank { response.action }
         overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, 0, 0)
         Log.i(TAG, "Step 5: Executing action")
-        overlayManager.setGesturePassthrough(true)
-        // WindowManager.updateViewLayout() is processed asynchronously by the system:
-        // WMS schedules the input window list update on its next layout traversal (~1 vsync).
-        // We wait 50ms so the InputDispatcher receives the FLAG_NOT_TOUCHABLE change before
-        // dispatchGesture() injects events, otherwise the gesture is still consumed by the overlay.
-        kotlinx.coroutines.delay(50)
-        val actionResult = try {
+        val actionResult = overlayManager.withGesturePassthrough {
             actionEngine.execute(action)
-        } finally {
-            overlayManager.setGesturePassthrough(false)
         }
         Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 

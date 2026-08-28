@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import bot.coati.service.CoatiAccessibilityService
+import bot.coati.service.EditorInputProfile
 import java.io.ByteArrayOutputStream
 
 data class ScreenContext(
@@ -62,7 +63,33 @@ data class ScreenContext(
                     ?: focusedInput.text?.toString()?.takeIf { it.isNotBlank() }
                     ?: focusedInput.viewIdResourceName?.substringAfterLast('/')
                     ?: "field"
-                "[Input focus: $cls \"$label\" is focused]\n"
+                val nodeId = focusedInput.viewIdResourceName?.substringAfterLast('/') ?: "unknown"
+                val supportsSetText = focusedInput.actionList.any {
+                    it.id == AccessibilityNodeInfo.ACTION_SET_TEXT
+                }
+                val textLength = focusedInput.text?.length ?: 0
+                val selection = "${focusedInput.textSelectionStart}..${focusedInput.textSelectionEnd}"
+                val editorProfile = EditorInputProfile(
+                    isEditable = focusedInput.isEditable,
+                    isMultiLine = focusedInput.isMultiLine,
+                    className = focusedInput.className?.toString(),
+                    hasWebViewAncestor = hasWebViewAncestor(focusedInput),
+                    supportsSetText = supportsSetText,
+                    hasDirectInput = a11y.hasActiveInputConnection(),
+                )
+                val inputSelection = a11y.currentInputSelectionSummary()
+                val focusMetadata = "$cls id=$nodeId editable=${focusedInput.isEditable} " +
+                    "multiline=${focusedInput.isMultiLine} showingHint=${focusedInput.isShowingHintText} " +
+                    "directInput=${a11y.hasActiveInputConnection()} setText=$supportsSetText " +
+                    "textLength=$textLength nodeSelection=$selection inputSelection=$inputSelection " +
+                    "editorKind=${editorProfile.kind}"
+                Log.i(TAG, "Input focus metadata: $focusMetadata")
+                "[Input focus: $cls \"$label\" is focused; id=$nodeId; " +
+                    "editable=${focusedInput.isEditable}; multiline=${focusedInput.isMultiLine}; " +
+                    "showingHint=${focusedInput.isShowingHintText}; " +
+                    "directInput=${a11y.hasActiveInputConnection()}; setText=$supportsSetText; " +
+                    "textLength=$textLength; nodeSelection=$selection; inputSelection=$inputSelection; " +
+                    "editorKind=${editorProfile.kind}]\n"
             } else {
                 "[Input focus: none]\n"
             }
@@ -81,6 +108,18 @@ data class ScreenContext(
             val ratio = targetWidth.toFloat() / bitmap.width
             val targetHeight = (bitmap.height * ratio).toInt()
             return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+        }
+
+        private fun hasWebViewAncestor(node: AccessibilityNodeInfo): Boolean {
+            var ancestor = node.parent
+            while (ancestor != null) {
+                val isWebView = ancestor.className?.toString() == "android.webkit.WebView"
+                val next = if (isWebView) null else ancestor.parent
+                ancestor.recycle()
+                if (isWebView) return true
+                ancestor = next
+            }
+            return false
         }
     }
 }

@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.Resources
 import android.graphics.PixelFormat
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -27,6 +28,9 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import bot.coati.data.SafetyMode
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 class OverlayManager(
     private val context: Context,
@@ -34,6 +38,7 @@ class OverlayManager(
 ) {
     private var composeView: ComposeView? = null
     val overlayState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
+    private val gestureGate = OverlayGestureGate()
     private val safetyMode = mutableStateOf(SafetyMode.STANDARD)
 
     // Background agent state for ball color when collapsed
@@ -121,8 +126,8 @@ class OverlayManager(
                         setSafetyMode(mode)
                         onSafetyModeChanged?.invoke(mode)
                     },
-                    onStop = { onStopTask?.invoke() },
-                    onPause = { onPauseTask?.invoke() },
+                    onStop = { invokeTaskControl("stop", onStopTask) },
+                    onPause = { invokeTaskControl("pause", onPauseTask) },
                     onResume = { onResumeTask?.invoke() },
                     onConfirm = {
                         confirmationDeferred?.complete(true)
@@ -365,21 +370,51 @@ class OverlayManager(
     }
 
     /**
-     * Temporarily make the overlay non-touchable so that dispatchGesture injected events
-     * pass through to the target app. Call with enable=true before dispatching, false after.
+     * Runs an injected gesture only after the full-screen overlay has had time to become
+     * non-touchable. WindowManager does not acknowledge when InputDispatcher has received a flag
+     * update, so the gate is also held around both transition windows. This prevents a gesture
+     * aimed at the app from invoking the overlay's own Pause/Stop controls during an async update.
      */
-    fun setGesturePassthrough(enable: Boolean) {
-        val view = composeView ?: return
+    suspend fun <T> withGesturePassthrough(block: suspend () -> T): T {
+        gestureGate.enter()
+        try {
+            updateGesturePassthrough(enable = true)
+            delay(PASSTHROUGH_ENABLE_SETTLE_MS)
+            return block()
+        } finally {
+            // Cancellation must never leave the overlay permanently non-touchable or the task
+            // controls permanently gated.
+            withContext(NonCancellable) {
+                updateGesturePassthrough(enable = false)
+                delay(PASSTHROUGH_DISABLE_SETTLE_MS)
+                gestureGate.exit()
+            }
+        }
+    }
+
+    private fun updateGesturePassthrough(enable: Boolean) {
         layoutParams.flags = if (enable) {
             layoutParams.flags or LayoutParams.FLAG_NOT_TOUCHABLE
         } else {
             layoutParams.flags and LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         }
+        // Keep the stored flags correct even if the view disappears during cancellation. A later
+        // show() must never inherit a stale FLAG_NOT_TOUCHABLE value.
+        val view = composeView ?: return
         try {
             windowManager.updateViewLayout(view, layoutParams)
-        } catch (_: IllegalArgumentException) {
-            // View might have been removed
+            Log.d(TAG, "Gesture passthrough requested: enabled=$enable")
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "Gesture passthrough update ignored because overlay was removed", e)
         }
+    }
+
+    private fun invokeTaskControl(name: String, callback: (() -> Unit)?) {
+        if (gestureGate.blocksTaskControls) {
+            Log.w(TAG, "Ignored overlay task control during gesture passthrough: control=$name")
+            return
+        }
+        callback?.invoke()
     }
 
     // ─── LAYOUT MANAGEMENT ───
@@ -534,6 +569,9 @@ class OverlayManager(
     }
 
     companion object {
+        private const val PASSTHROUGH_ENABLE_SETTLE_MS = 150L
+        private const val PASSTHROUGH_DISABLE_SETTLE_MS = 100L
+
         @Suppress("unused")
         private const val TAG = "CoatiOverlay"
     }

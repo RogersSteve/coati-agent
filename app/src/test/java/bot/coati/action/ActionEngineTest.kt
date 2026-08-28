@@ -1,6 +1,7 @@
 package bot.coati.action
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,7 +37,65 @@ class ActionEngineTest {
     fun `fromMap parses inputText action`() {
         val action = AgentAction.fromMap("inputText", mapOf("text" to "Hello"))
         assertTrue(action is AgentAction.InputText)
-        assertEquals("Hello", (action as AgentAction.InputText).text)
+        val input = action as AgentAction.InputText
+        assertEquals("Hello", input.text)
+        assertEquals(InputTextMode.TYPE, input.mode)
+    }
+
+    @Test
+    fun `fromMap parses clipboard-free text modes and legacy aliases`() {
+        val type = AgentAction.fromMap(
+            "inputText",
+            mapOf("text" to "Title\nBody", "mode" to "type"),
+        ) as AgentAction.InputText
+        val legacyDocument = AgentAction.fromMap(
+            "inputText",
+            mapOf("text" to "Title\nBody", "mode" to "document"),
+        ) as AgentAction.InputText
+        val legacyInsert = AgentAction.fromMap(
+            "inputText",
+            mapOf("text" to "middle", "mode" to "insert"),
+        ) as AgentAction.InputText
+        val append = AgentAction.fromMap(
+            "inputText",
+            mapOf("text" to "\nlast", "mode" to "append"),
+        ) as AgentAction.InputText
+
+        assertEquals(InputTextMode.TYPE, type.mode)
+        assertEquals(InputTextMode.TYPE, legacyDocument.mode)
+        assertEquals(InputTextMode.TYPE, legacyInsert.mode)
+        assertEquals(InputTextMode.APPEND, append.mode)
+    }
+
+    @Test
+    fun `fromMap parses atomic focus and input action`() {
+        val action = AgentAction.fromMap(
+            "focusAndInputText",
+            mapOf("x" to 120, "y" to 340, "text" to "Title\nBody"),
+        ) as AgentAction.FocusAndInputText
+
+        assertEquals(120, action.x)
+        assertEquals(340, action.y)
+        assertEquals("Title\nBody", action.text)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `inputText rejects unknown mode instead of replacing`() {
+        AgentAction.fromMap("inputText", mapOf("text" to "Hello", "mode" to "typo"))
+    }
+
+    @Test
+    fun `text action log summary redacts content`() {
+        val secret = "private note content"
+        val summary = AgentAction.InputText(secret, InputTextMode.TYPE).toLogSummary()
+
+        assertTrue(summary.contains("length=${secret.length}"))
+        assertTrue(summary.contains("mode=type"))
+        assertTrue(!summary.contains(secret))
+
+        val atomicSummary = AgentAction.FocusAndInputText(10, 20, secret).toLogSummary()
+        assertTrue(atomicSummary.contains("length=${secret.length}"))
+        assertTrue(!atomicSummary.contains(secret))
     }
 
     @Test
@@ -127,6 +186,12 @@ class ActionEngineTest {
 
         val action4 = AgentAction.fromMap("press_key", mapOf("keyCode" to "HOME"))
         assertTrue(action4 is AgentAction.PressKey)
+
+        val action5 = AgentAction.fromMap(
+            "focus_and_input_text",
+            mapOf("x" to 10, "y" to 20, "text" to "hi"),
+        )
+        assertTrue(action5 is AgentAction.FocusAndInputText)
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -162,5 +227,21 @@ class ActionEngineTest {
         val r1 = ActionResult(success = true, message = "ok", screenshotBytes = bytes)
         val r2 = ActionResult(success = true, message = "ok", screenshotBytes = bytes)
         assertEquals(r1, r2)
+    }
+
+    @Test
+    fun `ActionResult equality includes structured failure code`() {
+        val r1 = ActionResult(
+            success = false,
+            message = "blocked",
+            failureCode = ActionFailureCode.TEXT_REPLACE_UNSAFE,
+        )
+        val r2 = ActionResult(
+            success = false,
+            message = "blocked",
+            failureCode = ActionFailureCode.TEXT_DIRECT_INPUT_UNAVAILABLE,
+        )
+
+        assertNotEquals(r1, r2)
     }
 }

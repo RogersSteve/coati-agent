@@ -24,7 +24,18 @@ object PromptBuilder {
         7. Set isTaskComplete to true only when the expected result is already visible in the current screenshot, AND action must be "screenshot". The correct final sequence is: perform the last action (isTaskComplete=false) → next step output action="screenshot" with isTaskComplete=true to confirm the result is visible.
         8. Always respond with valid JSON only, no additional text.
         9. To open an app, always prefer openApp over swiping the home screen to find its icon. If you know the exact packageName, include packageName. If the user gave an app name and you are not certain of the packageName, include appName instead of guessing a packageName.
-        10. Before outputting inputText, check the "[Input focus]" line at the top of the UI tree. If the target field is already focused, output inputText directly. If "[Input focus: none]" or a different field is focused, tap the target field first, then inputText on the next step.
+        10. Before entering text, check the "[Input focus]" line and the visible target. If directInput=true and inputSelection is a collapsed caret in the intended editor, use inputText directly even when a custom-rendered app exposes only a generic accessibility View with editable=false. If a visible target field/paragraph must be focused first and the text is ready, use focusAndInputText so the runtime taps and types atomically; do not split this into a tap step and a later inputText step. Use a standalone tap only when you need to inspect the resulting UI before deciding what text to enter. An icon beside an input control usually describes the mode it will switch to, not necessarily the current mode; determine the current mode from the main input control, its visible label/placeholder, and keyboard state before tapping a mode switch.
+        11. inputText never uses the Android clipboard. Choose its mode by editing intent:
+            - mode="type" (default): type at the current verified collapsed caret, like a keyboard. Use it for normal text entry, multiline text, and rich editors because it preserves existing editor structure and formatting.
+            - mode="replace": replace the complete field. Use only when the user clearly intends replacement and metadata identifies a simple single-line field. Never use it in multiline, WebView, note, or rich-text editors.
+            - mode="append": append only after the runtime verifies the real document end. If rejected, do not retry with replace, select-all, or guessed cursor coordinates.
+        12. Separate content intent from UI mechanics. Do not invent a title merely because an app shows a title placeholder. If the user did not request or imply a title, focus the body and type the requested content there when possible.
+        13. For an explicit title/body task:
+            - If title and body are separate editable fields, use focusAndInputText once per field.
+            - If they are visual regions inside one compound rich editor, target the visible title region and use one focusAndInputText call containing exactly "Title\nBody" (with the body's requested internal newlines). This preserves the editor's title/body paragraph styles and avoids relying on its initial caret. Do not add a blank line unless the user requested one.
+            - For a plain multiline field with no title support, represent structure as "Title\n\nBody" in one focusAndInputText call.
+        14. A placeholder is not existing user content. showingHint=true proves a placeholder, but some OEM rich editors expose placeholder words as node text without this flag. Never clear or replace a multiline editor merely to remove a visible title/body prompt.
+        15. After tapping to place a caret, use selection/focus metadata from the next observation. Do not claim the caret is in the body merely because a blinking cursor disappeared. After two ineffective placement attempts on an unchanged editor, stop changing coordinates and choose a safe alternative or report the limitation.
 
         ## Preferred App Routing
         - If the user explicitly names an app or source (for example "use browser", "open Taobao", "in Chrome", "on the web"), follow that instruction.
@@ -59,7 +70,7 @@ object PromptBuilder {
           "reasoning": "Brief explanation: which sub-goal you are on, what you see, why you chose this action",
           "plan": ["sub-goal 1", "sub-goal 2", "..."],
           "currentStep": 0,
-          "action": "tap|longpress|swipe|inputText|pressKey|scroll|wait|screenshot|openApp",
+          "action": "tap|longpress|swipe|inputText|focusAndInputText|pressKey|scroll|wait|screenshot|openApp",
           "params": { ... action-specific parameters ... },
           "x": <normalized 0-1000 x coordinate for tap/longpress target, or null>,
           "y": <normalized 0-1000 y coordinate for tap/longpress target, or null>,
@@ -88,7 +99,9 @@ object PromptBuilder {
         - tap: {"x": int, "y": int} (normalized 0-1000)
         - longpress: {"x": int, "y": int, "durationMs": int}
         - swipe: {"x1": int, "y1": int, "x2": int, "y2": int, "durationMs": int} (normalized 0-1000)
-        - inputText: {"text": "string"}
+        - inputText: {"text": "string", "mode": "type|replace|append"}
+          type=verified current caret and is the default; replace=confirmed simple single-line whole field; append=verified document end
+        - focusAndInputText: {"text": "string"}, with top-level x/y at the visible target caret location. The runtime taps, waits for a fresh same-package InputConnection with a stable collapsed caret, and immediately types without a model round trip. The accessibility node itself need not be marked editable when the real InputConnection evidence is valid.
         - pressKey: {"keyCode": "BACK|HOME|RECENTS|ENTER"}
         - scroll: {"direction": "UP|DOWN|LEFT|RIGHT", "amount": int}
         - wait: {"ms": int}
@@ -145,6 +158,11 @@ object PromptBuilder {
         - DRIFTED: The screen changed but to a wrong/unintended state (wrong page opened, unexpected dialog/popup appeared, navigated somewhere unrelated)
         - UNEXPECTED: The screen changed differently than expected, but the change is still compatible with the overall goal — something useful happened that wasn't predicted
         - UNKNOWN: The screenshots are insufficient to determine whether the action succeeded or failed
+
+        Strict text-layout rule:
+        - If the task requires a title, separate lines, one item per line, or a specific text structure, classify SUCCESS only when that structure is visibly satisfied.
+        - If the right words appear but newlines collapsed into spaces, screen wrapping merely looks like separate lines, or text entered the wrong title/body field, do not classify SUCCESS. Use UNEXPECTED for useful partial progress or FAILED when the edit had no useful effect.
+        - Cursor blinking or disappearing is not proof that focus moved to another field or paragraph. Require visible structural change or matching focus/selection evidence described by the action outcome.
 
         Respond ONLY with JSON:
         {"outcome": "SUCCESS|FAILED|DRIFTED|UNEXPECTED|UNKNOWN", "reason": "brief explanation", "observation": "describe what actually happened (required for UNEXPECTED, optional otherwise)"}

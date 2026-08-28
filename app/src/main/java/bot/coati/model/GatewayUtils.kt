@@ -91,10 +91,14 @@ object GatewayUtils {
         return try {
             val jsonStr = extractJsonFromText(text)
             val json = JSONObject(jsonStr)
+            val answerValue = json.opt("answer")
+            val confidence = json.optDouble("confidence", 1.0)
+            val valid = answerValue is Boolean && confidence.isFinite() && confidence in 0.0..1.0
             QuickCheckResult(
-                answer = json.optBoolean("answer", false),
+                answer = answerValue as? Boolean ?: false,
                 category = if (json.has("category") && !json.isNull("category")) json.optString("category") else null,
-                confidence = json.optDouble("confidence", 1.0).toFloat(),
+                confidence = confidence.toFloat(),
+                isValid = valid,
             )
         } catch (_: Exception) {
             // Fallback: try to detect yes/true in text
@@ -102,6 +106,7 @@ object GatewayUtils {
             QuickCheckResult(
                 answer = lower.contains("true") || lower.contains("yes"),
                 confidence = 0.5f,
+                isValid = false,
             )
         }
     }

@@ -28,6 +28,7 @@ data class QuickCheckResult(
     val answer: Boolean,
     val category: String? = null,
     val confidence: Float = 1.0f,
+    val isValid: Boolean = true,
 )
 
 data class Message(

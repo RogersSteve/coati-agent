@@ -71,6 +71,32 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `reasoning prompt defines clipboard-free caret-first input`() {
+        val systemPrompt = PromptBuilder.buildReasoningSystemPrompt()
+        val userPrompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
+
+        assertTrue(systemPrompt.contains("never uses the Android clipboard"))
+        assertTrue(systemPrompt.contains("mode=\"type\" (default)"))
+        assertTrue(systemPrompt.contains("current verified collapsed caret"))
+        assertTrue(systemPrompt.contains("Never use it in multiline, WebView, note, or rich-text editors"))
+        assertTrue(systemPrompt.contains("Do not invent a title"))
+        assertTrue(systemPrompt.contains("mode=\"append\""))
+        assertTrue(systemPrompt.contains("runtime verifies the real document end"))
+        assertTrue(systemPrompt.contains("focusAndInputText"))
+        assertTrue(systemPrompt.contains("taps and types atomically"))
+        assertTrue(systemPrompt.contains("directInput=true"))
+        assertTrue(systemPrompt.contains("generic accessibility View with editable=false"))
+        assertTrue(userPrompt.contains("fresh same-package InputConnection"))
+        assertTrue(systemPrompt.contains("mode it will switch to"))
+        assertTrue(systemPrompt.contains("exactly \"Title\\nBody\""))
+        assertTrue(userPrompt.contains("focusAndInputText"))
+        assertTrue(systemPrompt.contains("showingHint=true"))
+        assertTrue(systemPrompt.contains("Never clear or replace a multiline editor"))
+        assertTrue(userPrompt.contains("type|replace|append"))
+        assertFalse(userPrompt.contains("replace|document|insert|append"))
+    }
+
+    @Test
     fun `reasoning system prompt prefers dedicated apps before browser`() {
         val prompt = PromptBuilder.buildReasoningSystemPrompt()
 
@@ -177,6 +203,19 @@ class PromptBuilderTest {
         val prompt = PromptBuilder.buildVerifyUserPrompt("tap", "screen changes")
         assertTrue(prompt.contains("BEFORE"))
         assertTrue(prompt.contains("AFTER"))
+    }
+
+    @Test
+    fun `verify prompt rejects collapsed multiline structure`() {
+        val prompt = PromptBuilder.buildVerifyUserPrompt(
+            "inputText",
+            "Title and body items should be on separate lines",
+        )
+
+        assertTrue(prompt.contains("Strict text-layout rule"))
+        assertTrue(prompt.contains("newlines collapsed into spaces"))
+        assertTrue(prompt.contains("wrong title/body field"))
+        assertTrue(prompt.contains("Cursor blinking or disappearing is not proof"))
     }
 
     @Test

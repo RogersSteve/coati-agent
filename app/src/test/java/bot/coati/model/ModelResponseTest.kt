@@ -198,6 +198,7 @@ class ModelResponseTest {
         assertFalse(result.answer)
         assertNull(result.category)
         assertEquals(1.0f, result.confidence)
+        assertTrue(result.isValid)
     }
 
     // ─── VerifyOutcome and VerifyResult ───
