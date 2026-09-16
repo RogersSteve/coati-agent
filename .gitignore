@@ -16,6 +16,7 @@ local.properties
 *.class
 /app/build
 /app/release
+/test-apps/**/build
 *.hprof
 *.jks
 *.keystore

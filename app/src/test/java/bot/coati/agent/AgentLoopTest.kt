@@ -42,6 +42,16 @@ class AgentLoopTest {
             CompletionAuditDecision.UNAVAILABLE,
             AgentLoop.classifyTaskCompletionAudit(null),
         )
+        assertTrue(AgentLoop.shouldRecordTerminalManualObservation(CompletionAuditDecision.ACCEPT))
+        assertFalse(AgentLoop.shouldRecordTerminalManualObservation(CompletionAuditDecision.REJECT))
+        assertFalse(AgentLoop.shouldRecordTerminalManualObservation(CompletionAuditDecision.UNAVAILABLE))
+    }
+
+    @Test
+    fun `manual transition is attached only to an observed screen change`() {
+        assertFalse(AgentLoop.shouldAttachManualTransition("com.app", "com.app", "same", "same"))
+        assertTrue(AgentLoop.shouldAttachManualTransition("com.app", "com.app", "before", "after"))
+        assertTrue(AgentLoop.shouldAttachManualTransition("com.app", "com.other", "same", "same"))
     }
 
     @Test

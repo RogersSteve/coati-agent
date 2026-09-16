@@ -125,6 +125,7 @@ class AutocompactTest {
         override suspend fun quickCheck(
             screenshot: ByteArray,
             question: String,
+            manualObservationInstruction: String?,
         ): Result<QuickCheckResult> = Result.failure(UnsupportedOperationException())
 
         override suspend fun verifyAction(
@@ -132,6 +133,7 @@ class AutocompactTest {
             afterScreenshot: ByteArray,
             actionDescription: String,
             expectedOutcome: String,
+            manualObservationInstruction: String?,
         ): Result<VerifyResult> = Result.failure(UnsupportedOperationException())
 
         override suspend fun summarizeText(prompt: String): Result<String> {

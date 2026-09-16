@@ -3,6 +3,7 @@ package bot.coati.model
 import android.util.Base64
 import android.util.Log
 import bot.coati.agent.PromptBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -63,6 +64,7 @@ class ClaudeCompatibleGateway(
     override suspend fun quickCheck(
         screenshot: ByteArray,
         question: String,
+        manualObservationInstruction: String?,
     ): Result<QuickCheckResult> = withContext(Dispatchers.IO) {
         try {
             val base64Image = Base64.encodeToString(screenshot, Base64.NO_WRAP)
@@ -79,7 +81,7 @@ class ClaudeCompatibleGateway(
             })
             userContent.put(JSONObject().apply {
                 put("type", "text")
-                put("text", PromptBuilder.buildQuickCheckPrompt(question))
+                put("text", PromptBuilder.buildQuickCheckPrompt(question, manualObservationInstruction))
             })
             messages.put(JSONObject().apply {
                 put("role", "user")
@@ -88,8 +90,8 @@ class ClaudeCompatibleGateway(
 
             val requestBody = JSONObject().apply {
                 put("model", modelName)
-                put("max_tokens", 128)
-                put("system", PromptBuilder.buildFastSystemPrompt())
+                put("max_tokens", if (manualObservationInstruction == null) 128 else 512)
+                put("system", PromptBuilder.buildFastSystemPrompt(manualObservationInstruction != null))
                 put("messages", messages)
             }.toString()
 
@@ -125,6 +127,7 @@ class ClaudeCompatibleGateway(
         afterScreenshot: ByteArray,
         actionDescription: String,
         expectedOutcome: String,
+        manualObservationInstruction: String?,
     ): Result<VerifyResult> = withContext(Dispatchers.IO) {
         try {
             val base64Before = Base64.encodeToString(beforeScreenshot, Base64.NO_WRAP)
@@ -150,7 +153,11 @@ class ClaudeCompatibleGateway(
             })
             userContent.put(JSONObject().apply {
                 put("type", "text")
-                put("text", PromptBuilder.buildVerifyUserPrompt(actionDescription, expectedOutcome))
+                put("text", PromptBuilder.buildVerifyUserPrompt(
+                    actionDescription,
+                    expectedOutcome,
+                    manualObservationInstruction,
+                ))
             })
             messages.put(JSONObject().apply {
                 put("role", "user")
@@ -159,7 +166,7 @@ class ClaudeCompatibleGateway(
 
             val requestBody = JSONObject().apply {
                 put("model", modelName)
-                put("max_tokens", 512)
+                put("max_tokens", if (manualObservationInstruction == null) 256 else 512)
                 put("system", PromptBuilder.buildVerifySystemPrompt())
                 put("messages", messages)
             }.toString()
@@ -229,6 +236,39 @@ class ClaudeCompatibleGateway(
             Result.success(text.trim())
         } catch (e: Exception) {
             Log.e(TAG, "summarizeText failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun generateStructuredText(request: StructuredTextRequest): Result<StructuredTextResult> {
+        return try {
+            val messages = JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("content", request.userPrompt)
+            })
+            val requestBody = JSONObject().apply {
+                put("model", modelName)
+                put("max_tokens", request.maxOutputTokens)
+                put("temperature", request.temperature)
+                put("system", request.systemPrompt)
+                put("messages", messages)
+            }.toString()
+            val httpRequest = Request.Builder()
+                .url("$endpoint/v1/messages")
+                .addHeader("x-api-key", apiKey)
+                .addHeader("anthropic-version", ANTHROPIC_VERSION)
+                .addHeader("content-type", "application/json")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            client.newCall(httpRequest).awaitCancellable().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) return Result.failure(Exception("API error ${response.code}: $body"))
+                Result.success(StructuredTextResponseParser.claude(body))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "generateStructuredText failed: ${e.javaClass.simpleName}")
             Result.failure(e)
         }
     }

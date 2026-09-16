@@ -11,6 +11,7 @@ interface CloudModelGateway {
     suspend fun quickCheck(
         screenshot: ByteArray,
         question: String,
+        manualObservationInstruction: String? = null,
     ): Result<QuickCheckResult>
 
     suspend fun verifyAction(
@@ -18,9 +19,14 @@ interface CloudModelGateway {
         afterScreenshot: ByteArray,
         actionDescription: String,
         expectedOutcome: String,
+        manualObservationInstruction: String? = null,
     ): Result<VerifyResult>
 
     suspend fun summarizeText(prompt: String): Result<String>
+
+    suspend fun generateStructuredText(request: StructuredTextRequest): Result<StructuredTextResult> {
+        return Result.failure(UnsupportedOperationException("Structured text generation is not supported"))
+    }
 
     suspend fun testConnection(): Result<String>
 }

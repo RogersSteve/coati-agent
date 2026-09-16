@@ -2,6 +2,7 @@ package bot.coati.state
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -57,18 +58,6 @@ class StateManagerTest {
     }
 
     @Test
-    fun `writeAppJson and readAppJson roundtrip`() {
-        stateManager.writeAppJson("com.example.app", """{"appName":"Example"}""")
-        val result = stateManager.readAppJson("com.example.app")
-        assertEquals("""{"appName":"Example"}""", result)
-    }
-
-    @Test
-    fun `readAppJson returns null for missing package`() {
-        assertNull(stateManager.readAppJson("com.nonexistent.app"))
-    }
-
-    @Test
     fun `atomic write creates file in correct location`() {
         stateManager.writeJson("atomic_test", "data")
         val file = File(tempDir, "atomic_test.json")
@@ -84,9 +73,8 @@ class StateManagerTest {
     }
 
     @Test
-    fun `apps directory is created on init`() {
+    fun `legacy apps directory is not recreated`() {
         val appsDir = File(tempDir, "apps")
-        assertTrue(appsDir.exists())
-        assertTrue(appsDir.isDirectory)
+        assertFalse(appsDir.exists())
     }
 }

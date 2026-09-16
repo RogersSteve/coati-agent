@@ -2,9 +2,11 @@ package bot.coati.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import bot.coati.experience.ManualMode
 import bot.coati.model.ModelProviders
 
 data class ProviderConfig(
@@ -17,6 +19,8 @@ data class ProviderConfig(
 enum class SafetyMode { CAUTIOUS, STANDARD, TRUST }
 
 class ConfigStore(context: Context) {
+
+    private val isDebuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -100,6 +104,16 @@ class ConfigStore(context: Context) {
         prefs.edit().putString(KEY_SAFETY_MODE, mode.name).apply()
     }
 
+    fun getManualMode(): ManualMode {
+        val name = prefs.getString(KEY_MANUAL_MODE, ManualMode.OFF.name) ?: ManualMode.OFF.name
+        return resolveManualMode(name, isDebuggable)
+    }
+
+    fun setManualMode(mode: ManualMode) {
+        prefs.edit().putString(KEY_MANUAL_MODE, mode.name).apply()
+        Log.i(TAG, "App manual mode set to $mode")
+    }
+
     // ─── ROLE-BASED CONFIG (Reasoning / Fast) ───
 
     fun saveRoleConfig(role: String, providerId: String, apiKey: String, endpoint: String, modelName: String) {
@@ -175,9 +189,15 @@ class ConfigStore(context: Context) {
         private const val KEY_DEFAULT_PROVIDER = "default_provider"
         private const val KEY_FAST_SAME_AS_REASONING = "fast_same_as_reasoning"
         private const val KEY_SAFETY_MODE = "safety_mode"
+        private const val KEY_MANUAL_MODE = "app_manual_mode"
 
         const val ROLE_REASONING = "reasoning"
         const val ROLE_FAST = "fast"
+
+        internal fun resolveManualMode(name: String, isDebuggable: Boolean): ManualMode {
+            val parsed = runCatching { ManualMode.valueOf(name) }.getOrDefault(ManualMode.OFF)
+            return if (parsed == ManualMode.SHADOW && !isDebuggable) ManualMode.OFF else parsed
+        }
 
         val SUPPORTED_ROLES = listOf(ROLE_REASONING, ROLE_FAST)
 

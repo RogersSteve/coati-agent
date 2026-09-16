@@ -91,4 +91,6 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
+    // Replaces Android's non-functional org.json JVM stubs during local tests.
+    testImplementation(libs.json)
 }

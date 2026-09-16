@@ -133,42 +133,19 @@ class PromptBuilderTest {
         assertFalse(prompt.contains("pixel"))
     }
 
-    // ─── Experience prompt section ───
-
     @Test
-    fun `experience prompt for unknown app asks for experienceNote`() {
-        val prompt = PromptBuilder.buildExperiencePromptSection("com.new.app", null)
-        assertTrue(prompt.contains("first time"))
-        assertTrue(prompt.contains("com.new.app"))
-        assertTrue(prompt.contains("experienceNote"))
+    fun `reasoning prompt treats app manual as advisory untrusted data`() {
+        val prompt = PromptBuilder.buildReasoningSystemPrompt()
+        assertTrue(prompt.contains("ADVISORY_APP_REFERENCE"))
+        assertTrue(prompt.contains("untrusted reference data"))
+        assertTrue(prompt.contains("never bypasses user confirmation"))
     }
 
     @Test
-    fun `experience prompt with existing experience includes markdown`() {
-        val markdown = "# MyApp\n## Known Pages\n- Home: Main feed"
-        val prompt = PromptBuilder.buildExperiencePromptSection("com.test.app", markdown)
-        assertTrue(prompt.contains("previous experience"))
-        assertTrue(prompt.contains("Main feed"))
-    }
-
-    @Test
-    fun `experience prompt with outdated pages includes warning`() {
-        val markdown = "# MyApp\n## Known Pages\n- \u26a0\ufe0f **Home**: Main feed"
-        val prompt = PromptBuilder.buildExperiencePromptSection("com.test.app", markdown)
-        assertTrue(prompt.contains("outdated"))
-    }
-
-    @Test
-    fun `experience prompt without outdated pages has no warning`() {
-        val markdown = "# MyApp\n## Known Pages\n- Home: Main feed"
-        val prompt = PromptBuilder.buildExperiencePromptSection("com.test.app", markdown)
-        assertFalse(prompt.contains("outdated"))
-    }
-
-    @Test
-    fun `reasoning user prompt includes experienceNote field`() {
+    fun `reasoning user prompt includes manual attribution field`() {
         val prompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
-        assertTrue(prompt.contains("experienceNote"))
+        assertTrue(prompt.contains("usedManualHeadings"))
+        assertFalse(prompt.contains("experienceNote"))
     }
 
     @Test
@@ -184,6 +161,8 @@ class PromptBuilderTest {
         val prompt = PromptBuilder.buildVerifySystemPrompt()
         assertTrue(prompt.contains("verification"))
         assertTrue(prompt.contains("JSON"))
+        assertTrue(prompt.contains("outcome\" first"))
+        assertTrue(prompt.contains("under 24 words"))
     }
 
     @Test
@@ -219,6 +198,36 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `learning verify prompt requests only the after page without another request`() {
+        val prompt = PromptBuilder.buildVerifyUserPrompt(
+            "tap",
+            "details open",
+            "Known page heading paths in this step: none\nIf the shown list is none, MATCHED is forbidden",
+        )
+        assertTrue(prompt.contains("AFTER page"))
+        assertTrue(prompt.contains("manualObservation"))
+        assertTrue(prompt.contains("Omit user/private/dynamic values"))
+        assertTrue(prompt.contains("MATCHED is forbidden"))
+        assertTrue(prompt.contains("never whether the action or task target matched"))
+    }
+
+    @Test
+    fun `normal verify prompt stays independent of manual learning`() {
+        val prompt = PromptBuilder.buildVerifyUserPrompt("tap", "details open")
+        assertFalse(prompt.contains("manualObservation"))
+        assertTrue(prompt.contains("Put outcome first"))
+    }
+
+    @Test
+    fun `learning completion prompt requests current page while normal prompt stays compact`() {
+        val normal = PromptBuilder.buildQuickCheckPrompt("complete?")
+        val learning = PromptBuilder.buildQuickCheckPrompt("complete?", "known pages: none")
+        assertFalse(normal.contains("manualObservation"))
+        assertTrue(learning.contains("CURRENT screenshot"))
+        assertTrue(learning.contains("manualObservation"))
+    }
+
+    @Test
     fun `reasoning system prompt contains task planning instructions`() {
         val prompt = PromptBuilder.buildReasoningSystemPrompt()
         assertTrue(prompt.contains("Task Planning"))
@@ -234,16 +243,4 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("\"currentStep\""))
     }
 
-    @Test
-    fun `reasoning user prompt includes isPopupDismissal field`() {
-        val prompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
-        assertTrue(prompt.contains("isPopupDismissal"))
-    }
-
-    @Test
-    fun `reasoning user prompt explains isPopupDismissal usage`() {
-        val prompt = PromptBuilder.buildReasoningUserPrompt("", "test", 1080, 2400)
-        assertTrue(prompt.contains("unexpected popup"))
-        assertTrue(prompt.contains("permission request"))
-    }
 }

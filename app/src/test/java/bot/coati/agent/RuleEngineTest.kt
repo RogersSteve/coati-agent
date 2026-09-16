@@ -3,7 +3,6 @@ package bot.coati.agent
 import android.graphics.Rect
 import bot.coati.data.SafetyMode
 import bot.coati.service.UiTreeNode
-import bot.coati.state.PopupPattern
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -45,111 +44,6 @@ class RuleEngineTest {
         assertEquals(UiTreeQuality.LOW, RuleEngine.assessQuality(0, 0))
     }
 
-    // ─── detectKnownPopup (experience-based) ───
-
-    @Test
-    fun `detectKnownPopup returns null for null tree`() {
-        assertNull(RuleEngine.detectKnownPopup(null))
-    }
-
-    @Test
-    fun `detectKnownPopup returns null without experience`() {
-        val tree = makeNode("Button", "关闭广告", clickable = true, children = emptyList())
-        assertNull(RuleEngine.detectKnownPopup(tree))
-    }
-
-    @Test
-    fun `detectKnownPopup returns null with empty experience`() {
-        val tree = makeNode("Button", "Skip", clickable = true, children = emptyList())
-        assertNull(RuleEngine.detectKnownPopup(tree, emptyList()))
-    }
-
-    @Test
-    fun `detectKnownPopup matches by signature`() {
-        val tree = makeNode("FrameLayout", null, clickable = false, children = listOf(
-            makeNode("TextView", "Update available", clickable = false, children = emptyList()),
-            makeNode("Button", "Later", clickable = true, children = emptyList()),
-            makeNode("Button", "Update", clickable = true, children = emptyList()),
-        ))
-        val sig = RuleEngine.buildPopupSignature(tree)!!
-        val experience = listOf(
-            PopupPattern(sig, "Update available", listOf("Update available"), "Later", 3),
-        )
-        val result = RuleEngine.detectKnownPopup(tree, experience)
-        assertNotNull(result)
-        assertEquals("Later", result!!.dismissText)
-        assertEquals(sig, result.popupSignature)
-    }
-
-    @Test
-    fun `detectKnownPopup matches by keywords when signature differs`() {
-        val tree = makeNode("FrameLayout", null, clickable = false, children = listOf(
-            makeNode("TextView", "Allow access to photos?", clickable = false, children = emptyList()),
-            makeNode("Button", "Allow", clickable = true, children = emptyList()),
-            makeNode("Button", "Deny", clickable = true, children = emptyList()),
-        ))
-        // Experience with a different signature but matching title/keywords
-        val experience = listOf(
-            PopupPattern("different_sig", "Allow access to photos?", listOf("Allow access", "photos"), "Allow", 2),
-        )
-        val result = RuleEngine.detectKnownPopup(tree, experience)
-        assertNotNull(result)
-        assertEquals("Allow", result!!.dismissText)
-    }
-
-    @Test
-    fun `detectKnownPopup returns null when button text changed`() {
-        val tree = makeNode("FrameLayout", null, clickable = false, children = listOf(
-            makeNode("TextView", "Update available", clickable = false, children = emptyList()),
-            makeNode("Button", "Remind me tomorrow", clickable = true, children = emptyList()),
-        ))
-        val sig = RuleEngine.buildPopupSignature(tree)!!
-        // Experience says to click "Later" but that button doesn't exist
-        val experience = listOf(
-            PopupPattern(sig, "Update available", listOf("Update available"), "Later", 3),
-        )
-        val result = RuleEngine.detectKnownPopup(tree, experience)
-        assertNull(result)
-    }
-
-    @Test
-    fun `detectKnownPopup returns null when no popup buttons present`() {
-        val tree = makeNode("LinearLayout", null, clickable = false, children = listOf(
-            makeNode("TextView", "Hello World", clickable = false, children = emptyList()),
-            makeNode("Button", "Submit", clickable = true, children = emptyList()),
-        ))
-        val experience = listOf(
-            PopupPattern("abc", "Some popup", listOf("popup"), "Close", 1),
-        )
-        assertNull(RuleEngine.detectKnownPopup(tree, experience))
-    }
-
-    // ─── buildPopupSignature ───
-
-    @Test
-    fun `buildPopupSignature produces same hash for same content`() {
-        val tree1 = makeNode("FrameLayout", null, clickable = false, children = listOf(
-            makeNode("TextView", "Allow access?", clickable = false, children = emptyList()),
-            makeNode("Button", "Allow", clickable = true, children = emptyList()),
-        ))
-        val tree2 = makeNode("FrameLayout", null, clickable = false, children = listOf(
-            makeNode("TextView", "Allow access?", clickable = false, children = emptyList()),
-            makeNode("Button", "Allow", clickable = true, children = emptyList()),
-        ))
-        assertEquals(RuleEngine.buildPopupSignature(tree1), RuleEngine.buildPopupSignature(tree2))
-    }
-
-    @Test
-    fun `buildPopupSignature returns null for null tree`() {
-        assertNull(RuleEngine.buildPopupSignature(null))
-    }
-
-    @Test
-    fun `buildPopupSignature returns null for tree without text`() {
-        val tree = makeNode("FrameLayout", null, clickable = false, children = emptyList())
-        assertNull(RuleEngine.buildPopupSignature(tree))
-    }
-
     // ─── buildScreenSignature ───
 
     @Test
@@ -179,57 +73,6 @@ class RuleEngineTest {
     @Test
     fun `buildScreenSignature returns empty string for null tree`() {
         assertEquals("", RuleEngine.buildScreenSignature(null))
-    }
-
-    // ─── extractPopupTitle ───
-
-    @Test
-    fun `extractPopupTitle returns longest text`() {
-        val tree = makeNode("FrameLayout", null, clickable = false, children = listOf(
-            makeNode("TextView", "Allow access to your camera?", clickable = false, children = emptyList()),
-            makeNode("Button", "Allow", clickable = true, children = emptyList()),
-            makeNode("Button", "Deny", clickable = true, children = emptyList()),
-        ))
-        val title = RuleEngine.extractPopupTitle(tree)
-        assertEquals("Allow access to your camera?", title)
-    }
-
-    // ─── extractPopupKeywords ───
-
-    @Test
-    fun `extractPopupKeywords filters short texts and limits to 5`() {
-        val tree = makeNode("FrameLayout", null, clickable = false, children = listOf(
-            makeNode("TextView", "A", clickable = false, children = emptyList()), // too short
-            makeNode("TextView", "Allow access", clickable = false, children = emptyList()),
-            makeNode("TextView", "Camera", clickable = false, children = emptyList()),
-            makeNode("Button", "Allow", clickable = true, children = emptyList()),
-            makeNode("Button", "Deny", clickable = true, children = emptyList()),
-        ))
-        val keywords = RuleEngine.extractPopupKeywords(tree)
-        assertTrue(keywords.contains("Allow access"))
-        assertTrue(keywords.contains("Camera"))
-        assertFalse(keywords.contains("A"))
-        assertTrue(keywords.size <= 5)
-    }
-
-    // ─── detectPopupButtons ───
-
-    @Test
-    fun `detectPopupButtons finds clickable popup buttons`() {
-        val tree = makeNode("FrameLayout", null, clickable = false, children = listOf(
-            makeNode("Button", "Allow", clickable = true, children = emptyList()),
-            makeNode("Button", "Deny", clickable = true, children = emptyList()),
-            makeNode("Button", "Submit", clickable = true, children = emptyList()),
-        ))
-        val buttons = RuleEngine.detectPopupButtons(tree)
-        assertEquals(2, buttons.size)
-        assertTrue(buttons.any { it.first == "Allow" })
-        assertTrue(buttons.any { it.first == "Deny" })
-    }
-
-    @Test
-    fun `detectPopupButtons returns empty for null tree`() {
-        assertTrue(RuleEngine.detectPopupButtons(null).isEmpty())
     }
 
     // ─── assessSafety ───

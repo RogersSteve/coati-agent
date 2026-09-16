@@ -1,6 +1,7 @@
 package bot.coati.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -67,6 +68,91 @@ class GatewayUtilsTest {
         assertTrue(GatewayUtils.SYSTEM_PROMPT.contains("JSON"))
     }
 
-    // parseModelResponse uses org.json.JSONObject (Android framework),
-    // so it cannot be tested in JVM unit tests per project conventions.
+    @Test
+    fun `parseModelResponse normalizes bounded manual attribution`() {
+        val response = GatewayUtils.parseModelResponse(
+            """
+            {
+              "reasoning":"manual-assisted",
+              "action":"tap",
+              "params":{"x":10,"y":20},
+              "safetyLevel":"low",
+              "isTaskComplete":false,
+              "statusUpdate":"testing",
+              "usedManualHeadings":["页面详情/首页","页面详情/首页"," ","页面详情/搜索结果页"]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("页面详情/首页", "页面详情/搜索结果页"), response.usedManualHeadings)
+    }
+
+    @Test
+    fun `parseModelResponse reads bounded manual learning observation`() {
+        val response = GatewayUtils.parseModelResponse(
+            """
+            {
+              "reasoning":"new page",
+              "action":"wait",
+              "params":{"ms":500},
+              "safetyLevel":"low",
+              "isTaskComplete":true,
+              "statusUpdate":"done",
+              "manualObservation":{
+                "status":"NEW_OR_CHANGED",
+                "pageName":"搜索结果页",
+                "matchedHeadingPath":null,
+                "visualSignature":"顶部搜索框，中部结果列表，右侧安装按钮",
+                "reusableFacts":["用于查看应用搜索结果","列表项右侧有安装按钮"],
+                "navigationFacts":["首页搜索框提交后进入此页"],
+                "popupOrRecoveryFact":null
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val observation = response.manualObservation!!
+        assertEquals("NEW_OR_CHANGED", observation.status)
+        assertEquals("搜索结果页", observation.pageName)
+        assertEquals("顶部搜索框，中部结果列表，右侧安装按钮", observation.visualSignature)
+        assertEquals(2, observation.reusableFacts.size)
+        assertEquals(listOf("首页搜索框提交后进入此页"), observation.navigationFacts)
+    }
+
+    @Test
+    fun `verification response carries the independently observed after page`() {
+        val result = GatewayUtils.parseVerifyResponse(
+            """{"outcome":"SUCCESS","reason":"opened details","manualObservation":{"status":"NEW_OR_CHANGED","pageName":"会议准备清单","matchedHeadingPath":null,"visualSignature":"顶部标题，下方检查项目","reusableFacts":["用于查看会前检查项"],"navigationFacts":["资料库 → 会议准备清单"],"popupOrRecoveryFact":null}}""",
+        )
+
+        assertEquals(VerifyOutcome.SUCCESS, result.outcome)
+        assertEquals("会议准备清单", result.manualObservation!!.pageName)
+        assertEquals(listOf("资料库 → 会议准备清单"), result.manualObservation.navigationFacts)
+    }
+
+    @Test
+    fun `truncated verification recovers only an explicit outcome field`() {
+        val result = GatewayUtils.parseVerifyResponse(
+            """{"outcome":"SUCCESS","reason":"The AFTER screenshot shows the destination"""",
+        )
+
+        assertEquals(VerifyOutcome.SUCCESS, result.outcome)
+        assertTrue(result.reason.contains("explicit outcome"))
+        assertNull(result.manualObservation)
+    }
+
+    @Test(expected = org.json.JSONException::class)
+    fun `truncated verification without explicit outcome remains a parse failure`() {
+        GatewayUtils.parseVerifyResponse("The screen probably changed")
+    }
+
+    @Test
+    fun `completion audit carries the current terminal page observation`() {
+        val result = GatewayUtils.parseQuickCheckResponse(
+            """{"answer":true,"category":"complete","confidence":1.0,"manualObservation":{"status":"NEW_OR_CHANGED","pageName":"实验档案","matchedHeadingPath":null,"visualSignature":"顶部标题，下方档案卡片","reusableFacts":["用于查看实验档案"],"navigationFacts":["高级设置 → 实验档案"],"popupOrRecoveryFact":null}}""",
+        )
+
+        assertTrue(result.isValid)
+        assertEquals("实验档案", result.manualObservation!!.pageName)
+    }
 }

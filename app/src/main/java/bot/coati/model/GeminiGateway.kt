@@ -3,6 +3,7 @@ package bot.coati.model
 import android.util.Base64
 import android.util.Log
 import bot.coati.agent.PromptBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -56,6 +57,7 @@ class GeminiGateway(
     override suspend fun quickCheck(
         screenshot: ByteArray,
         question: String,
+        manualObservationInstruction: String?,
     ): Result<QuickCheckResult> = withContext(Dispatchers.IO) {
         try {
             val base64Image = Base64.encodeToString(screenshot, Base64.NO_WRAP)
@@ -65,7 +67,7 @@ class GeminiGateway(
             contents.put(JSONObject().apply {
                 put("role", "user")
                 put("parts", JSONArray().put(JSONObject().apply {
-                    put("text", PromptBuilder.buildFastSystemPrompt())
+                    put("text", PromptBuilder.buildFastSystemPrompt(manualObservationInstruction != null))
                 }))
             })
             contents.put(JSONObject().apply {
@@ -84,7 +86,7 @@ class GeminiGateway(
                 })
             })
             userParts.put(JSONObject().apply {
-                put("text", PromptBuilder.buildQuickCheckPrompt(question))
+                put("text", PromptBuilder.buildQuickCheckPrompt(question, manualObservationInstruction))
             })
             contents.put(JSONObject().apply {
                 put("role", "user")
@@ -95,7 +97,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.1)
-                    put("maxOutputTokens", 128)
+                    put("maxOutputTokens", if (manualObservationInstruction == null) 128 else 512)
                 })
             }.toString()
 
@@ -124,6 +126,7 @@ class GeminiGateway(
         afterScreenshot: ByteArray,
         actionDescription: String,
         expectedOutcome: String,
+        manualObservationInstruction: String?,
     ): Result<VerifyResult> = withContext(Dispatchers.IO) {
         try {
             val base64Before = Base64.encodeToString(beforeScreenshot, Base64.NO_WRAP)
@@ -159,7 +162,11 @@ class GeminiGateway(
                 })
             })
             userParts.put(JSONObject().apply {
-                put("text", PromptBuilder.buildVerifyUserPrompt(actionDescription, expectedOutcome))
+                put("text", PromptBuilder.buildVerifyUserPrompt(
+                    actionDescription,
+                    expectedOutcome,
+                    manualObservationInstruction,
+                ))
             })
             contents.put(JSONObject().apply {
                 put("role", "user")
@@ -170,7 +177,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.1)
-                    put("maxOutputTokens", 512)
+                    put("maxOutputTokens", if (manualObservationInstruction == null) 256 else 512)
                 })
             }.toString()
 
@@ -240,6 +247,47 @@ class GeminiGateway(
             Result.success(extractResponseText(body).trim())
         } catch (e: Exception) {
             Log.e(TAG, "summarizeText failed: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun generateStructuredText(request: StructuredTextRequest): Result<StructuredTextResult> {
+        return try {
+            val contents = JSONArray()
+                .put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().put(JSONObject().apply { put("text", request.systemPrompt) }))
+                })
+                .put(JSONObject().apply {
+                    put("role", "model")
+                    put("parts", JSONArray().put(JSONObject().apply {
+                        put("text", "Understood. I will return exactly one JSON object matching the requested schema.")
+                    }))
+                })
+                .put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().put(JSONObject().apply { put("text", request.userPrompt) }))
+                })
+            val requestBody = JSONObject().apply {
+                put("contents", contents)
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", request.temperature)
+                    put("maxOutputTokens", request.maxOutputTokens)
+                })
+            }.toString()
+            val httpRequest = Request.Builder()
+                .url("$endpoint/v1beta/models/$modelName:generateContent?key=$apiKey")
+                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            client.newCall(httpRequest).awaitCancellable().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) return Result.failure(Exception("API error ${response.code}: $body"))
+                Result.success(StructuredTextResponseParser.gemini(body))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "generateStructuredText failed: ${e.javaClass.simpleName}")
             Result.failure(e)
         }
     }

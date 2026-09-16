@@ -1,11 +1,20 @@
 package bot.coati.data
 
+import bot.coati.experience.ManualMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfigStoreTest {
+
+    @Test
+    fun `release rejects persisted debug-only shadow mode`() {
+        assertEquals(ManualMode.SHADOW, ConfigStore.resolveManualMode("SHADOW", isDebuggable = true))
+        assertEquals(ManualMode.OFF, ConfigStore.resolveManualMode("SHADOW", isDebuggable = false))
+        assertEquals(ManualMode.LEARNING, ConfigStore.resolveManualMode("LEARNING", isDebuggable = false))
+        assertEquals(ManualMode.OFF, ConfigStore.resolveManualMode("BROKEN", isDebuggable = true))
+    }
 
     @Test
     fun `maskedKey masks all but last 4 chars`() {

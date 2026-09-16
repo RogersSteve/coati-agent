@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "app": {
+    "appKey": "73671cd0f5b3fe896c332fc83969e896957d942b1477c44a2a385a323a803657",
+    "packageName": "com.coloros.alarmclock",
+    "signerSha256": "64aafaf1d5bc9155a9e417a849e4f8eda1d0d1341667c28ed7c443c76f820b9a",
+    "displayName": "时钟",
+    "versionCode": 16019000,
+    "localeTag": "zh-CN"
+  },
+  "revision": 1,
+  "updatedAtEpochMs": 1788681841079,
+  "manualSha256": "ce0b25b3ad6ebca48114c030d941eaef4b5b34f628b89731b8f6c379323cdcd9",
+  "estimatedTokens": 218,
+  "observedVersionCodes": [
+    16019000
+  ],
+  "localeTags": [
+    "zh-CN"
+  ],
+  "protectedHeadingPaths": [
+    "App 信息"
+  ]
+}

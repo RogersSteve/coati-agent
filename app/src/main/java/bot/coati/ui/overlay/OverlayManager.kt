@@ -27,6 +27,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import bot.coati.data.SafetyMode
+import bot.coati.experience.ManualMode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -40,6 +41,7 @@ class OverlayManager(
     val overlayState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
     private val gestureGate = OverlayGestureGate()
     private val safetyMode = mutableStateOf(SafetyMode.STANDARD)
+    private val manualMode = mutableStateOf(ManualMode.OFF)
 
     // Background agent state for ball color when collapsed
     private var agentBallState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
@@ -47,6 +49,7 @@ class OverlayManager(
     // Callbacks wired by CoatiService
     var onExecuteTask: ((String) -> Unit)? = null
     var onSafetyModeChanged: ((SafetyMode) -> Unit)? = null
+    var onManualModeChanged: ((ManualMode) -> Unit)? = null
     var onStopTask: (() -> Unit)? = null
     var onPauseTask: (() -> Unit)? = null
     var onResumeTask: (() -> Unit)? = null
@@ -118,6 +121,7 @@ class OverlayManager(
                     state = state,
                     ballState = ballState,
                     safetyMode = safetyMode.value,
+                    manualMode = manualMode.value,
                     onExecute = { task ->
                         lastTask = task
                         onExecuteTask?.invoke(task)
@@ -125,6 +129,10 @@ class OverlayManager(
                     onSafetyModeChanged = { mode ->
                         setSafetyMode(mode)
                         onSafetyModeChanged?.invoke(mode)
+                    },
+                    onManualModeChanged = { mode ->
+                        setManualMode(mode)
+                        onManualModeChanged?.invoke(mode)
                     },
                     onStop = { invokeTaskControl("stop", onStopTask) },
                     onPause = { invokeTaskControl("pause", onPauseTask) },
@@ -204,6 +212,10 @@ class OverlayManager(
 
     fun setSafetyMode(mode: SafetyMode) {
         safetyMode.value = mode
+    }
+
+    fun setManualMode(mode: ManualMode) {
+        manualMode.value = mode
     }
 
     fun collapse() {

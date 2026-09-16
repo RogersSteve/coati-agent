@@ -46,15 +46,16 @@ object GatewayUtils {
         val x = if (json.has("x") && !json.isNull("x")) json.optInt("x") else null
         val y = if (json.has("y") && !json.isNull("y")) json.optInt("y") else null
 
-        val experienceNote = if (json.has("experienceNote") && !json.isNull("experienceNote")) {
-            val noteJson = json.optJSONObject("experienceNote")
-            if (noteJson != null) {
-                ExperienceNote(
-                    page = noteJson.optString("page", ""),
-                    observation = noteJson.optString("observation", ""),
-                )
-            } else null
-        } else null
+        val usedManualHeadings = json.optJSONArray("usedManualHeadings")?.let { array ->
+            buildList {
+                for (index in 0 until minOf(array.length(), 8)) {
+                    val id = array.optString(index, "").trim()
+                    if (id.isNotEmpty()) add(id)
+                }
+            }.distinct()
+        }.orEmpty()
+
+        val manualObservation = parseManualObservation(json)
 
         return ModelResponse(
             reasoning = json.optString("reasoning", ""),
@@ -65,26 +66,54 @@ object GatewayUtils {
             statusUpdate = json.optString("statusUpdate", ""),
             x = x,
             y = y,
-            experienceNote = experienceNote,
             expectedOutcome = json.optString("expectedOutcome", ""),
-            isPopupDismissal = json.optBoolean("isPopupDismissal", false),
+            usedManualHeadings = usedManualHeadings,
+            manualObservation = manualObservation,
         )
     }
 
+    private fun JSONObject.optionalString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        return (get(key) as? String)?.trim()?.takeIf(String::isNotEmpty)
+    }
+
+    private fun JSONObject.stringArray(key: String, limit: Int): List<String> {
+        val array = optJSONArray(key) ?: return emptyList()
+        return buildList {
+            for (index in 0 until minOf(array.length(), limit)) {
+                val value = array.optString(index, "").trim()
+                if (value.isNotEmpty()) add(value)
+            }
+        }.distinct()
+    }
+
     fun parseVerifyResponse(text: String): VerifyResult {
-        val jsonStr = extractJsonFromText(text)
-        val json = JSONObject(jsonStr) // throws JSONException if not valid JSON
-        val outcomeStr = json.optString("outcome", "UNKNOWN").uppercase()
-        val outcome = try {
-            VerifyOutcome.valueOf(outcomeStr)
-        } catch (_: IllegalArgumentException) {
-            VerifyOutcome.UNKNOWN
+        return try {
+            val jsonStr = extractJsonFromText(text)
+            val json = JSONObject(jsonStr)
+            val outcome = parseVerifyOutcome(json.optString("outcome", "UNKNOWN"))
+            VerifyResult(
+                outcome = outcome,
+                reason = json.optString("reason", ""),
+                observation = if (json.has("observation") && !json.isNull("observation")) json.optString("observation") else null,
+                manualObservation = parseManualObservation(json),
+            )
+        } catch (error: Exception) {
+            // Some OpenAI-compatible relays cut the response after an explicit first-field
+            // decision. Recover only that exact enum; never infer an outcome from prose.
+            val explicit = VERIFY_OUTCOME_PREFIX.find(text)?.groupValues?.getOrNull(1)
+                ?: throw error
+            VerifyResult(
+                outcome = parseVerifyOutcome(explicit),
+                reason = "Verifier response ended after an explicit outcome",
+            )
         }
-        return VerifyResult(
-            outcome = outcome,
-            reason = json.optString("reason", ""),
-            observation = if (json.has("observation") && !json.isNull("observation")) json.optString("observation") else null,
-        )
+    }
+
+    private fun parseVerifyOutcome(value: String): VerifyOutcome = try {
+        VerifyOutcome.valueOf(value.trim().uppercase())
+    } catch (_: IllegalArgumentException) {
+        VerifyOutcome.UNKNOWN
     }
 
     fun parseQuickCheckResponse(text: String): QuickCheckResult {
@@ -99,6 +128,7 @@ object GatewayUtils {
                 category = if (json.has("category") && !json.isNull("category")) json.optString("category") else null,
                 confidence = confidence.toFloat(),
                 isValid = valid,
+                manualObservation = parseManualObservation(json),
             )
         } catch (_: Exception) {
             // Fallback: try to detect yes/true in text
@@ -110,4 +140,22 @@ object GatewayUtils {
             )
         }
     }
+
+    private fun parseManualObservation(root: JSONObject): ManualPageObservation? =
+        root.optJSONObject("manualObservation")?.let { observation ->
+            ManualPageObservation(
+                status = observation.optString("status", "UNKNOWN"),
+                pageName = observation.optionalString("pageName"),
+                matchedHeadingPath = observation.optionalString("matchedHeadingPath"),
+                visualSignature = observation.optionalString("visualSignature"),
+                reusableFacts = observation.stringArray("reusableFacts", 4),
+                navigationFacts = observation.stringArray("navigationFacts", 3),
+                popupOrRecoveryFact = observation.optionalString("popupOrRecoveryFact"),
+            )
+        }
+
+    private val VERIFY_OUTCOME_PREFIX = Regex(
+        "[\\{,]\\s*\\\"outcome\\\"\\s*:\\s*\\\"(SUCCESS|FAILED|DRIFTED|UNEXPECTED|UNKNOWN)\\\"",
+        RegexOption.IGNORE_CASE,
+    )
 }

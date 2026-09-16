@@ -145,14 +145,7 @@ class ModelResponseTest {
     }
 
     @Test
-    fun `ExperienceNote data class holds values`() {
-        val note = ExperienceNote(page = "Home", observation = "Has a search bar at top")
-        assertEquals("Home", note.page)
-        assertEquals("Has a search bar at top", note.observation)
-    }
-
-    @Test
-    fun `ModelResponse with experienceNote`() {
+    fun `ModelResponse with manual attribution`() {
         val response = ModelResponse(
             reasoning = "test",
             action = "tap",
@@ -160,15 +153,13 @@ class ModelResponseTest {
             safetyLevel = "low",
             isTaskComplete = false,
             statusUpdate = "Tapping",
-            experienceNote = ExperienceNote("Home", "Main feed with posts"),
+            usedManualHeadings = listOf("页面详情/首页"),
         )
-        assertNotNull(response.experienceNote)
-        assertEquals("Home", response.experienceNote!!.page)
-        assertEquals("Main feed with posts", response.experienceNote!!.observation)
+        assertEquals(listOf("页面详情/首页"), response.usedManualHeadings)
     }
 
     @Test
-    fun `ModelResponse without experienceNote defaults to null`() {
+    fun `ModelResponse manual attribution defaults to empty`() {
         val response = ModelResponse(
             reasoning = "test",
             action = "tap",
@@ -177,7 +168,7 @@ class ModelResponseTest {
             isTaskComplete = false,
             statusUpdate = "test",
         )
-        assertNull(response.experienceNote)
+        assertTrue(response.usedManualHeadings.isEmpty())
     }
 
     @Test
@@ -275,30 +266,4 @@ class ModelResponseTest {
         assertEquals("", response.expectedOutcome)
     }
 
-    @Test
-    fun `ModelResponse isPopupDismissal defaults to false`() {
-        val response = ModelResponse(
-            reasoning = "test",
-            action = "tap",
-            params = emptyMap(),
-            safetyLevel = "low",
-            isTaskComplete = false,
-            statusUpdate = "test",
-        )
-        assertFalse(response.isPopupDismissal)
-    }
-
-    @Test
-    fun `ModelResponse isPopupDismissal set to true`() {
-        val response = ModelResponse(
-            reasoning = "Dismissing permission dialog",
-            action = "tap",
-            params = mapOf("x" to 500, "y" to 800),
-            safetyLevel = "low",
-            isTaskComplete = false,
-            statusUpdate = "Tapping Allow",
-            isPopupDismissal = true,
-        )
-        assertTrue(response.isPopupDismissal)
-    }
 }

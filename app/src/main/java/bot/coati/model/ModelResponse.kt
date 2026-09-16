@@ -1,7 +1,5 @@
 package bot.coati.model
 
-data class ExperienceNote(val page: String, val observation: String)
-
 data class ModelResponse(
     val reasoning: String,
     val action: String,
@@ -11,9 +9,23 @@ data class ModelResponse(
     val statusUpdate: String,
     val x: Int? = null,
     val y: Int? = null,
-    val experienceNote: ExperienceNote? = null,
     val expectedOutcome: String = "",
-    val isPopupDismissal: Boolean = false,
+    val usedManualHeadings: List<String> = emptyList(),
+    val manualObservation: ManualPageObservation? = null,
+)
+
+/**
+ * A compact observation of the currently visible App page. It is evidence, never an edit
+ * command. The living-manual layer validates and sanitizes it again before persistence.
+ */
+data class ManualPageObservation(
+    val status: String,
+    val pageName: String? = null,
+    val matchedHeadingPath: String? = null,
+    val visualSignature: String? = null,
+    val reusableFacts: List<String> = emptyList(),
+    val navigationFacts: List<String> = emptyList(),
+    val popupOrRecoveryFact: String? = null,
 )
 
 enum class VerifyOutcome { SUCCESS, FAILED, DRIFTED, UNEXPECTED, UNKNOWN }
@@ -22,6 +34,7 @@ data class VerifyResult(
     val outcome: VerifyOutcome,
     val reason: String,
     val observation: String? = null,
+    val manualObservation: ManualPageObservation? = null,
 )
 
 data class QuickCheckResult(
@@ -29,6 +42,7 @@ data class QuickCheckResult(
     val category: String? = null,
     val confidence: Float = 1.0f,
     val isValid: Boolean = true,
+    val manualObservation: ManualPageObservation? = null,
 )
 
 data class Message(

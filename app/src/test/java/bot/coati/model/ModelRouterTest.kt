@@ -15,6 +15,7 @@ class ModelRouterTest {
 
         assertSame(reasoning, router.reasoning)
         assertSame(fast, router.fast)
+        assertSame(reasoning, router.knowledgeUpdater)
     }
 
     @Test

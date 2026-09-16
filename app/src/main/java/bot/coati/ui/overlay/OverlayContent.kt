@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import bot.coati.data.SafetyMode
+import bot.coati.experience.ManualMode
 import bot.coati.ui.theme.BallError
 import bot.coati.ui.theme.BallExecuting
 import bot.coati.ui.theme.BallIdle
@@ -66,8 +67,10 @@ fun OverlayContent(
     state: OverlayState,
     ballState: OverlayState = state,
     safetyMode: SafetyMode = SafetyMode.STANDARD,
+    manualMode: ManualMode = ManualMode.OFF,
     onExecute: (String) -> Unit = {},
     onSafetyModeChanged: (SafetyMode) -> Unit = {},
+    onManualModeChanged: (ManualMode) -> Unit = {},
     onStop: () -> Unit = {},
     onPause: () -> Unit = {},
     onResume: () -> Unit = {},
@@ -85,8 +88,10 @@ fun OverlayContent(
         is OverlayState.CollapsedIdle -> CollapsedBall(ballState = ballState)
         is OverlayState.ExpandedIdle -> ExpandedInputPanel(
             safetyMode = safetyMode,
+            manualMode = manualMode,
             onExecute = onExecute,
             onSafetyModeChanged = onSafetyModeChanged,
+            onManualModeChanged = onManualModeChanged,
             onCollapse = onCollapse,
             onSettings = onSettings,
             onExit = onExit,
@@ -191,8 +196,10 @@ fun CollapsedBall(ballState: OverlayState) {
 @Composable
 private fun ExpandedInputPanel(
     safetyMode: SafetyMode,
+    manualMode: ManualMode,
     onExecute: (String) -> Unit,
     onSafetyModeChanged: (SafetyMode) -> Unit,
+    onManualModeChanged: (ManualMode) -> Unit,
     onCollapse: () -> Unit,
     onSettings: () -> Unit,
     onExit: () -> Unit,
@@ -236,6 +243,11 @@ private fun ExpandedInputPanel(
             onModeSelected = onSafetyModeChanged,
         )
         Spacer(modifier = Modifier.height(8.dp))
+        ManualModeSelector(
+            selectedMode = manualMode,
+            onModeSelected = onManualModeChanged,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Button(
             onClick = {
                 if (taskInput.isNotBlank()) onExecute(taskInput)
@@ -249,6 +261,48 @@ private fun ExpandedInputPanel(
             Text("Execute")
         }
     }
+}
+
+@Composable
+private fun ManualModeSelector(
+    selectedMode: ManualMode,
+    onModeSelected: (ManualMode) -> Unit,
+) {
+    val options = listOf(
+        ManualMode.OFF to "Off",
+        ManualMode.READ_ONLY to "Guide",
+        ManualMode.LEARNING to "Learn",
+    )
+
+    Text(
+        text = "App knowledge",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Medium,
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEach { (mode, label) ->
+            FilterChip(
+                selected = selectedMode == mode,
+                onClick = { onModeSelected(mode) },
+                label = { Text(label, fontSize = 10.sp, maxLines = 1) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+    Text(
+        text = when (selectedMode) {
+            ManualMode.OFF -> "No app guide is read or learned."
+            ManualMode.READ_ONLY -> "Read the current app manual without changing it."
+            ManualMode.LEARNING -> "Read the current app manual and learn verified reusable UI knowledge."
+            ManualMode.SHADOW -> "Active: Shadow (debug). Guidance is not used."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

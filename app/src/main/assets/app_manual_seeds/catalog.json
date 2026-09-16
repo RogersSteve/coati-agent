@@ -1,0 +1,9 @@
+{
+  "seeds": [
+    {
+      "packageName": "com.tencent.mm",
+      "manualAsset": "app_manual_seeds/com.tencent.mm.md",
+      "protectedHeadingPaths": ["App 信息", "厂商预设边界"]
+    }
+  ]
+}

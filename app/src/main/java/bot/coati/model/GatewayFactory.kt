@@ -1,8 +1,16 @@
 package bot.coati.model
 
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 object GatewayFactory {
+
+    /** Shared transport settings for runtime gateways and debug-only protocol validation. */
+    fun createRuntimeClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
 
     fun create(
         provider: ModelProvider,

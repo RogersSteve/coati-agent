@@ -1,0 +1,7 @@
+{
+  "durationMs": 3987,
+  "finishReason": "COMPLETE",
+  "outputTokens": 77,
+  "text": "<think>**Confirming JSON no-change status**<\/think>\n\n{\"expectedRevision\":1,\"tool\":\"NO_CHANGE\",\"edits\":[]}",
+  "exportTruncated": false
+}

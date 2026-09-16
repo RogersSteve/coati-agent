@@ -6,7 +6,7 @@ import bot.coati.action.ActionFailureCode
 import bot.coati.action.AgentAction
 import bot.coati.action.toLogSummary
 import bot.coati.data.SafetyMode
-import bot.coati.model.ExperienceNote
+import bot.coati.experience.AppManualRuntime
 import bot.coati.model.Message
 import bot.coati.model.ModelResponse
 import bot.coati.model.ModelRouter
@@ -16,7 +16,6 @@ import bot.coati.model.VerifyOutcome
 import bot.coati.model.VerifyResult
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.UiTreeNode
-import bot.coati.state.AppExperienceManager
 import bot.coati.state.StateManager
 import bot.coati.state.TaskState
 import bot.coati.ui.overlay.OverlayManager
@@ -42,7 +41,7 @@ class AgentLoop(
     private val actionEngine: ActionEngine,
     private val a11y: CoatiAccessibilityService,
     private val stateManager: StateManager? = null,
-    private val experienceManager: AppExperienceManager? = null,
+    private val manualRuntime: AppManualRuntime? = null,
     private val safetyModeProvider: () -> SafetyMode = { SafetyMode.STANDARD },
 ) {
     private data class ActionRecord(
@@ -50,6 +49,16 @@ class AgentLoop(
         val statusUpdate: String,
         val screenSignature: String,
         val outcome: VerifyOutcome,
+    )
+
+    /**
+     * A real UI transition captured by the host. The next normal Reasoning turn describes the
+     * destination page; Fast Verify is deliberately not a source of manual content.
+     */
+    private data class PendingManualTransition(
+        val destinationPackage: String,
+        val action: AgentAction,
+        val beforeTree: UiTreeNode?,
     )
 
     private var currentJob: Job? = null
@@ -87,6 +96,7 @@ class AgentLoop(
         replanHint = null
         lastStepFeedback = null
         taskCompletionAuditRejects = 0
+        manualRuntime?.startTask(task)
         Log.i(TAG, "Starting agent loop for task: $task (confirmationMode=$taskSafetyMode)")
 
         overlayManager.enterFrameExecuting(task)
@@ -126,6 +136,7 @@ class AgentLoop(
     fun stop() {
         currentJob?.cancel()
         currentJob = null
+        manualRuntime?.discardTask()
         overlayManager.resetBallState()
         Log.i(TAG, "Agent loop stopped")
     }
@@ -149,6 +160,9 @@ class AgentLoop(
         // Carry the verify screenshot forward as the next step's observe input, so two
         // back-to-back takeScreenshot() calls never happen within the same second (BUG-12).
         var carryOverContext: ScreenContext? = null
+        // Learning evidence is collected by the already-required Reasoning turn from its current
+        // screen. A compact Fast verifier may fail or be truncated without breaking this path.
+        var pendingManualTransition: PendingManualTransition? = null
 
         while (stepCount < MAX_STEPS && !emergencyStop && currentJob?.isActive == true) {
             stepCount++
@@ -202,45 +216,30 @@ class AgentLoop(
                 ),
             )
 
-            // c. RULE CHECK: assess quality, detect popup (experience-based only)
+            // c. RULE CHECK: assess observation quality. Experience is advisory only and
+            // never performs an action before the reasoning/safety/verification pipeline.
             val quality = RuleEngine.assessQuality(nodeCount, textNodeCount)
             Log.i(TAG, "UI quality=$quality, nodes=$nodeCount, textNodes=$textNodeCount")
 
-            val popupExperience = experienceManager?.loadPopupPatterns(screenContext.appPackage) ?: emptyList()
-            val popup = RuleEngine.detectKnownPopup(uiTree, popupExperience)
-            if (popup != null) {
-                Log.i(TAG, "Auto-handling known popup: ${popup.dismissText}")
-                overlayManager.updateProgress(task, "Dismissing popup...", popup.dismissText, stepCount, MAX_STEPS)
-                val tapX = popup.bounds.centerX()
-                val tapY = popup.bounds.centerY()
-                overlayManager.withGesturePassthrough {
-                    actionEngine.execute(AgentAction.Tap(tapX, tapY))
-                }
-                delay(randomDelay())
-                if (popup.popupSignature != null) {
-                    experienceManager?.recordPopup(
-                        screenContext.appPackage, popup.popupSignature,
-                        RuleEngine.extractPopupTitle(uiTree!!),
-                        RuleEngine.extractPopupKeywords(uiTree),
-                        popup.dismissText,
-                    )
-                }
-                prevNodeCount = nodeCount
-                prevApp = screenContext.appPackage
-                continue
-            }
-
-            // d. CONTEXT: load app experience
-            val experienceSection = experienceManager?.let { mgr ->
-                val markdown = mgr.loadForPrompt(screenContext.appPackage)
-                PromptBuilder.buildExperiencePromptSection(screenContext.appPackage, markdown)
-            }
+            // d. CONTEXT: bounded advisory manual. OFF/SHADOW return no prompt content.
+            val renderedManual = manualRuntime?.promptFor(screenContext.appPackage, screenContext.uiTreeJson)
+            val learningObservationInstruction = manualRuntime?.learningObservationInstruction(
+                screenContext.appPackage,
+                uiTree,
+                renderedManual,
+            )
 
             // e. THINK: Reasoning model with timeout + exception handling
             overlayManager.updateProgress(task, "Analyzing...", "", stepCount, MAX_STEPS)
             Log.i(TAG, "Calling reasoning model")
 
-            val taskDescriptionWithContext = buildTaskDescription(task, experienceSection)
+            val taskDescriptionWithContext = buildTaskDescription(
+                task,
+                renderedManual?.text,
+                // LEARNING/SHADOW observations ride on the normal Reasoning call. This creates no
+                // additional request and keeps manual maintenance independent of Fast Verify.
+                learningObservationInstruction,
+            )
 
             val result = withTimeoutOrNull(30_000) {
                 modelRouter.reasoning.analyzeScreen(
@@ -253,6 +252,24 @@ class AgentLoop(
 
             val response = handleModelResult(result, task)
             if (response == null) continue
+            manualRuntime?.recordAttribution(renderedManual, response.usedManualHeadings)
+            val transition = pendingManualTransition
+                ?.takeIf { it.destinationPackage == screenContext.appPackage }
+            val currentObservationAccepted = if (learningObservationInstruction != null) {
+                manualRuntime?.recordObservedCurrentPage(
+                    packageName = screenContext.appPackage,
+                    tree = uiTree,
+                    observation = response.manualObservation,
+                    knownHeadingPaths = renderedManual?.headingPaths.orEmpty(),
+                    precedingAction = transition?.action,
+                    beforeTree = transition?.beforeTree,
+                ) ?: false
+            } else {
+                false
+            }
+            // A model failure above leaves the transition pending for the next observation. Once
+            // a response has been handled, any following action establishes a new destination.
+            pendingManualTransition = null
             Log.i(TAG, "Model response: action=${response.action}, x=${response.x}, y=${response.y}")
 
             // Track conversation
@@ -388,6 +405,9 @@ class AgentLoop(
                         // overlay-free OBSERVE frame is the authoritative final state.
                         screenshot = screenContext.screenshotJpeg,
                         question = buildTaskCompletionAuditQuestion(task),
+                        // Page learning was already handled by the current Reasoning response.
+                        // Keep this independent audit compact and single-purpose.
+                        manualObservationInstruction = null,
                     )
                 }?.getOrNull()
                 val auditDecision = classifyTaskCompletionAudit(audit)
@@ -408,6 +428,21 @@ class AgentLoop(
                     val elapsed = System.currentTimeMillis() - taskStartTime
                     Log.i(TAG, "Task complete at step $stepCount!")
                     updateTaskStatus("completed")
+                    // Freeze and enqueue an immutable update request before waiting for the
+                    // result dialog. Enqueue is non-blocking and cannot change task outcome.
+                    // Normally the current Reasoning observation has already been admitted. If it
+                    // was unusable, an independently accepted audit may still admit that same
+                    // visible page as terminal evidence; UNAVAILABLE never creates evidence.
+                    if (!currentObservationAccepted) {
+                        manualRuntime?.recordCompletedObservation(
+                            packageName = screenContext.appPackage,
+                            tree = uiTree,
+                            observation = response.manualObservation,
+                            knownHeadingPaths = renderedManual?.headingPaths.orEmpty(),
+                            independentlyVerified = shouldRecordTerminalManualObservation(auditDecision),
+                        )
+                    }
+                    manualRuntime?.completeTask()
                     overlayManager.awaitTaskComplete(
                         taskName = task,
                         summary = response.statusUpdate,
@@ -449,10 +484,7 @@ class AgentLoop(
                 Log.i(TAG, "isTaskComplete with action '${response.action}' — deferring: model must confirm via screenshot")
             }
 
-            // i. VERIFY: action verification with popup fast path + replan on failure
-            var popupDismissCount = 0
-            var verifyObservation: String? = null
-            var shouldRecordExperience = false
+            // i. VERIFY: action verification is compact and independent of manual learning.
 
             verifyLoop@ while (true) {
                 delay(randomDelay())
@@ -464,38 +496,20 @@ class AgentLoop(
                     overlayManager.showAfterScreenshot()
                 } ?: throw Exception("Failed to capture verification screenshot")
                 val afterTree = a11y.getUiTree()
-
-                // Fast path: known popup from experience
-                val verifyPopupExp = experienceManager?.loadPopupPatterns(screenContext.appPackage) ?: emptyList()
-                val verifyPopup = RuleEngine.detectKnownPopup(afterTree, verifyPopupExp)
-                if (verifyPopup != null) {
-                    popupDismissCount++
-                    if (popupDismissCount > MAX_POPUP_DISMISSALS) {
-                        updateTaskStatus("failed", "Persistent popup could not be dismissed")
-                        val retry = overlayManager.awaitTaskFailed(
-                            taskName = task,
-                            reason = "Persistent popup could not be dismissed",
-                            stepsCompleted = stepCount,
-                            totalSteps = MAX_STEPS,
-                        )
-                        if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
-                    }
-                    // Dismiss popup
-                    overlayManager.withGesturePassthrough {
-                        actionEngine.execute(AgentAction.Tap(verifyPopup.bounds.centerX(), verifyPopup.bounds.centerY()))
-                    }
-                    delay(randomDelay())
-                    // Re-execute original action
-                    overlayManager.withGesturePassthrough { actionEngine.execute(action) }
-                    if (verifyPopup.popupSignature != null && afterTree != null) {
-                        experienceManager?.recordPopup(
-                            screenContext.appPackage, verifyPopup.popupSignature,
-                            RuleEngine.extractPopupTitle(afterTree),
-                            RuleEngine.extractPopupKeywords(afterTree),
-                            verifyPopup.dismissText,
-                        )
-                    }
-                    continue@verifyLoop
+                val afterScreenSig = RuleEngine.buildScreenSignature(afterTree)
+                pendingManualTransition = if (shouldAttachManualTransition(
+                        beforePackage = screenContext.appPackage,
+                        afterPackage = afterContext.appPackage,
+                        beforeSignature = screenSig,
+                        afterSignature = afterScreenSig,
+                    )) {
+                    PendingManualTransition(
+                        destinationPackage = afterContext.appPackage,
+                        action = action,
+                        beforeTree = beforeUiTree,
+                    )
+                } else {
+                    null
                 }
 
                 // Model verification: send BEFORE + AFTER screenshots (retry up to 3 times)
@@ -506,6 +520,7 @@ class AgentLoop(
                         afterScreenshot = afterContext.screenshotJpeg,
                         actionDescription = actionDesc,
                         expectedOutcome = response.expectedOutcome,
+                        manualObservationInstruction = null,
                     )
                     if (res.isSuccess) res.getOrThrow()
                     else {
@@ -532,21 +547,6 @@ class AgentLoop(
                         exceptionHandler.recordSuccess()
                         replanHint = null
                         lastStepFeedback = "Previous action SUCCEEDED: ${verifyResult.reason}"
-                        shouldRecordExperience = true
-
-                        // Learn popup experience
-                        if (response.isPopupDismissal && beforeUiTree != null) {
-                            val sig = RuleEngine.buildPopupSignature(beforeUiTree)
-                            val title = RuleEngine.extractPopupTitle(beforeUiTree)
-                            val keywords = RuleEngine.extractPopupKeywords(beforeUiTree)
-                            val clickedButton = response.statusUpdate
-                            if (sig != null) {
-                                experienceManager?.recordPopup(
-                                    screenContext.appPackage, sig, title, keywords, clickedButton)
-                                Log.i(TAG, "Learned popup: title=$title, button=$clickedButton")
-                            }
-                        }
-
                         carryOverContext = afterContext
                         break@verifyLoop
                     }
@@ -561,8 +561,6 @@ class AgentLoop(
                             null
                         }
                         lastStepFeedback = "Previous action had an UNEXPECTED but task-compatible result: ${verifyResult.reason}"
-                        verifyObservation = verifyResult.observation
-                        shouldRecordExperience = true
                         carryOverContext = afterContext
                         break@verifyLoop
                     }
@@ -643,22 +641,7 @@ class AgentLoop(
                 }
             }
 
-            // j. LEARN: record experience (UNEXPECTED observation takes priority)
-            val learnNote = if (!shouldRecordExperience) {
-                null
-            } else if (verifyObservation != null) {
-                val pageName = response.experienceNote?.page
-                    ?: response.statusUpdate.ifBlank { screenContext.appPackage }
-                ExperienceNote(page = pageName, observation = verifyObservation!!)
-            } else {
-                response.experienceNote
-            }
-            if (learnNote != null && experienceManager != null) {
-                experienceManager.recordObservation(screenContext.appPackage, learnNote.page, learnNote.observation)
-                Log.i(TAG, "Recorded experience: page=${learnNote.page}")
-            }
-
-            // k. UPDATE: write step to task.json
+            // j. UPDATE: write step to task.json
             currentTask = currentTask?.copy(
                 currentStep = stepCount,
                 totalSteps = MAX_STEPS,
@@ -667,7 +650,7 @@ class AgentLoop(
             )
             writeTaskState(currentTask)
 
-            // l. AUTOCOMPACT
+            // k. AUTOCOMPACT
             if (autocompact.shouldCompact(stepCount) && stateManager != null) {
                 Log.i(TAG, "Running autocompact at step $stepCount")
                 try {
@@ -683,7 +666,7 @@ class AgentLoop(
                 }
             }
 
-            // m. UPDATE TRACKING
+            // l. UPDATE TRACKING
             prevNodeCount = nodeCount
             prevApp = carryOverContext?.appPackage ?: screenContext.appPackage
         }
@@ -757,7 +740,11 @@ class AgentLoop(
         }
     }
 
-    private fun buildTaskDescription(task: String, experienceSection: String?): String {
+    private fun buildTaskDescription(
+        task: String,
+        manualSection: String?,
+        learningObservationInstruction: String?,
+    ): String {
         val sb = StringBuilder(task)
         if (lastStepFeedback != null) {
             sb.append("\n\n[LAST STEP] $lastStepFeedback")
@@ -772,8 +759,11 @@ class AgentLoop(
                 sb.append("\n- $constraint")
             }
         }
-        if (experienceSection != null) {
-            sb.append("\n\n$experienceSection")
+        if (manualSection != null) {
+            sb.append("\n\n$manualSection")
+        }
+        if (learningObservationInstruction != null) {
+            sb.append("\n\n$learningObservationInstruction")
         }
         return sb.toString()
     }
@@ -946,7 +936,6 @@ class AgentLoop(
         const val MAX_STEPS = 200
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val MAX_VERIFY_RETRIES = 2
-        private const val MAX_POPUP_DISMISSALS = 3
         private const val TASK_COMPLETION_AUDIT_TIMEOUT_MS = 15_000L
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
 
@@ -972,6 +961,17 @@ class AgentLoop(
                 CompletionAuditDecision.REJECT
             }
         }
+
+        internal fun shouldRecordTerminalManualObservation(
+            decision: CompletionAuditDecision,
+        ): Boolean = decision == CompletionAuditDecision.ACCEPT
+
+        internal fun shouldAttachManualTransition(
+            beforePackage: String,
+            afterPackage: String,
+            beforeSignature: String,
+            afterSignature: String,
+        ): Boolean = beforePackage != afterPackage || beforeSignature != afterSignature
 
         internal fun capabilityScope(
             packageName: String,

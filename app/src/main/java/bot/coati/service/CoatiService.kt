@@ -16,10 +16,15 @@ import bot.coati.R
 import bot.coati.action.ActionEngine
 import bot.coati.agent.AgentLoop
 import bot.coati.data.ConfigStore
+import bot.coati.experience.AppIdentityResolver
+import bot.coati.experience.AppManualRenderer
+import bot.coati.experience.AppManualRepository
+import bot.coati.experience.AppManualRuntime
+import bot.coati.experience.ManualSeedCatalog
+import bot.coati.experience.ManualUpdateCoordinator
 import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
 import bot.coati.model.ModelRouter
-import bot.coati.state.AppExperienceManager
 import bot.coati.state.StateManager
 import bot.coati.state.TaskRecovery
 import bot.coati.ui.main.MainActivity
@@ -28,14 +33,13 @@ import bot.coati.ui.overlay.OverlayState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 class CoatiService : Service() {
 
     private var overlayManager: OverlayManager? = null
     private var agentLoop: AgentLoop? = null
+    private var manualRuntime: AppManualRuntime? = null
     private lateinit var configStore: ConfigStore
     private var telephonyManager: TelephonyManager? = null
     private var callStateCallback: TelephonyCallback? = null
@@ -50,9 +54,14 @@ class CoatiService : Service() {
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         overlayManager = OverlayManager(this, wm).also { overlay ->
             overlay.setSafetyMode(configStore.getSafetyMode())
+            overlay.setManualMode(configStore.getManualMode())
             overlay.onSafetyModeChanged = { mode ->
                 configStore.setSafetyMode(mode)
                 Log.i(TAG, "Confirmation mode selected: $mode")
+            }
+            overlay.onManualModeChanged = { mode ->
+                configStore.setManualMode(mode)
+                Log.i(TAG, "App knowledge mode selected: $mode")
             }
             overlay.show()
         }
@@ -132,11 +141,7 @@ class CoatiService : Service() {
         val fastConfig = configStore.getFastConfig() ?: reasoningConfig
         val fastProvider = ModelProviders.findById(fastConfig.providerId) ?: reasoningProvider
 
-        val client = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .build()
+        val client = GatewayFactory.createRuntimeClient()
 
         val reasoningGateway = GatewayFactory.create(reasoningProvider, client, reasoningConfig.apiKey, reasoningConfig.endpoint, reasoningConfig.modelName)
         val fastGateway = GatewayFactory.create(fastProvider, client, fastConfig.apiKey, fastConfig.endpoint, fastConfig.modelName)
@@ -144,10 +149,22 @@ class CoatiService : Service() {
         val actionEngine = ActionEngine(a11y)
         val overlay = overlayManager ?: return
 
-        val experienceManager = AppExperienceManager(stateManager)
+        manualRuntime?.close()
+        // Learned manuals are derived cross-task knowledge and must not enter
+        // Android Auto Backup or device-to-device restore.
+        val manualRepository = AppManualRepository(noBackupFilesDir)
+        val newManualRuntime = AppManualRuntime(
+            repository = manualRepository,
+            renderer = AppManualRenderer(),
+            identityResolver = AppIdentityResolver(this),
+            seedCatalog = ManualSeedCatalog(assets),
+            coordinator = ManualUpdateCoordinator(manualRepository, modelRouter.knowledgeUpdater),
+            modeProvider = { configStore.getManualMode() },
+        )
+        manualRuntime = newManualRuntime
         val loop = AgentLoop(
             overlay, modelRouter, actionEngine, a11y,
-            stateManager, experienceManager,
+            stateManager, newManualRuntime,
             safetyModeProvider = { configStore.getSafetyMode() },
         )
         agentLoop = loop
@@ -188,7 +205,9 @@ class CoatiService : Service() {
         Log.i(
             TAG,
             "Agent initialized: reasoning=${reasoningConfig.providerId}/${reasoningConfig.modelName}, " +
-                "fast=${fastConfig.providerId}/${fastConfig.modelName}, confirmationMode=${configStore.getSafetyMode()}",
+                "fast=${fastConfig.providerId}/${fastConfig.modelName}, " +
+                "manualSchema=v2-learning, knowledgeUpdater=reasoning, " +
+                "confirmationMode=${configStore.getSafetyMode()}, manualMode=${configStore.getManualMode()}",
         )
     }
 
@@ -249,6 +268,8 @@ class CoatiService : Service() {
         unregisterCallStateListener()
         agentLoop?.stop()
         agentLoop = null
+        manualRuntime?.close()
+        manualRuntime = null
         overlayManager?.hide()
         overlayManager = null
         super.onDestroy()

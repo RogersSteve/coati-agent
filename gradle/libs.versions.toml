@@ -15,6 +15,7 @@ mockk = "1.13.13"
 coreKtx = "1.15.0"
 activityCompose = "1.9.3"
 securityCrypto = "1.1.0-alpha06"
+json = "20240303"
 
 [libraries]
 # AndroidX Core
@@ -63,6 +64,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+json = { group = "org.json", name = "json", version.ref = "json" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

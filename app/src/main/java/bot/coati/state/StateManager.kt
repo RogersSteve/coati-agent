@@ -8,7 +8,6 @@ class StateManager(private val baseDir: File) {
 
     init {
         baseDir.mkdirs()
-        File(baseDir, "apps").mkdirs()
     }
 
     fun writeJson(name: String, content: String) {
@@ -33,16 +32,6 @@ class StateManager(private val baseDir: File) {
 
     fun readMarkdown(name: String): String? {
         val file = File(baseDir, "$name.md")
-        return if (file.exists()) file.readText() else null
-    }
-
-    fun writeAppJson(packageName: String, content: String) {
-        val file = File(baseDir, "apps/$packageName.json")
-        atomicWrite(file, content)
-    }
-
-    fun readAppJson(packageName: String): String? {
-        val file = File(baseDir, "apps/$packageName.json")
         return if (file.exists()) file.readText() else null
     }
 

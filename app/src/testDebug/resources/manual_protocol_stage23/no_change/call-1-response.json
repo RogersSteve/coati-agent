@@ -1,0 +1,7 @@
+{
+  "durationMs": 3542,
+  "finishReason": "COMPLETE",
+  "outputTokens": 51,
+  "text": "<think>**Confirming existing cover evidence**<\/think>\n\n{\"expectedRevision\":1,\"tool\":\"NO_CHANGE\",\"edits\":[]}",
+  "exportTruncated": false
+}
