@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import bot.coati.data.ConfigStore
 import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
+import bot.coati.model.userFacingConnectionError
 import bot.coati.util.RegionDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -55,6 +56,9 @@ class OnboardingViewModel @Inject constructor(
     private val _selectedModelName = MutableStateFlow("")
     val selectedModelName: StateFlow<String> = _selectedModelName
 
+    private val _reasoningApiKeyInput = MutableStateFlow("")
+    val reasoningApiKeyInput: StateFlow<String> = _reasoningApiKeyInput
+
     private val _apiKeyVerified = MutableStateFlow(false)
     val apiKeyVerified: StateFlow<Boolean> = _apiKeyVerified
 
@@ -81,6 +85,9 @@ class OnboardingViewModel @Inject constructor(
     private val _fastModelName = MutableStateFlow("")
     val fastModelName: StateFlow<String> = _fastModelName
 
+    private val _fastApiKeyInput = MutableStateFlow("")
+    val fastApiKeyInput: StateFlow<String> = _fastApiKeyInput
+
     private val _fastApiKeyVerified = MutableStateFlow(false)
     val fastApiKeyVerified: StateFlow<Boolean> = _fastApiKeyVerified
 
@@ -93,6 +100,10 @@ class OnboardingViewModel @Inject constructor(
     private val _fastSameAsReasoning = MutableStateFlow(true)
     val fastSameAsReasoning: StateFlow<Boolean> = _fastSameAsReasoning
 
+    private var independentFastProvider = "gemini"
+    private var independentFastEndpoint = ""
+    private var independentFastModelName = ""
+
     init {
         _selectedRegion.value = RegionDetector.detectRegion(application)
         val defaultProvider = configStore.getDefaultProvider()
@@ -103,16 +114,23 @@ class OnboardingViewModel @Inject constructor(
             _selectedModelName.value = configStore.getModelName(defaultProvider) ?: provider.models.firstOrNull() ?: ""
         }
         _fastSameAsReasoning.value = configStore.isFastSameAsReasoning()
-        // Default fast provider to same as reasoning
-        _fastProvider.value = defaultProvider
-        if (provider != null) {
-            _fastEndpoint.value = provider.defaultEndpoint
-            _fastModelName.value = provider.models.getOrNull(1) ?: provider.models.firstOrNull() ?: ""
+        val savedIndependentFast = configStore.getRoleConfig(ConfigStore.ROLE_FAST)
+        independentFastProvider = savedIndependentFast?.providerId ?: defaultProvider
+        val independentProvider = ModelProviders.findById(independentFastProvider)
+        independentFastEndpoint = savedIndependentFast?.endpoint
+            ?: independentProvider?.defaultEndpoint.orEmpty()
+        independentFastModelName = savedIndependentFast?.modelName
+            ?: independentProvider?.models?.getOrNull(1)
+            ?: independentProvider?.models?.firstOrNull().orEmpty()
+        if (_fastSameAsReasoning.value) {
+            syncSharedFastModel(defaultProvider)
+        } else {
+            restoreIndependentFastDraft()
         }
     }
 
     fun nextStep() {
-        _currentStep.value = (_currentStep.value + 1).coerceAtMost(4)
+        _currentStep.value = (_currentStep.value + 1).coerceAtMost(5)
     }
 
     /** Start directly at the A11y step, skipping all other steps. */
@@ -132,7 +150,9 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun selectProvider(providerId: String) {
+        if (_selectedProvider.value == providerId) return
         resetVerification()
+        _reasoningApiKeyInput.value = ""
         _selectedProvider.value = providerId
         val provider = ModelProviders.findById(providerId)
         if (provider != null) {
@@ -142,6 +162,7 @@ class OnboardingViewModel @Inject constructor(
             _selectedEndpoint.value = ""
             _selectedModelName.value = ""
         }
+        if (_fastSameAsReasoning.value) syncSharedFastModel(providerId)
     }
 
     fun updateEndpoint(endpoint: String) {
@@ -154,12 +175,19 @@ class OnboardingViewModel @Inject constructor(
         _selectedModelName.value = modelName
     }
 
+    fun updateReasoningApiKey(key: String) {
+        if (_reasoningApiKeyInput.value == key) return
+        _reasoningApiKeyInput.value = key
+        resetVerification()
+    }
+
     fun resetVerification() {
         verifyJob?.cancel()
         verifyJob = null
         _verifying.value = false
         _apiKeyVerified.value = false
         _verifyError.value = null
+        if (_fastSameAsReasoning.value) resetFastVerification()
     }
 
     fun selectTab(tab: Int) {
@@ -167,11 +195,21 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun setFastSameAsReasoning(same: Boolean) {
+        if (_fastSameAsReasoning.value == same) return
+        if (same) rememberIndependentFastDraft()
         _fastSameAsReasoning.value = same
+        resetFastVerification()
+        if (same) {
+            syncSharedFastModel(_selectedProvider.value)
+        } else {
+            restoreIndependentFastDraft()
+        }
     }
 
     fun selectFastProvider(providerId: String) {
+        if (_fastProvider.value == providerId) return
         resetFastVerification()
+        _fastApiKeyInput.value = ""
         _fastProvider.value = providerId
         val provider = ModelProviders.findById(providerId)
         if (provider != null) {
@@ -181,16 +219,25 @@ class OnboardingViewModel @Inject constructor(
             _fastEndpoint.value = ""
             _fastModelName.value = ""
         }
+        rememberIndependentFastDraft()
     }
 
     fun updateFastEndpoint(endpoint: String) {
         resetFastVerification()
         _fastEndpoint.value = endpoint
+        if (!_fastSameAsReasoning.value) rememberIndependentFastDraft()
     }
 
     fun updateFastModelName(modelName: String) {
         resetFastVerification()
         _fastModelName.value = modelName
+        if (!_fastSameAsReasoning.value) rememberIndependentFastDraft()
+    }
+
+    fun updateFastApiKey(key: String) {
+        if (_fastApiKeyInput.value == key) return
+        _fastApiKeyInput.value = key
+        resetFastVerification()
     }
 
     fun resetFastVerification() {
@@ -201,7 +248,89 @@ class OnboardingViewModel @Inject constructor(
         _fastVerifyError.value = null
     }
 
-    fun verifyFastApiKey(provider: String, key: String) {
+    private fun syncSharedFastModel(providerId: String) {
+        val provider = ModelProviders.findById(providerId)
+        val compatibleModel = _fastModelName.value.takeIf { it in (provider?.models ?: emptyList()) }
+            ?: provider?.models?.getOrNull(1)
+            ?: provider?.models?.firstOrNull()
+            ?: _selectedModelName.value
+        _fastProvider.value = providerId
+        _fastEndpoint.value = _selectedEndpoint.value
+        _fastModelName.value = compatibleModel
+        resetFastVerification()
+    }
+
+    private fun rememberIndependentFastDraft() {
+        independentFastProvider = _fastProvider.value
+        independentFastEndpoint = _fastEndpoint.value
+        independentFastModelName = _fastModelName.value
+    }
+
+    private fun restoreIndependentFastDraft() {
+        _fastProvider.value = independentFastProvider
+        _fastEndpoint.value = independentFastEndpoint
+        _fastModelName.value = independentFastModelName
+    }
+
+    fun verifySharedFastModel() {
+        if (!_fastSameAsReasoning.value) return
+        if (!_apiKeyVerified.value) {
+            _fastVerifyError.value = "Verify the Reasoning model first"
+            return
+        }
+        val reasoning = configStore.getReasoningConfig() ?: configStore.getActiveProviderConfig()
+        if (reasoning == null) {
+            _fastVerifyError.value = "Configure the Reasoning model first"
+            return
+        }
+        val provider = ModelProviders.findById(reasoning.providerId)
+        if (provider == null) {
+            _fastVerifyError.value = "Unknown provider: ${reasoning.providerId}"
+            return
+        }
+        val modelName = _fastModelName.value.trim()
+        if (modelName.isBlank()) {
+            _fastVerifyError.value = "Model name is required"
+            return
+        }
+
+        _fastVerifying.value = true
+        _fastVerifyError.value = null
+        fastVerifyJob = viewModelScope.launch {
+            try {
+                val result = GatewayFactory.create(
+                    provider,
+                    okHttpClient,
+                    reasoning.apiKey,
+                    reasoning.endpoint,
+                    modelName,
+                ).testConnection()
+                if (!isActive) return@launch
+                if (result.isSuccess) {
+                    configStore.saveFastSameAsReasoning(true)
+                    configStore.saveFastModelName(modelName)
+                    _fastApiKeyVerified.value = true
+                    _fastVerifyError.value = null
+                } else {
+                    _fastVerifyError.value = userFacingConnectionError(result.exceptionOrNull())
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isActive) _fastVerifyError.value = userFacingConnectionError(e)
+            } finally {
+                if (isActive) _fastVerifying.value = false
+            }
+        }
+    }
+
+    fun verifyFastApiKey() {
+        if (_fastSameAsReasoning.value) {
+            verifySharedFastModel()
+            return
+        }
+        val provider = _fastProvider.value
+        val key = _fastApiKeyInput.value.trim()
         if (key.isBlank()) return
         val endpoint = _fastEndpoint.value
         val modelName = _fastModelName.value
@@ -224,23 +353,27 @@ class OnboardingViewModel @Inject constructor(
                 val result = gateway.testConnection()
                 if (!isActive) return@launch  // cancelled while network was in-flight
                 if (result.isSuccess) {
-                    configStore.saveRoleConfig("fast", provider, key, endpoint, modelName)
+                    configStore.saveRoleConfig(ConfigStore.ROLE_FAST, provider, key, endpoint, modelName)
+                    configStore.saveFastSameAsReasoning(false)
                     _fastApiKeyVerified.value = true
                     _fastVerifyError.value = null
+                    _fastApiKeyInput.value = ""
                 } else {
-                    _fastVerifyError.value = result.exceptionOrNull()?.message ?: "Unknown error"
+                    _fastVerifyError.value = userFacingConnectionError(result.exceptionOrNull())
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (isActive) _fastVerifyError.value = e.message ?: "Connection failed"
+                if (isActive) _fastVerifyError.value = userFacingConnectionError(e)
             } finally {
                 if (isActive) _fastVerifying.value = false
             }
         }
     }
 
-    fun verifyApiKey(provider: String, key: String) {
+    fun verifyApiKey() {
+        val provider = _selectedProvider.value
+        val key = _reasoningApiKeyInput.value.trim()
         if (key.isBlank()) return
         val endpoint = _selectedEndpoint.value
         val modelName = _selectedModelName.value
@@ -268,16 +401,18 @@ class OnboardingViewModel @Inject constructor(
                     configStore.saveModelName(provider, modelName)
                     configStore.setDefaultProvider(provider)
                     // Also save as reasoning role config
-                    configStore.saveRoleConfig("reasoning", provider, key, endpoint, modelName)
+                    configStore.saveRoleConfig(ConfigStore.ROLE_REASONING, provider, key, endpoint, modelName)
                     _apiKeyVerified.value = true
                     _verifyError.value = null
+                    _reasoningApiKeyInput.value = ""
+                    if (_fastSameAsReasoning.value) syncSharedFastModel(provider)
                 } else {
-                    _verifyError.value = result.exceptionOrNull()?.message ?: "Unknown error"
+                    _verifyError.value = userFacingConnectionError(result.exceptionOrNull())
                 }
             } catch (e: CancellationException) {
                 throw e  // must re-throw so coroutine machinery cleans up correctly
             } catch (e: Exception) {
-                if (isActive) _verifyError.value = e.message ?: "Connection failed"
+                if (isActive) _verifyError.value = userFacingConnectionError(e)
             } finally {
                 if (isActive) _verifying.value = false
             }
@@ -285,6 +420,11 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun finishOnboarding(onComplete: () -> Unit) {
+        if (!_apiKeyVerified.value || !_fastApiKeyVerified.value) {
+            _currentStep.value = 4
+            _selectedTab.value = if (_apiKeyVerified.value) 1 else 0
+            return
+        }
         viewModelScope.launch {
             // Save fast model settings
             configStore.saveFastSameAsReasoning(_fastSameAsReasoning.value)

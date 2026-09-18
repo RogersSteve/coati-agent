@@ -70,7 +70,7 @@ fun OnboardingScreen(
         Spacer(modifier = Modifier.height(48.dp))
 
         if (!recoveryMode) {
-            StepIndicator(currentStep = currentStep, totalSteps = 5)
+            StepIndicator(currentStep = currentStep, totalSteps = 6)
             Spacer(modifier = Modifier.height(48.dp))
         } else {
             Spacer(modifier = Modifier.height(48.dp))
@@ -85,7 +85,8 @@ fun OnboardingScreen(
                     onGranted = if (recoveryMode) onFinish else ({ viewModel.nextStep() }),
                 )
                 3 -> RegionSelectionStep(viewModel = viewModel)
-                4 -> ApiKeyStep(viewModel = viewModel, onFinish = onFinish)
+                4 -> ApiKeyStep(viewModel = viewModel, onNext = { viewModel.nextStep() })
+                5 -> QuickStartStep(onFinish = { viewModel.finishOnboarding(onFinish) })
             }
         }
     }
@@ -332,11 +333,11 @@ private fun RegionSelectionStep(viewModel: OnboardingViewModel) {
 @Composable
 private fun ApiKeyStep(
     viewModel: OnboardingViewModel,
-    onFinish: () -> Unit,
+    onNext: () -> Unit,
 ) {
     val selectedTab by viewModel.selectedTab.collectAsState()
     val verified by viewModel.apiKeyVerified.collectAsState()
-    val fastSameAsReasoning by viewModel.fastSameAsReasoning.collectAsState()
+    val fastVerified by viewModel.fastApiKeyVerified.collectAsState()
 
     Column(
         modifier = Modifier
@@ -381,17 +382,142 @@ private fun ApiKeyStep(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Finish button — enabled when reasoning verified
-        if (verified) {
+        when (modelReviewTarget(selectedTab, verified, fastVerified)) {
+            ModelReviewTarget.FAST -> ModelReviewPrompt(
+                message = stringResource(R.string.onboarding_fast_review_required),
+                buttonLabel = stringResource(R.string.onboarding_review_fast),
+                onClick = { viewModel.selectTab(1) },
+            )
+            ModelReviewTarget.REASONING -> ModelReviewPrompt(
+                message = stringResource(R.string.onboarding_reasoning_review_required),
+                buttonLabel = stringResource(R.string.onboarding_review_reasoning),
+                onClick = { viewModel.selectTab(0) },
+            )
+            ModelReviewTarget.NONE -> Unit
+        }
+
+        // Both roles are used at runtime, so both must be explicitly verified.
+        if (verified && fastVerified) {
             Button(
-                onClick = { viewModel.finishOnboarding(onFinish) },
+                onClick = onNext,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                Text(stringResource(R.string.onboarding_finish))
+                Text(stringResource(R.string.next))
             }
+        }
+    }
+}
+
+@Composable
+private fun ModelReviewPrompt(
+    message: String,
+    buttonLabel: String,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = message,
+        style = MaterialTheme.typography.bodyMedium,
+        textAlign = TextAlign.Center,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Text(buttonLabel)
+    }
+    Spacer(modifier = Modifier.height(12.dp))
+}
+
+@Composable
+private fun QuickStartStep(onFinish: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = stringResource(R.string.onboarding_quick_start_title),
+            style = MaterialTheme.typography.headlineMedium,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = stringResource(R.string.onboarding_quick_start_description),
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        QuickStartItem(
+            number = "1",
+            title = stringResource(R.string.onboarding_quick_start_task_title),
+            description = stringResource(R.string.onboarding_quick_start_task_description),
+        )
+        QuickStartItem(
+            number = "2",
+            title = stringResource(R.string.onboarding_quick_start_guides_title),
+            description = stringResource(R.string.onboarding_quick_start_guides_description),
+        )
+        QuickStartItem(
+            number = "3",
+            title = stringResource(R.string.onboarding_quick_start_confirm_title),
+            description = stringResource(R.string.onboarding_quick_start_confirm_description),
+        )
+        QuickStartItem(
+            number = "4",
+            title = stringResource(R.string.onboarding_quick_start_stop_title),
+            description = stringResource(R.string.onboarding_quick_start_stop_description),
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = onFinish,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Text(stringResource(R.string.onboarding_finish))
+        }
+    }
+}
+
+@Composable
+private fun QuickStartItem(number: String, title: String, description: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = number,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+        Column(modifier = Modifier.padding(start = 12.dp)) {
+            Text(text = title, style = MaterialTheme.typography.titleLarge)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -404,8 +530,8 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
     val verified by viewModel.apiKeyVerified.collectAsState()
     val verifying by viewModel.verifying.collectAsState()
     val verifyError by viewModel.verifyError.collectAsState()
+    val apiKeyInput by viewModel.reasoningApiKeyInput.collectAsState()
 
-    var apiKeyInput by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var providerDropdownExpanded by remember { mutableStateOf(false) }
     var modelDropdownExpanded by remember { mutableStateOf(false) }
@@ -431,7 +557,6 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
                     text = { Text(provider.displayName) },
                     onClick = {
                         viewModel.selectProvider(provider.id)
-                        apiKeyInput = ""
                         providerDropdownExpanded = false
                     },
                 )
@@ -507,10 +632,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
     // API key input
     OutlinedTextField(
         value = apiKeyInput,
-        onValueChange = {
-            apiKeyInput = it
-            viewModel.resetVerification()
-        },
+        onValueChange = viewModel::updateReasoningApiKey,
         modifier = Modifier.fillMaxWidth(),
         label = { Text(stringResource(R.string.onboarding_apikey_input_hint)) },
         singleLine = true,
@@ -528,7 +650,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
     // Verify button — hidden once verified
     if (!verified) {
         Button(
-            onClick = { viewModel.verifyApiKey(selectedProvider, apiKeyInput) },
+            onClick = viewModel::verifyApiKey,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -575,8 +697,9 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
     val fastVerified by viewModel.fastApiKeyVerified.collectAsState()
     val fastVerifying by viewModel.fastVerifying.collectAsState()
     val fastVerifyError by viewModel.fastVerifyError.collectAsState()
+    val fastApiKeyInput by viewModel.fastApiKeyInput.collectAsState()
+    val reasoningVerified by viewModel.apiKeyVerified.collectAsState()
 
-    var fastApiKeyInput by remember { mutableStateOf("") }
     var fastPasswordVisible by remember { mutableStateOf(false) }
     var fastProviderDropdownExpanded by remember { mutableStateOf(false) }
     var fastModelDropdownExpanded by remember { mutableStateOf(false) }
@@ -606,8 +729,20 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Only show model name selector for fast model
         val reasoningProvider = ModelProviders.findById(selectedProvider)
+        Text(
+            text = stringResource(
+                R.string.fast_shared_summary,
+                reasoningProvider?.displayName ?: selectedProvider,
+                fastModelName.ifBlank { stringResource(R.string.onboarding_model_select) },
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Only show model name selector for fast model
         if (reasoningProvider != null && reasoningProvider.models.size > 1) {
             Box {
                 OutlinedButton(
@@ -645,6 +780,29 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
                 shape = RoundedCornerShape(12.dp),
             )
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (!fastVerified) {
+            Button(
+                onClick = viewModel::verifySharedFastModel,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                enabled = reasoningVerified && fastModelName.isNotBlank() && !fastVerifying,
+            ) {
+                if (fastVerifying) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text(stringResource(R.string.onboarding_fast_verify))
+                }
+            }
+        }
     } else {
         // Independent fast model config
         Spacer(modifier = Modifier.height(12.dp))
@@ -669,7 +827,6 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
                         text = { Text(provider.displayName) },
                         onClick = {
                             viewModel.selectFastProvider(provider.id)
-                            fastApiKeyInput = ""
                             fastProviderDropdownExpanded = false
                         },
                     )
@@ -736,10 +893,7 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
         // API key
         OutlinedTextField(
             value = fastApiKeyInput,
-            onValueChange = {
-                fastApiKeyInput = it
-                viewModel.resetFastVerification()
-            },
+            onValueChange = viewModel::updateFastApiKey,
             modifier = Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.onboarding_apikey_input_hint)) },
             singleLine = true,
@@ -757,7 +911,7 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
         // Verify button — hidden once verified
         if (!fastVerified) {
             Button(
-                onClick = { viewModel.verifyFastApiKey(fastProvider, fastApiKeyInput) },
+                onClick = viewModel::verifyFastApiKey,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -776,21 +930,22 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+    }
 
-        if (fastVerified) {
-            Text(
-                text = stringResource(R.string.onboarding_apikey_verified),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        fastVerifyError?.let { error ->
-            Text(
-                text = stringResource(R.string.onboarding_apikey_failed, error),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
+    Spacer(modifier = Modifier.height(8.dp))
+
+    if (fastVerified) {
+        Text(
+            text = stringResource(R.string.onboarding_fast_verified),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+    fastVerifyError?.let { error ->
+        Text(
+            text = stringResource(R.string.onboarding_apikey_failed, error),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
     }
 }

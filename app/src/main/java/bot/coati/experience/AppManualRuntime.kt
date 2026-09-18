@@ -17,12 +17,14 @@ class AppManualRuntime(
     private val modeProvider: () -> ManualMode,
 ) : Closeable {
     private var currentTask: String? = null
+    private var activeTaskMode: ManualMode? = null
     private var traceCollector: ManualTraceCollector? = null
     private var traceMode: ManualMode? = null
 
     fun startTask(task: String) {
         currentTask = task
         val mode = runCatching(modeProvider).getOrDefault(ManualMode.OFF)
+        activeTaskMode = mode
         traceMode = mode.takeIf { it == ManualMode.LEARNING || it == ManualMode.SHADOW }
         traceCollector = traceMode?.let { ManualTraceCollector() }
         if (traceMode != null) Log.i(TAG, "learning stage=V2_EDITOR mode=$mode write=ENABLED")
@@ -40,7 +42,7 @@ class AppManualRuntime(
     }
 
     private suspend fun promptForInternal(packageName: String, uiTreeHint: String): RenderedAppManual? {
-        val mode = modeProvider()
+        val mode = activeTaskMode ?: modeProvider()
         if (mode == ManualMode.OFF) return null
         val identity = identityResolver.resolve(packageName) ?: return null
         val namespace = if (mode == ManualMode.SHADOW) ManualNamespace.SHADOW else ManualNamespace.CANONICAL
@@ -93,7 +95,7 @@ class AppManualRuntime(
         tree: UiTreeNode?,
         rendered: RenderedAppManual?,
     ): String? {
-        val mode = runCatching(modeProvider).getOrDefault(ManualMode.OFF)
+        val mode = activeTaskMode ?: runCatching(modeProvider).getOrDefault(ManualMode.OFF)
         if (mode !in setOf(ManualMode.SHADOW, ManualMode.LEARNING)) return null
         if (ManualLearningPolicy.blockReason(packageName, tree) != null) return null
         val known = rendered?.headingPaths?.filter { it.startsWith("页面详情/") }.orEmpty()
@@ -261,10 +263,12 @@ class AppManualRuntime(
             else coordinator.enqueue(request, mode)
         }
         currentTask = null
+        activeTaskMode = null
     }
 
     fun discardTask() {
         currentTask = null
+        activeTaskMode = null
         traceCollector = null
         traceMode = null
     }
@@ -272,6 +276,11 @@ class AppManualRuntime(
     override fun close() {
         discardTask()
         coordinator.close()
+    }
+
+    suspend fun closeAndJoin() {
+        discardTask()
+        coordinator.closeAndJoin()
     }
 
     companion object {

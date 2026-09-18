@@ -383,15 +383,13 @@ class ManualUpdateCoordinator internal constructor(
     private val queue = Channel<QueuedUpdate>(capacity = 2)
     private val processor = ManualUpdateProcessor(repository, gateway, updateTimeoutMs)
 
-    init {
-        scope.launch {
-            for (update in queue) {
-                update.request.traces.forEach { trace ->
-                    processor.process(update.mode, trace)
-                }
+    private val workerJob = scope.launch {
+        for (update in queue) {
+            update.request.traces.forEach { trace ->
+                processor.process(update.mode, trace)
             }
-        }.invokeOnCompletion { queue.close() }
-    }
+        }
+    }.also { job -> job.invokeOnCompletion { queue.close() } }
 
     fun enqueue(request: ManualLearningRequest, mode: ManualMode): Boolean {
         if (mode !in setOf(ManualMode.SHADOW, ManualMode.LEARNING) || request.traces.isEmpty()) return false
@@ -403,6 +401,11 @@ class ManualUpdateCoordinator internal constructor(
     override fun close() {
         queue.close()
         scope.cancel()
+    }
+
+    suspend fun closeAndJoin() {
+        close()
+        workerJob.join()
     }
 
     companion object {

@@ -69,7 +69,16 @@ class CoatiAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null || !isFocusProbeEvent(event.eventType)) return
+        if (event == null) return
+
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            onForegroundWindowChanged?.invoke(
+                event.packageName?.toString(),
+                event.className?.toString(),
+            )
+        }
+
+        if (!isFocusProbeEvent(event.eventType)) return
 
         val probe = synchronized(focusGestureProbeLock) {
             activeFocusGestureProbe
@@ -876,6 +885,7 @@ class CoatiAccessibilityService : AccessibilityService() {
             private set
 
         var onConnected: (() -> Unit)? = null
+        var onForegroundWindowChanged: ((packageName: String?, className: String?) -> Unit)? = null
     }
 }
 

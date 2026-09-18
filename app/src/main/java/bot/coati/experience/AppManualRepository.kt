@@ -48,13 +48,21 @@ class AppManualRepository(private val storageRoot: File) {
         }
     }
 
-    fun clearAll() {
+    fun clearAll(): Boolean {
+        var cleared = true
         ManualNamespace.entries.forEach { namespace ->
             val root = rootDirectory(namespace)
             if (root.exists() && !root.deleteRecursively()) {
                 Log.w(TAG, "Could not fully clear manual directory: ${root.name}")
+                cleared = false
             }
         }
+        return cleared
+    }
+
+    fun hasAnyData(): Boolean = ManualNamespace.entries.any { namespace ->
+        val root = rootDirectory(namespace)
+        root.isDirectory && root.walkTopDown().any { it.isFile }
     }
 
     fun namespaceDirectory(namespace: ManualNamespace): File = rootDirectory(namespace)

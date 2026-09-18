@@ -38,6 +38,7 @@ class OverlayManager(
     private val windowManager: WindowManager,
 ) {
     private var composeView: ComposeView? = null
+    private var idleOverlaySuppressed = false
     val overlayState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
     private val gestureGate = OverlayGestureGate()
     private val safetyMode = mutableStateOf(SafetyMode.STANDARD)
@@ -49,7 +50,6 @@ class OverlayManager(
     // Callbacks wired by CoatiService
     var onExecuteTask: ((String) -> Unit)? = null
     var onSafetyModeChanged: ((SafetyMode) -> Unit)? = null
-    var onManualModeChanged: ((ManualMode) -> Unit)? = null
     var onStopTask: (() -> Unit)? = null
     var onPauseTask: (() -> Unit)? = null
     var onResumeTask: (() -> Unit)? = null
@@ -105,6 +105,7 @@ class OverlayManager(
 
     fun show() {
         if (composeView != null) return
+        if (idleOverlaySuppressed && isIdleState()) return
 
         val lifecycleOwner = OverlayLifecycleOwner()
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -129,10 +130,6 @@ class OverlayManager(
                     onSafetyModeChanged = { mode ->
                         setSafetyMode(mode)
                         onSafetyModeChanged?.invoke(mode)
-                    },
-                    onManualModeChanged = { mode ->
-                        setManualMode(mode)
-                        onManualModeChanged?.invoke(mode)
                     },
                     onStop = { invokeTaskControl("stop", onStopTask) },
                     onPause = { invokeTaskControl("pause", onPauseTask) },
@@ -222,7 +219,26 @@ class OverlayManager(
         overlayState.value = OverlayState.CollapsedIdle
         applyLayout(LayoutMode.COLLAPSED)
         hideScrim()
+        if (idleOverlaySuppressed) hide()
     }
+
+    fun collapseExpandedInput(reason: String): Boolean {
+        if (overlayState.value !is OverlayState.ExpandedIdle) return false
+        Log.i(TAG, "Collapsing expanded input: reason=$reason")
+        collapse()
+        return true
+    }
+
+    fun setIdleOverlaySuppressed(suppressed: Boolean) {
+        idleOverlaySuppressed = suppressed
+        if (suppressed && isIdleState()) {
+            collapseExpandedInput(reason = "settings_opened")
+            hide()
+        }
+    }
+
+    private fun isIdleState(): Boolean =
+        overlayState.value is OverlayState.CollapsedIdle || overlayState.value is OverlayState.ExpandedIdle
 
     fun expand() {
         overlayState.value = OverlayState.ExpandedIdle
@@ -515,6 +531,9 @@ class OverlayManager(
         var initialTouchY = 0f
         var isDragging = false
 
+        view.setOnClickListener {
+            if (overlayState.value is OverlayState.CollapsedIdle) onClick()
+        }
         view.setOnTouchListener { _, event ->
             // Only handle drag/click on collapsed state
             if (overlayState.value !is OverlayState.CollapsedIdle) return@setOnTouchListener false
@@ -545,7 +564,7 @@ class OverlayManager(
                     if (isDragging) {
                         snapToEdge(view)
                     } else {
-                        onClick()
+                        view.performClick()
                     }
                     true
                 }

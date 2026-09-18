@@ -1,17 +1,25 @@
 package bot.coati.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
+import android.os.Build
 import android.os.IBinder
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.WindowManager
+import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import bot.coati.R
 import bot.coati.action.ActionEngine
 import bot.coati.agent.AgentLoop
@@ -28,12 +36,14 @@ import bot.coati.model.ModelRouter
 import bot.coati.state.StateManager
 import bot.coati.state.TaskRecovery
 import bot.coati.ui.main.MainActivity
+import bot.coati.ui.overlay.OverlayAutoCollapsePolicy
 import bot.coati.ui.overlay.OverlayManager
 import bot.coati.ui.overlay.OverlayState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
-import java.util.concurrent.Executors
+import kotlinx.coroutines.withContext
 
 class CoatiService : Service() {
 
@@ -42,11 +52,21 @@ class CoatiService : Service() {
     private var manualRuntime: AppManualRuntime? = null
     private lateinit var configStore: ConfigStore
     private var telephonyManager: TelephonyManager? = null
-    private var callStateCallback: TelephonyCallback? = null
+    private var callStateCallback: Any? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main)
+    private val homePackages: Set<String> by lazy(::resolveHomePackages)
+    private var overlayHiddenForSettings = false
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                overlayManager?.collapseExpandedInput(reason = "screen_off")
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
@@ -59,12 +79,35 @@ class CoatiService : Service() {
                 configStore.setSafetyMode(mode)
                 Log.i(TAG, "Confirmation mode selected: $mode")
             }
-            overlay.onManualModeChanged = { mode ->
-                configStore.setManualMode(mode)
-                Log.i(TAG, "App knowledge mode selected: $mode")
+            overlay.onSettings = {
+                hideIdleOverlayForSettings()
+                startActivity(MainActivity.settingsIntent(this))
             }
-            overlay.show()
+            overlay.onExit = {
+                Log.i(TAG, "Exiting Coati from idle overlay")
+                agentLoop?.stop()
+                stopSelf()
+            }
+            if (settingsVisible) {
+                overlay.setIdleOverlaySuppressed(suppressed = true)
+                overlayHiddenForSettings = true
+            } else {
+                overlay.show()
+            }
         }
+        CoatiAccessibilityService.onForegroundWindowChanged = { packageName, className ->
+            if (OverlayAutoCollapsePolicy.shouldCollapse(packageName, className, homePackages)) {
+                serviceScope.launch {
+                    overlayManager?.collapseExpandedInput(reason = "system_navigation")
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            this,
+            screenOffReceiver,
+            IntentFilter(Intent.ACTION_SCREEN_OFF),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         initializeAgent()
         registerCallStateListener()
@@ -191,17 +234,6 @@ class CoatiService : Service() {
         overlay.onResumeTask = {
             serviceScope.launch { loop.resumeFromPause() }
         }
-        overlay.onSettings = {
-            val intent = Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(intent)
-        }
-        overlay.onExit = {
-            loop.stop()
-            stop(this)
-        }
-
         Log.i(
             TAG,
             "Agent initialized: reasoning=${reasoningConfig.providerId}/${reasoningConfig.modelName}, " +
@@ -212,6 +244,21 @@ class CoatiService : Service() {
     }
 
     private fun registerCallStateListener() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            Log.i(TAG, "Call-state auto-pause is unavailable below Android 12")
+            return
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.i(TAG, "Call-state auto-pause is disabled because phone permission was not granted")
+            return
+        }
+        registerCallStateListenerApi31()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun registerCallStateListenerApi31() {
         try {
             val tm = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
             telephonyManager = tm
@@ -236,7 +283,7 @@ class CoatiService : Service() {
                 }
             }
             callStateCallback = callback
-            tm.registerTelephonyCallback(Executors.newSingleThreadExecutor(), callback)
+            tm.registerTelephonyCallback(mainExecutor, callback)
             Log.i(TAG, "Call state listener registered")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to register call state listener: ${e.message}")
@@ -244,34 +291,117 @@ class CoatiService : Service() {
     }
 
     private fun unregisterCallStateListener() {
-        try {
-            callStateCallback?.let { callback ->
-                telephonyManager?.unregisterTelephonyCallback(callback)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to unregister call state listener: ${e.message}")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            unregisterCallStateListenerApi31()
         }
         callStateCallback = null
         telephonyManager = null
     }
 
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun unregisterCallStateListenerApi31() {
+        try {
+            (callStateCallback as? TelephonyCallback)?.let { callback ->
+                telephonyManager?.unregisterTelephonyCallback(callback)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister call state listener: ${e.message}")
+        }
+    }
+
+    private fun hideIdleOverlayForSettings() {
+        overlayManager?.setIdleOverlaySuppressed(suppressed = true)
+        overlayHiddenForSettings = true
+    }
+
+    private fun restoreOverlayAfterSettings() {
+        if (!overlayHiddenForSettings) return
+        overlayManager?.setIdleOverlaySuppressed(suppressed = false)
+        overlayManager?.setSafetyMode(configStore.getSafetyMode())
+        overlayManager?.setManualMode(configStore.getManualMode())
+        overlayManager?.show()
+        overlayHiddenForSettings = false
+    }
+
+    private fun handleSettingsVisibility(visible: Boolean) {
+        if (visible) {
+            hideIdleOverlayForSettings()
+        } else {
+            restoreOverlayAfterSettings()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun resolveHomePackages(): Set<String> {
+        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        return packageManager.queryIntentActivities(homeIntent, 0)
+            .mapNotNull { it.activityInfo?.packageName }
+            .toSet()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (agentLoop == null) {
-            initializeAgent()
+        when (intent?.action) {
+            ACTION_STOP_SERVICE -> {
+                Log.i(TAG, "Stopping Coati from notification")
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_REFRESH_SAFETY_MODE -> {
+                overlayManager?.setSafetyMode(configStore.getSafetyMode())
+                Log.i(TAG, "Confirmation mode refreshed: ${configStore.getSafetyMode()}")
+            }
+            ACTION_REFRESH_MANUAL_MODE -> {
+                overlayManager?.setManualMode(configStore.getManualMode())
+                Log.i(TAG, "App knowledge mode refreshed: ${configStore.getManualMode()}")
+            }
+            ACTION_RELOAD_MODEL_CONFIGURATION -> {
+                Log.i(TAG, "Reloading verified model configuration")
+                agentLoop?.stop()
+                agentLoop = null
+                initializeAgent()
+            }
+            else -> {
+                if (agentLoop == null) {
+                    initializeAgent()
+                }
+            }
         }
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private suspend fun clearAppManualData(): Boolean {
+        agentLoop?.stop()
+        agentLoop = null
+        TaskRecovery(StateManager(filesDir)).let { recovery ->
+            if (recovery.hasIncompleteTask()) recovery.markCancelled()
+        }
+        val runtime = manualRuntime
+        manualRuntime = null
+        runtime?.closeAndJoin()
+        return try {
+            withContext(Dispatchers.IO) {
+                AppManualRepository(noBackupFilesDir).clearAll()
+            }
+        } finally {
+            initializeAgent()
+        }
+    }
+
     override fun onDestroy() {
         unregisterCallStateListener()
+        runCatching { unregisterReceiver(screenOffReceiver) }
+        CoatiAccessibilityService.onConnected = null
+        CoatiAccessibilityService.onForegroundWindowChanged = null
+        CoatiAccessibilityService.instance?.onEmergencyStop = null
         agentLoop?.stop()
         agentLoop = null
         manualRuntime?.close()
         manualRuntime = null
         overlayManager?.hide()
         overlayManager = null
+        if (instance === this) instance = null
         super.onDestroy()
     }
 
@@ -288,10 +418,16 @@ class CoatiService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val pendingIntent = PendingIntent.getActivity(
+        val settingsPendingIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            MainActivity.settingsIntent(this),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val stopPendingIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, CoatiService::class.java).apply { action = ACTION_STOP_SERVICE },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -299,7 +435,16 @@ class CoatiService : Service() {
             .setContentTitle(getString(R.string.notification_title))
             .setContentText(getString(R.string.notification_text_idle))
             .setSmallIcon(R.drawable.ic_coati)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(settingsPendingIntent)
+            .addAction(
+                Notification.Action.Builder(
+                    Icon.createWithResource(this, R.drawable.ic_coati),
+                    getString(R.string.notification_stop),
+                    stopPendingIntent,
+                ).build(),
+            )
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setOnlyAlertOnce(true)
             .setOngoing(true)
             .build()
     }
@@ -308,6 +453,16 @@ class CoatiService : Service() {
         private const val TAG = "CoatiService"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "coati_service"
+        private const val ACTION_REFRESH_SAFETY_MODE = "bot.coati.action.REFRESH_SAFETY_MODE"
+        private const val ACTION_REFRESH_MANUAL_MODE = "bot.coati.action.REFRESH_MANUAL_MODE"
+        private const val ACTION_RELOAD_MODEL_CONFIGURATION = "bot.coati.action.RELOAD_MODEL_CONFIGURATION"
+        private const val ACTION_STOP_SERVICE = "bot.coati.action.STOP_SERVICE"
+
+        @Volatile
+        private var instance: CoatiService? = null
+
+        @Volatile
+        private var settingsVisible = false
 
         fun start(context: Context) {
             val intent = Intent(context, CoatiService::class.java)
@@ -317,6 +472,49 @@ class CoatiService : Service() {
         fun stop(context: Context) {
             val intent = Intent(context, CoatiService::class.java)
             context.stopService(intent)
+        }
+
+        fun isRunning(): Boolean = instance != null
+
+        fun setSettingsVisible(visible: Boolean) {
+            settingsVisible = visible
+            instance?.handleSettingsVisibility(visible)
+        }
+
+        fun refreshSafetyMode(context: Context) {
+            val intent = Intent(context, CoatiService::class.java).apply {
+                action = ACTION_REFRESH_SAFETY_MODE
+            }
+            context.startForegroundService(intent)
+        }
+
+        fun refreshManualMode(context: Context) {
+            val intent = Intent(context, CoatiService::class.java).apply {
+                action = ACTION_REFRESH_MANUAL_MODE
+            }
+            context.startForegroundService(intent)
+        }
+
+        suspend fun clearAppManualData(context: Context): Boolean {
+            return withContext(NonCancellable) {
+                val running = instance
+                if (running != null) {
+                    withContext(Dispatchers.Main.immediate) {
+                        running.clearAppManualData()
+                    }
+                } else {
+                    withContext(Dispatchers.IO) {
+                        AppManualRepository(context.noBackupFilesDir).clearAll()
+                    }
+                }
+            }
+        }
+
+        fun reloadModelConfiguration(context: Context) {
+            val intent = Intent(context, CoatiService::class.java).apply {
+                action = ACTION_RELOAD_MODEL_CONFIGURATION
+            }
+            context.startForegroundService(intent)
         }
     }
 }

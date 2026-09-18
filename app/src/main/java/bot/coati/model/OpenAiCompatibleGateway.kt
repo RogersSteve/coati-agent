@@ -41,8 +41,8 @@ class OpenAiCompatibleGateway(
             Log.d(TAG, "Response status: ${response.code}, body length: ${body.length}")
 
             if (!response.isSuccessful) {
-                Log.e(TAG, "API error: ${response.code} - $body")
-                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+                Log.e(TAG, "API error: ${response.code}, responseLength=${body.length}")
+                return@withContext Result.failure(ApiHttpException(response.code))
             }
 
             val text = JSONObject(body)
@@ -107,7 +107,7 @@ class OpenAiCompatibleGateway(
             val body = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+                return@withContext Result.failure(ApiHttpException(response.code))
             }
 
             val text = JSONObject(body)
@@ -183,7 +183,7 @@ class OpenAiCompatibleGateway(
             val body = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+                return@withContext Result.failure(ApiHttpException(response.code))
             }
 
             val text = JSONObject(body)
@@ -228,7 +228,7 @@ class OpenAiCompatibleGateway(
             val body = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+                return@withContext Result.failure(ApiHttpException(response.code))
             }
 
             val text = JSONObject(body)
@@ -268,7 +268,7 @@ class OpenAiCompatibleGateway(
                 .build()
             client.newCall(httpRequest).awaitCancellable().use { response ->
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) return Result.failure(Exception("API error ${response.code}: $body"))
+                if (!response.isSuccessful) return Result.failure(ApiHttpException(response.code))
                 Result.success(StructuredTextResponseParser.openAi(body))
             }
         } catch (e: CancellationException) {
@@ -301,7 +301,7 @@ class OpenAiCompatibleGateway(
             val body = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("API error ${response.code}: $body"))
+                return@withContext Result.failure(ApiHttpException(response.code))
             }
 
             val text = JSONObject(body)
