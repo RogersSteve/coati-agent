@@ -47,4 +47,25 @@ class AppManualRepositoryTest {
             root.deleteRecursively()
         }
     }
+
+    @Test
+    fun `clear all removes canonical and shadow data and reports success`() = runTest {
+        val root = Files.createTempDirectory("coati-manual-v2-clear").toFile()
+        try {
+            val repository = AppManualRepository(root)
+            val canonical = testManual()
+            val shadowIdentity = testIdentity().copy(appKey = "d".repeat(64))
+            val shadow = testManual(identity = shadowIdentity)
+            repository.save(canonical, 0L)
+            repository.save(shadow, 0L, ManualNamespace.SHADOW)
+
+            assertTrue(repository.hasAnyData())
+            assertTrue(repository.clearAll())
+            assertTrue(!repository.hasAnyData())
+            assertEquals(null, repository.load(canonical.app.appKey))
+            assertEquals(null, repository.load(shadow.app.appKey, ManualNamespace.SHADOW))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 }

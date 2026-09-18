@@ -70,7 +70,6 @@ fun OverlayContent(
     manualMode: ManualMode = ManualMode.OFF,
     onExecute: (String) -> Unit = {},
     onSafetyModeChanged: (SafetyMode) -> Unit = {},
-    onManualModeChanged: (ManualMode) -> Unit = {},
     onStop: () -> Unit = {},
     onPause: () -> Unit = {},
     onResume: () -> Unit = {},
@@ -91,7 +90,6 @@ fun OverlayContent(
             manualMode = manualMode,
             onExecute = onExecute,
             onSafetyModeChanged = onSafetyModeChanged,
-            onManualModeChanged = onManualModeChanged,
             onCollapse = onCollapse,
             onSettings = onSettings,
             onExit = onExit,
@@ -199,7 +197,6 @@ private fun ExpandedInputPanel(
     manualMode: ManualMode,
     onExecute: (String) -> Unit,
     onSafetyModeChanged: (SafetyMode) -> Unit,
-    onManualModeChanged: (ManualMode) -> Unit,
     onCollapse: () -> Unit,
     onSettings: () -> Unit,
     onExit: () -> Unit,
@@ -220,10 +217,10 @@ private fun ExpandedInputPanel(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = onSettings) {
-                    Text("⚙", fontSize = 18.sp)
+                    Text("Settings")
                 }
                 TextButton(onClick = onExit) {
-                    Text("✕", fontSize = 18.sp, color = MaterialTheme.colorScheme.error)
+                    Text("Exit", color = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -243,11 +240,17 @@ private fun ExpandedInputPanel(
             onModeSelected = onSafetyModeChanged,
         )
         Spacer(modifier = Modifier.height(8.dp))
-        ManualModeSelector(
-            selectedMode = manualMode,
-            onModeSelected = onManualModeChanged,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        if (manualMode == ManualMode.LEARNING) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onSettings) {
+                    Text("Learning on · Settings")
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+        }
         Button(
             onClick = {
                 if (taskInput.isNotBlank()) onExecute(taskInput)
@@ -261,48 +264,6 @@ private fun ExpandedInputPanel(
             Text("Execute")
         }
     }
-}
-
-@Composable
-private fun ManualModeSelector(
-    selectedMode: ManualMode,
-    onModeSelected: (ManualMode) -> Unit,
-) {
-    val options = listOf(
-        ManualMode.OFF to "Off",
-        ManualMode.READ_ONLY to "Guide",
-        ManualMode.LEARNING to "Learn",
-    )
-
-    Text(
-        text = "App knowledge",
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.Medium,
-    )
-    Spacer(modifier = Modifier.height(4.dp))
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        options.forEach { (mode, label) ->
-            FilterChip(
-                selected = selectedMode == mode,
-                onClick = { onModeSelected(mode) },
-                label = { Text(label, fontSize = 10.sp, maxLines = 1) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-    Text(
-        text = when (selectedMode) {
-            ManualMode.OFF -> "No app guide is read or learned."
-            ManualMode.READ_ONLY -> "Read the current app manual without changing it."
-            ManualMode.LEARNING -> "Read the current app manual and learn verified reusable UI knowledge."
-            ManualMode.SHADOW -> "Active: Shadow (debug). Guidance is not used."
-        },
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 @Composable

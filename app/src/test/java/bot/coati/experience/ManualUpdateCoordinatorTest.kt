@@ -310,14 +310,14 @@ class ManualUpdateCoordinatorTest {
     }
 
     @Test
-    fun `close cancels in flight update rejects new work and writes nothing`() = runTest {
+    fun `close and join cancels in flight update before returning and writes nothing`() = runTest {
         val fake = ManualTestGateway { _, _ -> awaitCancellation() }
         val worker = ManualUpdateCoordinator(repository, fake.gateway, StandardTestDispatcher(testScheduler), 120_000L)
         coordinator = worker
         val request = ManualLearningRequest(listOf(testTrace()))
         worker.enqueue(request, ManualMode.LEARNING)
         runCurrent()
-        worker.close()
+        worker.closeAndJoin()
         advanceUntilIdle()
         assertFalse(worker.enqueue(request, ManualMode.LEARNING))
         assertEquals(null, repository.load(testIdentity().appKey))
