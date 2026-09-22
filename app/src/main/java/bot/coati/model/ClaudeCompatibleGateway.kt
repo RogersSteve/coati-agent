@@ -38,8 +38,8 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
             Log.d(TAG, "Response status: ${response.code}, body length: ${body.length}")
 
             if (!response.isSuccessful) {
@@ -55,6 +55,8 @@ class ClaudeCompatibleGateway(
             val modelResponse = GatewayUtils.parseModelResponse(text)
             Log.i(TAG, "Parsed response: action=${modelResponse.action}, safety=${modelResponse.safetyLevel}")
             Result.success(modelResponse)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "analyzeScreen failed: ${e.message}", e)
             Result.failure(e)
@@ -103,8 +105,8 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(ApiHttpException(response.code))
@@ -116,6 +118,8 @@ class ClaudeCompatibleGateway(
                 .getString("text")
 
             Result.success(GatewayUtils.parseQuickCheckResponse(text))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "quickCheck failed: ${e.message}", e)
             Result.failure(e)
@@ -179,8 +183,8 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(ApiHttpException(response.code))
@@ -192,6 +196,8 @@ class ClaudeCompatibleGateway(
                 .getString("text")
 
             Result.success(GatewayUtils.parseVerifyResponse(text))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "verifyAction failed: ${e.message}", e)
             Result.failure(e)
@@ -221,8 +227,8 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(ApiHttpException(response.code))
@@ -234,6 +240,8 @@ class ClaudeCompatibleGateway(
                 .getString("text")
 
             Result.success(text.trim())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "summarizeText failed: ${e.message}", e)
             Result.failure(e)
@@ -260,8 +268,8 @@ class ClaudeCompatibleGateway(
                 .addHeader("content-type", "application/json")
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
-            client.newCall(httpRequest).awaitCancellable().use { response ->
-                val body = response.body?.string().orEmpty()
+            client.newCall(httpRequest).awaitResponseBody().let { response ->
+                val body = response.body
                 if (!response.isSuccessful) return Result.failure(ApiHttpException(response.code))
                 Result.success(StructuredTextResponseParser.claude(body))
             }
@@ -292,8 +300,8 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(ApiHttpException(response.code))
@@ -306,6 +314,8 @@ class ClaudeCompatibleGateway(
 
             Log.i(TAG, "Connection test OK: $text")
             Result.success(text)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "testConnection failed: ${e.message}", e)
             Result.failure(e)

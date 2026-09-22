@@ -661,6 +661,8 @@ class AgentLoop(
                         currentTask?.id ?: "unknown",
                     )
                     autocompact.pruneScreenshotCache(screenshotCache)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.w(TAG, "Autocompact failed: ${e.message}")
                 }
