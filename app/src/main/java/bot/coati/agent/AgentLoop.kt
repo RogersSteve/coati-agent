@@ -8,6 +8,7 @@ import bot.coati.action.toLogSummary
 import bot.coati.data.SafetyMode
 import bot.coati.experience.AppManualRuntime
 import bot.coati.model.Message
+import bot.coati.model.MODEL_REQUEST_TIMEOUT_MS
 import bot.coati.model.ModelResponse
 import bot.coati.model.ModelRouter
 import bot.coati.model.QuickCheckResult
@@ -241,7 +242,7 @@ class AgentLoop(
                 learningObservationInstruction,
             )
 
-            val result = withTimeoutOrNull(30_000) {
+            val result = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
                 modelRouter.reasoning.analyzeScreen(
                     screenshot = screenContext.screenshotJpeg,
                     uiTreeHint = screenContext.uiTreeJson,
@@ -399,7 +400,7 @@ class AgentLoop(
             // and the VERIFY step captures a fresh screenshot (stored as carryOverContext), so
             // the next step the model sees the result and can issue screenshot + isTaskComplete=true.
             if (response.isTaskComplete && response.action.lowercase() == "screenshot") {
-                val audit = withTimeoutOrNull(TASK_COMPLETION_AUDIT_TIMEOUT_MS) {
+                val audit = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
                     modelRouter.fast.quickCheck(
                         // screenshot is a read-only completion action, so the current
                         // overlay-free OBSERVE frame is the authoritative final state.
@@ -512,24 +513,26 @@ class AgentLoop(
                     null
                 }
 
-                // Model verification: send BEFORE + AFTER screenshots (retry up to 3 times)
+                // All attempts share one budget; retries must not multiply the waiting limit.
                 val actionDesc = "${response.action}: ${response.reasoning}"
-                val verifyResult = (1..3).firstNotNullOfOrNull { attempt ->
-                    val res = modelRouter.fast.verifyAction(
-                        beforeScreenshot = beforeScreenshot,
-                        afterScreenshot = afterContext.screenshotJpeg,
-                        actionDescription = actionDesc,
-                        expectedOutcome = response.expectedOutcome,
-                        manualObservationInstruction = null,
-                    )
-                    if (res.isSuccess) res.getOrThrow()
-                    else {
-                        Log.w(TAG, "Verify attempt $attempt/3 failed: ${res.exceptionOrNull()?.message}")
-                        null
+                val verifyResult = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
+                    (1..3).firstNotNullOfOrNull { attempt ->
+                        val res = modelRouter.fast.verifyAction(
+                            beforeScreenshot = beforeScreenshot,
+                            afterScreenshot = afterContext.screenshotJpeg,
+                            actionDescription = actionDesc,
+                            expectedOutcome = response.expectedOutcome,
+                            manualObservationInstruction = null,
+                        )
+                        if (res.isSuccess) res.getOrThrow()
+                        else {
+                            Log.w(TAG, "Verify attempt $attempt/3 failed: ${res.exceptionOrNull()?.message}")
+                            null
+                        }
                     }
                 } ?: run {
-                    Log.w(TAG, "Verify unavailable after 3 failures, treating as UNKNOWN")
-                    VerifyResult(VerifyOutcome.UNKNOWN, "Verification unavailable after repeated parse/API failures")
+                    Log.w(TAG, "Verify unavailable after timeout or 3 failures, treating as UNKNOWN")
+                    VerifyResult(VerifyOutcome.UNKNOWN, "Verification unavailable after timeout or repeated parse/API failures")
                 }
 
                 Log.i(TAG, "Verify: ${verifyResult.outcome} - ${verifyResult.reason}")
@@ -938,7 +941,6 @@ class AgentLoop(
         const val MAX_STEPS = 200
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val MAX_VERIFY_RETRIES = 2
-        private const val TASK_COMPLETION_AUDIT_TIMEOUT_MS = 15_000L
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
 
         internal fun buildTaskCompletionAuditQuestion(task: String): String {
