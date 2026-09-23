@@ -3,13 +3,17 @@ package bot.coati.model
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
+/** End-to-end request budget, also shared by agent decision and verification stages. */
+const val MODEL_REQUEST_TIMEOUT_MS = 300_000L
+
 object GatewayFactory {
 
     /** Shared transport settings for runtime gateways and debug-only protocol validation. */
     fun createRuntimeClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(MODEL_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .readTimeout(MODEL_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .writeTimeout(MODEL_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .callTimeout(MODEL_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .build()
 
     fun create(

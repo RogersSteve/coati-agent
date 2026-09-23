@@ -36,8 +36,8 @@ class OpenAiCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
             Log.d(TAG, "Response status: ${response.code}, body length: ${body.length}")
 
             if (!response.isSuccessful) {
@@ -54,6 +54,8 @@ class OpenAiCompatibleGateway(
             val modelResponse = GatewayUtils.parseModelResponse(text)
             Log.i(TAG, "Parsed response: action=${modelResponse.action}, safety=${modelResponse.safetyLevel}")
             Result.success(modelResponse)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "analyzeScreen failed: ${e.message}", e)
             Result.failure(e)
@@ -103,8 +105,8 @@ class OpenAiCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(ApiHttpException(response.code))
@@ -117,6 +119,8 @@ class OpenAiCompatibleGateway(
                 .getString("content")
 
             Result.success(GatewayUtils.parseQuickCheckResponse(text))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "quickCheck failed: ${e.message}", e)
             Result.failure(e)
@@ -179,8 +183,8 @@ class OpenAiCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(ApiHttpException(response.code))
@@ -193,6 +197,8 @@ class OpenAiCompatibleGateway(
                 .getString("content")
 
             Result.success(GatewayUtils.parseVerifyResponse(text))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "verifyAction failed: ${e.message}", e)
             Result.failure(e)
@@ -224,8 +230,8 @@ class OpenAiCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(ApiHttpException(response.code))
@@ -238,6 +244,8 @@ class OpenAiCompatibleGateway(
                 .getString("content")
 
             Result.success(text.trim())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "summarizeText failed: ${e.message}", e)
             Result.failure(e)
@@ -266,8 +274,8 @@ class OpenAiCompatibleGateway(
                 .addHeader("Authorization", "Bearer $apiKey")
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
-            client.newCall(httpRequest).awaitCancellable().use { response ->
-                val body = response.body?.string().orEmpty()
+            client.newCall(httpRequest).awaitResponseBody().let { response ->
+                val body = response.body
                 if (!response.isSuccessful) return Result.failure(ApiHttpException(response.code))
                 Result.success(StructuredTextResponseParser.openAi(body))
             }
@@ -297,8 +305,8 @@ class OpenAiCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val response = client.newCall(request).awaitResponseBody()
+            val body = response.body
 
             if (!response.isSuccessful) {
                 return@withContext Result.failure(ApiHttpException(response.code))
@@ -312,6 +320,8 @@ class OpenAiCompatibleGateway(
 
             Log.i(TAG, "Connection test OK: $text")
             Result.success(text)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "testConnection failed: ${e.message}", e)
             Result.failure(e)
