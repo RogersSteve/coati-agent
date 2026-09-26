@@ -1,6 +1,9 @@
 package bot.coati.agent
 
 import android.util.Log
+import bot.coati.coordinates.DisplaySpaceReader
+import bot.coati.coordinates.ModelCoordinateAction
+import bot.coati.coordinates.ScreenshotCoordinates
 import bot.coati.action.ActionEngine
 import bot.coati.action.ActionFailureCode
 import bot.coati.action.AgentAction
@@ -278,7 +281,7 @@ class AgentLoop(
             conversationHistory.add(Message("assistant", response.reasoning))
 
             // f. COORDINATE RESOLUTION
-            val action = resolveAction(response.action, response.params, response.x, response.y, quality, uiTree, response.statusUpdate)
+            val action = resolveAction(response.action, response.params, response.x, response.y, quality, uiTree, response.statusUpdate, screenContext.coordinates)
             Log.i(TAG, "Resolved action: ${action.toLogSummary()}")
 
             // g. SAFETY CHECK: use shouldConfirm with safety mode
@@ -322,7 +325,13 @@ class AgentLoop(
             val actionName = response.statusUpdate.ifBlank { response.action }
             overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, stepCount, MAX_STEPS)
             val actionResult = overlayManager.withGesturePassthrough {
-                actionEngine.execute(action)
+                // Check after safety confirmation and overlay settling, immediately before execution.
+                if (ModelCoordinateAction.isSpatial(response.action)) {
+                    requireNotNull(screenContext.coordinates) { "missing_screenshot_coordinates" }
+                        .dispatch({ DisplaySpaceReader.read(a11y) }) { actionEngine.execute(action, screenContext.coordinates) }
+                } else {
+                    actionEngine.execute(action)
+                }
             }
             Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
@@ -810,67 +819,18 @@ class AgentLoop(
         quality: UiTreeQuality,
         uiTree: UiTreeNode?,
         statusUpdate: String,
+        coordinates: ScreenshotCoordinates?,
     ): AgentAction {
-        // For tap/longpress with HIGH quality, try to match UI tree bounds
-        if (quality == UiTreeQuality.HIGH && uiTree != null && normalizedX != null && normalizedY != null) {
-            val matchedNode = findBestMatchNode(uiTree, statusUpdate)
-            if (matchedNode != null) {
-                val cx = matchedNode.bounds.centerX()
-                val cy = matchedNode.bounds.centerY()
-                Log.i(TAG, "Using UI tree bounds: ($cx, $cy) for '${matchedNode.text ?: matchedNode.contentDescription}'")
-
-                return when (actionType.lowercase()) {
-                    "tap" -> AgentAction.Tap(cx, cy)
-                    "longpress", "long_press" -> AgentAction.LongPress(
-                        cx, cy,
-                        (params["durationMs"] as? Number)?.toLong() ?: 1000,
-                    )
-                    else -> convertWithCoordinates(actionType, params, normalizedX, normalizedY)
-                }
+        // Preserve existing matching policy. getBoundsInScreen already uses screen pixels.
+        val treeTarget = if (quality == UiTreeQuality.HIGH && uiTree != null && normalizedX != null && normalizedY != null &&
+            actionType.lowercase() in setOf("tap", "longpress", "long_press")) {
+            findBestMatchNode(uiTree, statusUpdate)?.bounds?.let { bounds ->
+                require(bounds.left >= 0 && bounds.top >= 0 && bounds.right <= (coordinates?.rawWidth ?: 0) &&
+                    bounds.bottom <= (coordinates?.rawHeight ?: 0) && bounds.width() > 0 && bounds.height() > 0) { "invalid_ui_bounds" }
+                bounds.centerX() to bounds.centerY()
             }
-        }
-
-        // For MEDIUM/LOW or no match, convert normalized 0-1000 → pixel coords
-        if (normalizedX != null && normalizedY != null) {
-            return convertWithCoordinates(actionType, params, normalizedX, normalizedY)
-        }
-
-        // Fallback: use raw params (for non-coordinate actions)
-        return AgentAction.fromMap(actionType, params)
-    }
-
-    private fun convertWithCoordinates(
-        actionType: String,
-        params: Map<String, Any>,
-        normalizedX: Int,
-        normalizedY: Int,
-    ): AgentAction {
-        val displayMetrics = a11y.resources.displayMetrics
-        val screenWidth = displayMetrics.widthPixels
-        val screenHeight = displayMetrics.heightPixels
-        val pixelX = normalizedX * screenWidth / 1000
-        val pixelY = normalizedY * screenHeight / 1000
-
-        return when (actionType.lowercase()) {
-            "tap" -> AgentAction.Tap(pixelX, pixelY)
-            "longpress", "long_press" -> AgentAction.LongPress(
-                pixelX, pixelY,
-                (params["durationMs"] as? Number)?.toLong() ?: 1000,
-            )
-            "focusandinputtext", "focus_and_input_text" -> AgentAction.FocusAndInputText(
-                x = pixelX,
-                y = pixelY,
-                text = params["text"] as String,
-            )
-            "swipe" -> {
-                val x1 = ((params["x1"] as? Number)?.toInt() ?: 0) * screenWidth / 1000
-                val y1 = ((params["y1"] as? Number)?.toInt() ?: 0) * screenHeight / 1000
-                val x2 = ((params["x2"] as? Number)?.toInt() ?: 0) * screenWidth / 1000
-                val y2 = ((params["y2"] as? Number)?.toInt() ?: 0) * screenHeight / 1000
-                AgentAction.Swipe(x1, y1, x2, y2, (params["durationMs"] as? Number)?.toLong() ?: 400)
-            }
-            else -> AgentAction.fromMap(actionType, params)
-        }
+        } else null
+        return ModelCoordinateAction.resolve(actionType, params, normalizedX, normalizedY, coordinates, treeTarget)
     }
 
     private fun findBestMatchNode(tree: UiTreeNode, target: String): UiTreeNode? {

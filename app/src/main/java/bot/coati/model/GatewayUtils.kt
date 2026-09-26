@@ -43,8 +43,8 @@ object GatewayUtils {
             }
         }
 
-        val x = if (json.has("x") && !json.isNull("x")) json.optInt("x") else null
-        val y = if (json.has("y") && !json.isNull("y")) json.optInt("y") else null
+        val x = parseCoordinate(json, "x")
+        val y = parseCoordinate(json, "y")
 
         val usedManualHeadings = json.optJSONArray("usedManualHeadings")?.let { array ->
             buildList {
@@ -70,6 +70,14 @@ object GatewayUtils {
             usedManualHeadings = usedManualHeadings,
             manualObservation = manualObservation,
         )
+    }
+
+    private fun parseCoordinate(json: JSONObject, key: String): Int? {
+        if (!json.has(key) || json.isNull(key)) return null
+        val value = json.get(key)
+        require(value is Number && value.toDouble().isFinite() &&
+            value.toDouble() == value.toInt().toDouble() && value.toInt() in 0..1000) { "invalid_normalized_coordinate" }
+        return value.toInt()
     }
 
     private fun JSONObject.optionalString(key: String): String? {

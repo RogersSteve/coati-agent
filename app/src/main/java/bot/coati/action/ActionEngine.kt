@@ -1,5 +1,7 @@
 package bot.coati.action
 
+import bot.coati.coordinates.ScreenshotCoordinates
+import bot.coati.coordinates.ModelCoordinateAction
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
@@ -26,7 +28,7 @@ class ActionEngine(
     private val appResolver: AppResolver = AppResolver(a11y.packageManager),
 ) {
 
-    suspend fun execute(action: AgentAction): ActionResult {
+    suspend fun execute(action: AgentAction, coordinates: ScreenshotCoordinates? = null): ActionResult {
         Log.i(TAG, "Executing action: ${action.toLogSummary()}")
         return try {
             when (action) {
@@ -40,7 +42,10 @@ class ActionEngine(
                     action.text,
                 )
                 is AgentAction.PressKey -> executePressKey(action.keyCode)
-                is AgentAction.Scroll -> executeScroll(action.direction, action.amount)
+                is AgentAction.Scroll -> if (coordinates != null) {
+                    val swipe = ModelCoordinateAction.scrollGesture(action, coordinates)
+                    executeSwipe(swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.durationMs)
+                } else executeScroll(action.direction, action.amount)
                 is AgentAction.Wait -> executeWait(action.ms)
                 is AgentAction.Screenshot -> executeScreenshot()
                 is AgentAction.OpenApp -> executeOpenApp(action)
