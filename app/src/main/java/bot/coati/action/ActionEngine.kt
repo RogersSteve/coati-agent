@@ -42,10 +42,7 @@ class ActionEngine(
                     action.text,
                 )
                 is AgentAction.PressKey -> executePressKey(action.keyCode)
-                is AgentAction.Scroll -> if (coordinates != null) {
-                    val swipe = ModelCoordinateAction.scrollGesture(action, coordinates)
-                    executeSwipe(swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.durationMs)
-                } else executeScroll(action.direction, action.amount)
+                is AgentAction.Scroll -> executeScroll(action, coordinates)
                 is AgentAction.Wait -> executeWait(action.ms)
                 is AgentAction.Screenshot -> executeScreenshot()
                 is AgentAction.OpenApp -> executeOpenApp(action)
@@ -396,26 +393,15 @@ class ActionEngine(
         return ActionResult(success = result, message = if (result) "Pressed $keyCode" else "Key press failed")
     }
 
-    private suspend fun executeScroll(direction: String, amount: Int): ActionResult {
-        val displayMetrics = a11y.resources.displayMetrics
-        val centerX = displayMetrics.widthPixels / 2
-        val centerY = displayMetrics.heightPixels / 2
-
-        val (x1, y1, x2, y2) = when (direction.uppercase()) {
-            "UP" -> listOf(centerX, centerY + amount / 2, centerX, centerY - amount / 2)
-            "DOWN" -> listOf(centerX, centerY - amount / 2, centerX, centerY + amount / 2)
-            "LEFT" -> listOf(centerX + amount / 2, centerY, centerX - amount / 2, centerY)
-            "RIGHT" -> listOf(centerX - amount / 2, centerY, centerX + amount / 2, centerY)
-            else -> return ActionResult(success = false, message = "Unknown scroll direction: $direction")
+    private suspend fun executeScroll(action: AgentAction.Scroll, coordinates: ScreenshotCoordinates?): ActionResult {
+        // Model callers supply their original screenshot binding. Legacy direct callers capture
+        // their own binding once; never substitute current metrics for an existing model binding.
+        val bound = coordinates ?: bot.coati.model.ScreenContext.capture(a11y)?.coordinates
+            ?: return ActionResult(false, "missing_screenshot_coordinates")
+        val swipe = ModelCoordinateAction.scrollGesture(action, bound)
+        return bound.dispatch({ bot.coati.coordinates.DisplaySpaceReader.read(a11y) }) {
+            executeSwipe(swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.durationMs)
         }
-
-        val path = Path().apply {
-            moveTo(x1.toFloat(), y1.toFloat())
-            lineTo(x2.toFloat(), y2.toFloat())
-        }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 400)
-        val result = dispatchGesture(stroke)
-        return ActionResult(success = result, message = if (result) "Scrolled $direction" else "Scroll failed")
     }
 
     private suspend fun executeWait(ms: Long): ActionResult {

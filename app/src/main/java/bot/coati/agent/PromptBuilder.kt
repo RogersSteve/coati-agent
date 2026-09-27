@@ -117,7 +117,7 @@ object PromptBuilder {
         - (0, 0) = top-left corner of the screen
         - (1000, 1000) = bottom-right corner of the screen
         - For tap/longpress: set x and y to the normalized position of the target element
-        - For swipe: use params x1,y1,x2,y2 in normalized 0-1000 coordinates
+        - For swipe: use params x1,y1,x2,y2 in normalized 0-1000 coordinates; these are explicit finger start/end positions, not content browsing directions.
         - For other actions: x and y can be omitted
 
         Action params:
@@ -129,6 +129,8 @@ object PromptBuilder {
         - focusAndInputText: {"text": "string"}, with top-level x/y at the visible target caret location. The runtime taps, waits for a fresh same-package InputConnection with a stable collapsed caret, and immediately types without a model round trip. The accessibility node itself need not be marked editable when the real InputConnection evidence is valid.
         - pressKey: {"keyCode": "BACK|HOME|RECENTS|ENTER"}
         - scroll: {"direction": "UP|DOWN|LEFT|RIGHT", "amount": int}
+          direction is content browsing: DOWN reveals lower content (finger moves up), UP reveals upper content (finger moves down), RIGHT reveals content to the right (finger moves left), LEFT reveals content to the left (finger moves right).
+          amount is the physical-pixel distance of finger travel, not dp, normalized units, image pixels or guaranteed content displacement. Omitted amount defaults to 500. It must be an integer from 1 through full display height minus 1 for UP/DOWN, or width minus 1 for LEFT/RIGHT. Invalid or oversized values fail; they are not clamped. Gesture duration is 400ms. Small gestures may be below the app touch-slop threshold; dispatch alone does not prove scrolling.
         - wait: {"ms": int}
         - screenshot: {}
         - openApp: {"packageName": "com.example.app"} OR {"appName": "visible app name, such as 天气/日历/地图/时钟/笔记"}. Prefer appName when packageName is uncertain.
