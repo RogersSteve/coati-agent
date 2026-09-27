@@ -20,7 +20,9 @@ sealed class AgentAction {
         val text: String,
     ) : AgentAction()
     data class PressKey(val keyCode: String) : AgentAction()
-    data class Scroll(val direction: String, val amount: Int = 500) : AgentAction()
+    data class Scroll(val direction: String, val amount: Int = ScrollProtocol.DEFAULT_AMOUNT) : AgentAction() {
+        init { ScrollProtocol.validate(direction, amount) }
+    }
     data class Wait(val ms: Long) : AgentAction()
     data object Screenshot : AgentAction()
     data class OpenApp(val packageName: String? = null, val appName: String? = null) : AgentAction()
@@ -56,10 +58,7 @@ sealed class AgentAction {
                 "presskey", "press_key" -> PressKey(
                     keyCode = params["keyCode"] as String,
                 )
-                "scroll" -> Scroll(
-                    direction = params["direction"] as String,
-                    amount = (params["amount"] as? Number)?.toInt() ?: 500,
-                )
+                "scroll" -> ScrollProtocol.parse(params)
                 "wait" -> Wait(
                     ms = (params["ms"] as Number).toLong(),
                 )

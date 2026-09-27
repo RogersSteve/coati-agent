@@ -1,6 +1,7 @@
 package bot.coati.coordinates
 
 import bot.coati.action.AgentAction
+import bot.coati.action.ScrollProtocol
 
 /** Adapter for the existing PromptBuilder contract. AgentAction.fromMap remains a pixel API. */
 object ModelCoordinateAction {
@@ -39,8 +40,7 @@ object ModelCoordinateAction {
                 AgentAction.Swipe(start.first, start.second, end.first, end.second, (params["durationMs"] as? Number)?.toLong() ?: 400)
             }
             "scroll" -> {
-                val amount = (params["amount"] as? Number)?.let(::integer) ?: 500
-                val action = AgentAction.Scroll(params["direction"] as String, amount)
+                val action = ScrollProtocol.parse(params)
                 scrollGesture(action, space) // validate now; preserve the semantic action for Verify/manual evidence
                 action
             }
@@ -48,20 +48,8 @@ object ModelCoordinateAction {
         }
     }
     fun scrollGesture(action: AgentAction.Scroll, space: ScreenshotCoordinates): AgentAction.Swipe {
-        // amount retains the existing pixel-distance contract.
-        require(action.amount > 0) { "invalid_scroll_amount" }
-        val cx = space.rawWidth / 2
-        val cy = space.rawHeight / 2
-        val half = action.amount / 2
-        val points = when (action.direction.uppercase()) {
-            "UP" -> listOf(cx, cy + half, cx, cy - half)
-            "DOWN" -> listOf(cx, cy - half, cx, cy + half)
-            "LEFT" -> listOf(cx + half, cy, cx - half, cy)
-            "RIGHT" -> listOf(cx - half, cy, cx + half, cy)
-            else -> error("invalid_scroll_direction")
-        }
-        space.absolute(points[0], points[1]); space.absolute(points[2], points[3])
-        return AgentAction.Swipe(points[0], points[1], points[2], points[3], 400)
+        val swipe = ScrollProtocol.gesture(action, space.rawWidth, space.rawHeight)
+        space.absolute(swipe.x1, swipe.y1); space.absolute(swipe.x2, swipe.y2)
+        return swipe
     }
-
 }
