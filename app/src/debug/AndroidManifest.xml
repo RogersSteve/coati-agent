@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <receiver android:name="bot.coati.debug.CoordinateFixtureControlReceiver"
+            android:exported="true" android:permission="android.permission.DUMP" />
+        <activity android:name="bot.coati.debug.CoordinateFixtureActivity"
+            android:exported="true" android:permission="android.permission.DUMP"
+            android:launchMode="singleTask" android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
         <activity
             android:name="bot.coati.debug.ManualProtocolProbeActivity"
             android:exported="true"

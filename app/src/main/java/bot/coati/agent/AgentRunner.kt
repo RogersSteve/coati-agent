@@ -1,6 +1,8 @@
 package bot.coati.agent
 
 import android.util.Log
+import bot.coati.coordinates.DisplaySpaceReader
+import bot.coati.coordinates.ModelCoordinateAction
 import bot.coati.action.ActionEngine
 import bot.coati.action.AgentAction
 import bot.coati.action.toLogSummary
@@ -105,7 +107,7 @@ class AgentRunner(
 
         // Step 3: Parse action
         val action = try {
-            AgentAction.fromMap(response.action, response.params)
+            ModelCoordinateAction.resolve(response.action, response.params, response.x, response.y, screenContext.coordinates)
         } catch (e: Exception) {
             throw Exception("Failed to parse action '${response.action}': ${e.message}")
         }
@@ -137,7 +139,12 @@ class AgentRunner(
         overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, 0, 0)
         Log.i(TAG, "Step 5: Executing action")
         val actionResult = overlayManager.withGesturePassthrough {
-            actionEngine.execute(action)
+            if (ModelCoordinateAction.isSpatial(response.action)) {
+                requireNotNull(screenContext.coordinates) { "missing_screenshot_coordinates" }
+                    .dispatch({ DisplaySpaceReader.read(a11y) }) { actionEngine.execute(action, screenContext.coordinates) }
+            } else {
+                actionEngine.execute(action)
+            }
         }
         Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 

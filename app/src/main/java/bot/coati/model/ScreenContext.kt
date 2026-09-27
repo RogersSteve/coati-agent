@@ -1,5 +1,7 @@
 package bot.coati.model
 
+import bot.coati.coordinates.DisplaySpaceReader
+import bot.coati.coordinates.ScreenshotCoordinates
 import android.graphics.Bitmap
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
@@ -11,18 +13,20 @@ data class ScreenContext(
     val screenshotJpeg: ByteArray,
     val uiTreeJson: String,
     val appPackage: String,
+    val coordinates: ScreenshotCoordinates? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is ScreenContext) return false
         return screenshotJpeg.contentEquals(other.screenshotJpeg) &&
-            uiTreeJson == other.uiTreeJson && appPackage == other.appPackage
+            uiTreeJson == other.uiTreeJson && appPackage == other.appPackage && coordinates == other.coordinates
     }
 
     override fun hashCode(): Int {
         var result = screenshotJpeg.contentHashCode()
         result = 31 * result + uiTreeJson.hashCode()
         result = 31 * result + appPackage.hashCode()
+        result = 31 * result + (coordinates?.hashCode() ?: 0)
         return result
     }
 
@@ -31,6 +35,7 @@ data class ScreenContext(
         private const val TARGET_WIDTH = 720
 
         suspend fun capture(a11y: CoatiAccessibilityService): ScreenContext? {
+            val displayBefore = DisplaySpaceReader.read(a11y)
             // Take screenshot
             val bitmap = a11y.takeScreenshot()
             if (bitmap == null) {
@@ -38,8 +43,12 @@ data class ScreenContext(
                 return null
             }
 
-            // Compress to 720p JPEG
+            val displayAfter = DisplaySpaceReader.read(a11y)
+            // Compress the complete display frame, without cropping or removing system bars.
             val scaled = scaleToWidth(bitmap, TARGET_WIDTH)
+            val coordinates = ScreenshotCoordinates.bind(displayBefore, displayAfter,
+                bitmap.width, bitmap.height, scaled.width, scaled.height)
+            if (coordinates == null) Log.w(TAG, "Screenshot coordinate mapping unavailable; spatial actions will fail closed")
             val stream = ByteArrayOutputStream()
             scaled.compress(Bitmap.CompressFormat.JPEG, 80, stream)
             if (scaled !== bitmap) scaled.recycle()
@@ -100,6 +109,7 @@ data class ScreenContext(
                 screenshotJpeg = screenshotBytes,
                 uiTreeJson = focusHint + uiTreeStr,
                 appPackage = appPackage,
+                coordinates = coordinates,
             )
         }
 
