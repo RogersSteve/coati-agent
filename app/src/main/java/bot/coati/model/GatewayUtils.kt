@@ -3,6 +3,13 @@ package bot.coati.model
 import bot.coati.agent.PromptBuilder
 import org.json.JSONObject
 
+/**
+ * Output budget for the compact verify/quick-check JSON. Thinking models (Gemini 3.x, GPT-5.x)
+ * spend part of max_tokens on hidden reasoning; the former 128/256 budgets truncated the JSON to
+ * nothing, so completion audits came back "unavailable" and verification fell to UNKNOWN.
+ */
+internal fun compactJsonMaxTokens(withManualObservation: Boolean): Int = if (withManualObservation) 2048 else 1024
+
 object GatewayUtils {
 
     /** @deprecated Use PromptBuilder.buildReasoningSystemPrompt() instead. */

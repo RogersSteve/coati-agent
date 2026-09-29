@@ -281,7 +281,13 @@ class AgentLoop(
             conversationHistory.add(Message("assistant", response.reasoning))
 
             // f. COORDINATE RESOLUTION
-            val action = resolveAction(response.action, response.params, response.x, response.y, quality, uiTree, response.statusUpdate, screenContext.coordinates)
+            val action = try {
+                resolveAction(response.action, response.params, response.x, response.y, quality, uiTree, response.statusUpdate, screenContext.coordinates)
+            } catch (e: IllegalArgumentException) {
+                // e.g. a dialog or split-screen window cannot be coordinate-bound: fail this step, not the task.
+                if (!recordCoordinateFailure(e, response.action)) throw e
+                continue
+            }
             Log.i(TAG, "Resolved action: ${action.toLogSummary()}")
 
             // g. SAFETY CHECK: use shouldConfirm with safety mode
@@ -324,14 +330,20 @@ class AgentLoop(
             // consumes the gesture and the target app never receives it (same fix as AgentRunner).
             val actionName = response.statusUpdate.ifBlank { response.action }
             overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, stepCount, MAX_STEPS)
-            val actionResult = overlayManager.withGesturePassthrough {
-                // Check after safety confirmation and overlay settling, immediately before execution.
-                if (ModelCoordinateAction.isSpatial(response.action)) {
-                    requireNotNull(screenContext.coordinates) { "missing_screenshot_coordinates" }
-                        .dispatch({ DisplaySpaceReader.read(a11y) }) { actionEngine.execute(action, screenContext.coordinates) }
-                } else {
-                    actionEngine.execute(action)
+            val actionResult = try {
+                overlayManager.withGesturePassthrough {
+                    // Check after safety confirmation and overlay settling, immediately before execution.
+                    if (ModelCoordinateAction.isSpatial(response.action)) {
+                        requireNotNull(screenContext.coordinates) { "missing_screenshot_coordinates" }
+                            .dispatch({ DisplaySpaceReader.read(a11y) }) { actionEngine.execute(action, screenContext.coordinates) }
+                    } else {
+                        actionEngine.execute(action)
+                    }
                 }
+            } catch (e: IllegalArgumentException) {
+                // The screen moved on (or cannot be bound) between capture and dispatch: nothing was executed.
+                if (!recordCoordinateFailure(e, response.action)) throw e
+                continue
             }
             Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
 
@@ -854,6 +866,21 @@ class AgentLoop(
         return null
     }
 
+    /**
+     * Turns a coordinate-binding rejection into step feedback for the next Reasoning turn. The
+     * fail-closed guards stay intact: no gesture is sent, but the task continues. Returns false for
+     * any other argument error, which keeps its previous (task-failing) behavior.
+     */
+    private fun recordCoordinateFailure(e: IllegalArgumentException, actionName: String): Boolean {
+        val feedback = coordinateFailureFeedback(e.message) ?: return false
+        Log.w(TAG, "Coordinate guard rejected '$actionName': ${e.message}")
+        lastStepFeedback = "Previous action NOT EXECUTED: $feedback"
+        if (exceptionHandler.recordFailure() == FailureAction.ABORT) {
+            throw IllegalStateException("Actions repeatedly could not be bound to the screen: ${e.message}")
+        }
+        return true
+    }
+
     private fun isTextInputAction(action: String): Boolean {
         return action.lowercase() in setOf(
             "inputtext",
@@ -902,6 +929,18 @@ class AgentLoop(
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val MAX_VERIFY_RETRIES = 2
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
+
+        /** Model-facing explanation for a rejected spatial action, or null when [message] is not a binding guard. */
+        internal fun coordinateFailureFeedback(message: String?): String? = when (message) {
+            "missing_screenshot_coordinates" ->
+                "the current window (for example a dialog, popup or split screen) cannot be mapped to screen " +
+                    "coordinates, so taps and swipes are unavailable. Use a non-spatial action such as " +
+                    "pressKey BACK, wait, or openApp, or wait for a full-screen page."
+            "stale_screenshot_coordinates" ->
+                "the screen changed between the screenshot and the action. Re-observe the current screen " +
+                    "before choosing again."
+            else -> null
+        }
 
         internal fun buildTaskCompletionAuditQuestion(task: String): String {
             return """

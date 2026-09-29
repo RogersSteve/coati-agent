@@ -92,7 +92,7 @@ class ClaudeCompatibleGateway(
 
             val requestBody = JSONObject().apply {
                 put("model", modelName)
-                put("max_tokens", if (manualObservationInstruction == null) 128 else 512)
+                put("max_tokens", compactJsonMaxTokens(manualObservationInstruction != null))
                 put("system", PromptBuilder.buildFastSystemPrompt(manualObservationInstruction != null))
                 put("messages", messages)
             }.toString()
@@ -170,7 +170,7 @@ class ClaudeCompatibleGateway(
 
             val requestBody = JSONObject().apply {
                 put("model", modelName)
-                put("max_tokens", if (manualObservationInstruction == null) 256 else 512)
+                put("max_tokens", compactJsonMaxTokens(manualObservationInstruction != null))
                 put("system", PromptBuilder.buildVerifySystemPrompt())
                 put("messages", messages)
             }.toString()

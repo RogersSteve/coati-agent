@@ -99,7 +99,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.1)
-                    put("maxOutputTokens", if (manualObservationInstruction == null) 128 else 512)
+                    put("maxOutputTokens", compactJsonMaxTokens(manualObservationInstruction != null))
                 })
             }.toString()
 
@@ -181,7 +181,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.1)
-                    put("maxOutputTokens", if (manualObservationInstruction == null) 256 else 512)
+                    put("maxOutputTokens", compactJsonMaxTokens(manualObservationInstruction != null))
                 })
             }.toString()
 

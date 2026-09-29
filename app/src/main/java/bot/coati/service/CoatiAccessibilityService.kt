@@ -25,6 +25,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 class CoatiAccessibilityService : AccessibilityService() {
@@ -737,6 +738,15 @@ class CoatiAccessibilityService : AccessibilityService() {
     suspend fun takeScreenshot(): Bitmap? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
 
+        // The platform occasionally never calls back (observed on emulators after many captures);
+        // without a bound the agent loop would hang forever instead of retrying.
+        var completed = false
+        val bitmap = withTimeoutOrNull(SCREENSHOT_TIMEOUT_MS) { awaitScreenshot().also { completed = true } }
+        if (!completed) Log.w(TAG, "Screenshot timed out after ${SCREENSHOT_TIMEOUT_MS}ms")
+        return bitmap
+    }
+
+    private suspend fun awaitScreenshot(): Bitmap? {
         return suspendCancellableCoroutine { continuation ->
             takeScreenshot(
                 android.view.Display.DEFAULT_DISPLAY,
@@ -852,6 +862,7 @@ class CoatiAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "CoatiA11y"
+        private const val SCREENSHOT_TIMEOUT_MS = 5_000L
         private const val SELECTION_CONTEXT_CHARS = 64
         private const val SELECTION_STABILITY_INTERVAL_MS = 80L
         private const val SELECTION_ACK_TIMEOUT_MS = 750L

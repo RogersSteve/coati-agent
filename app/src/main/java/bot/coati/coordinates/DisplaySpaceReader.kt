@@ -30,5 +30,9 @@ object DisplaySpaceReader {
                     .also { it.validate() }
             } finally { appWindow.recycle() }
         } finally { root.recycle() }
-    } catch (_: Exception) { null }
+    } catch (e: Exception) {
+        // Fail closed, but say why: an unsupported window (dialog, split screen) looks identical to a bug otherwise.
+        android.util.Log.w("CoatiDisplay", "Display space unavailable: ${e.message}")
+        null
+    }
 }
