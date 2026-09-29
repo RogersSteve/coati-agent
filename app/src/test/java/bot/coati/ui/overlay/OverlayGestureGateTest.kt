@@ -22,6 +22,19 @@ class OverlayGestureGateTest {
     }
 
     @Test
+    fun `a touch on the overlay during passthrough is a swallowed gesture`() {
+        val gate = OverlayGestureGate()
+
+        assertFalse(gate.noteOverlayTouch())
+        assertFalse(gate.takeSwallowed())
+
+        gate.enter()
+        assertTrue(gate.noteOverlayTouch())
+        assertTrue(gate.takeSwallowed())
+        assertFalse(gate.takeSwallowed())
+    }
+
+    @Test
     fun `extra exit cannot make later scope unprotected`() {
         val gate = OverlayGestureGate()
 

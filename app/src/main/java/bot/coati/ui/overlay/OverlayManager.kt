@@ -408,6 +408,14 @@ class OverlayManager(
         try {
             updateGesturePassthrough(enable = true)
             delay(PASSTHROUGH_ENABLE_SETTLE_MS)
+            gestureGate.takeSwallowed()
+            val result = block()
+            // A busy system_server can apply the flag later than the settle delay (152 ms observed
+            // on the RK3576 right after GPU OCR); the gesture then lands on the overlay and the app
+            // never sees any of its events, so sending it once more is safe.
+            if (!gestureGate.takeSwallowed()) return result
+            Log.w(TAG, "Overlay caught an injected gesture before passthrough applied; repeating it")
+            delay(PASSTHROUGH_RETRY_SETTLE_MS)
             return block()
         } finally {
             // Cancellation must never leave the overlay permanently non-touchable or the task
@@ -535,6 +543,11 @@ class OverlayManager(
             if (overlayState.value is OverlayState.CollapsedIdle) onClick()
         }
         view.setOnTouchListener { _, event ->
+            // During passthrough the overlay must not react: the touch is an injected gesture.
+            if (event.actionMasked == MotionEvent.ACTION_DOWN && gestureGate.noteOverlayTouch()) {
+                return@setOnTouchListener true
+            }
+            if (gestureGate.blocksTaskControls) return@setOnTouchListener true
             // Only handle drag/click on collapsed state
             if (overlayState.value !is OverlayState.CollapsedIdle) return@setOnTouchListener false
 
@@ -602,6 +615,7 @@ class OverlayManager(
     companion object {
         private const val PASSTHROUGH_ENABLE_SETTLE_MS = 150L
         private const val PASSTHROUGH_DISABLE_SETTLE_MS = 100L
+        private const val PASSTHROUGH_RETRY_SETTLE_MS = 400L
 
         @Suppress("unused")
         private const val TAG = "CoatiOverlay"
