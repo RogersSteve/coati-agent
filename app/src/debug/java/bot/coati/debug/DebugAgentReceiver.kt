@@ -9,7 +9,18 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import bot.coati.data.ConfigStore
 import bot.coati.data.SafetyMode
+import android.graphics.BitmapFactory
+import bot.coati.coordinates.PixelBounds
+import bot.coati.model.GatewayFactory
+import bot.coati.model.ModelProviders
+import bot.coati.model.ResilientModelGateway
 import bot.coati.perception.OcrEngines
+import bot.coati.perception.OcrTextRefiner
+import bot.coati.perception.ParsedScreen
+import bot.coati.perception.VisionScreenParser
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.CoatiService
 import bot.coati.service.UiTreeNode
@@ -52,6 +63,7 @@ class DebugAgentReceiver : BroadcastReceiver() {
             ACTION_STOP_TASK -> Log.i(TAG, "Debug task stopped=${CoatiService.stopTask()}")
             ACTION_DUMP_TREE -> dumpTree()
             ACTION_OCR_BENCH -> ocrBench(context, intent)
+            ACTION_PARSE_BENCH -> parseBench(context, intent)
         }
     }
 
@@ -165,6 +177,75 @@ class DebugAgentReceiver : BroadcastReceiver() {
         fun dataStore(): DataStore<Preferences>
     }
 
+    /**
+     * Parses every image in getExternalFilesDir("parse_bench") with the app's own vision parser
+     * (Fast model) and GPU OCR, and writes the plain vision parse, the OCR lines and the OCR-repaired
+     * parse as JSON to parse_bench/out/<image>_r<n>.json, in display pixels. Extras: `repeat`
+     * (default 2), `display_width`/`display_height` (default 1080x1920), `status_bar` (default 24).
+     * Like OCR_BENCH, start Coati's service first to keep the process alive.
+     */
+    private fun parseBench(context: Context, intent: Intent) {
+        val repeat = intent.getIntExtra("repeat", 2).coerceAtLeast(1)
+        val displayWidth = intent.getIntExtra("display_width", 1080)
+        val displayHeight = intent.getIntExtra("display_height", 1920)
+        val statusBar = intent.getIntExtra("status_bar", 24)
+        CoroutineScope(Dispatchers.Default).launch {
+            val ocr = OcrEngines.create(context)
+            try {
+                val store = ConfigStore(context)
+                val config = store.getFastConfig() ?: error("no Fast model configured")
+                val provider = ModelProviders.findById(config.providerId) ?: error("unknown provider ${config.providerId}")
+                val gateway = ResilientModelGateway(
+                    GatewayFactory.create(provider, GatewayFactory.createRuntimeClient(), config.apiKey, config.endpoint, config.modelName),
+                )
+                val parser = VisionScreenParser(gateway)
+                val dir = context.getExternalFilesDir("parse_bench") ?: error("no external files dir")
+                val out = File(dir, "out").apply { mkdirs() }
+                val files = dir.listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg") }.orEmpty().sortedBy { it.name }
+                Log.i(TAG, "PARSE bench: ${files.size} images, repeat=$repeat, ocr=${ocr != null}")
+                for (file in files) {
+                    val jpeg = file.readBytes()
+                    val size = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        .also { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, it) }
+                    val scale = displayWidth.toFloat() / size.outWidth
+                    repeat(repeat) { run ->
+                        val t0 = System.currentTimeMillis()
+                        val vision = parser.parse(jpeg, size.outWidth, size.outHeight, "bench") { x, y ->
+                            minOf(x * displayWidth / 1000, displayWidth - 1) to minOf(y * displayHeight / 1000, displayHeight - 1)
+                        }.getOrElse {
+                            Log.w(TAG, "PARSE ${file.name} r$run: vision failed: ${it.message}")
+                            return@repeat
+                        }
+                        val t1 = System.currentTimeMillis()
+                        val lines = ocr?.recognize(jpeg, scale).orEmpty()
+                        val t2 = System.currentTimeMillis()
+                        val refined = OcrTextRefiner.refine(vision, lines, statusBar)
+                        val json = JSONObject()
+                            .put("vision", elementsJson(vision))
+                            .put("refined", elementsJson(refined))
+                            .put("ocr", JSONArray(lines.map { JSONObject().put("text", it.text).put("conf", it.confidence.toDouble()).put("bounds", boundsJson(it.bounds)) }))
+                            .put("vision_ms", t1 - t0)
+                            .put("ocr_ms", t2 - t1)
+                        File(out, "${file.nameWithoutExtension}_r$run.json").writeText(json.toString())
+                        Log.i(TAG, "PARSE ${file.name} r$run: vision ${t1 - t0}ms (${vision.elements.size} els), ocr ${t2 - t1}ms (${lines.size} lines), refined ${refined.elements.size} els")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "PARSE bench failed", e)
+            } finally {
+                ocr?.close()
+                Log.i(TAG, "PARSE bench done")
+            }
+        }
+    }
+
+    private fun elementsJson(screen: ParsedScreen) = JSONArray(screen.elements.map { e ->
+        JSONObject().put("id", e.id).put("type", e.type).put("text", e.text).put("purpose", e.purpose)
+            .put("ops", JSONArray(e.ops.map { it.name })).put("bounds", boundsJson(e.bounds))
+    })
+
+    private fun boundsJson(b: PixelBounds) = JSONArray(listOf(b.left, b.top, b.right, b.bottom))
+
     companion object {
         private const val TAG = "CoatiDebugAgent"
         const val ACTION_CONFIGURE = "bot.coati.debug.CONFIGURE_AGENT"
@@ -172,5 +253,6 @@ class DebugAgentReceiver : BroadcastReceiver() {
         const val ACTION_STOP_TASK = "bot.coati.debug.STOP_TASK"
         const val ACTION_DUMP_TREE = "bot.coati.debug.DUMP_TREE"
         const val ACTION_OCR_BENCH = "bot.coati.debug.OCR_BENCH"
+        const val ACTION_PARSE_BENCH = "bot.coati.debug.PARSE_BENCH"
     }
 }

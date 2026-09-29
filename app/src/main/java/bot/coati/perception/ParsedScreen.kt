@@ -42,10 +42,15 @@ data class ParsedScreen(
     val overlay: String?,
     val elements: List<ScreenElement>,
     val regions: List<ScreenRegion>,
+    /**
+     * How many leading [elements] identify the page. A hybrid screen counts only its tree elements:
+     * the merged vision elements vary between parses and would make one page look like several.
+     */
+    val pageKeyElements: Int = Int.MAX_VALUE,
 ) {
     /** Page fingerprint from visible texts; tolerant of dynamic items via [samePage]. */
     val pageKey: Set<String> by lazy {
-        elements.mapNotNull { it.identity.takeIf(String::isNotBlank) }.toSet()
+        elements.take(pageKeyElements).mapNotNull { it.identity.takeIf(String::isNotBlank) }.toSet()
     }
 
     fun element(id: String): ScreenElement? = elements.firstOrNull { it.id == id }

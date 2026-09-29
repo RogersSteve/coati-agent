@@ -5,7 +5,6 @@ import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityWindowInfo
 import bot.coati.action.ActionEngine
-import bot.coati.action.ActionFailureCode
 import bot.coati.action.ActionResult
 import bot.coati.action.AgentAction
 import bot.coati.action.InputTextMode
@@ -527,16 +526,18 @@ class JevStepExecutor(
 
     /**
      * A chosen text value replaces a simple single-line field (search boxes keep stale queries
-     * otherwise). ActionEngine refuses replacement in multiline, WebView and rich editors; those
-     * fall back to the caret-first FocusAndInputText path.
+     * otherwise). Where replacement is refused or impossible, the caret-first FocusAndInputText
+     * path types through the input method.
      */
     private suspend fun executeInput(action: AgentAction.FocusAndInputText, context: ScreenContext): ActionResult {
         val focused = dispatch(AgentAction.Tap(action.x, action.y), context)
         if (!focused.success) return focused
         delay(FOCUS_SETTLE_MS)
         val replaced = actionEngine.execute(AgentAction.InputText(action.text, InputTextMode.REPLACE))
-        if (replaced.success || replaced.failureCode != ActionFailureCode.TEXT_REPLACE_UNSAFE) return replaced
-        Log.i(TAG, "Replacement unsafe for this editor; typing at the caret instead")
+        if (replaced.success) return replaced
+        // Unsafe editors (multiline, WebView, rich text) and fields without an accessibility node
+        // (custom-drawn inputs) cannot be replaced through the node; type through the IME instead.
+        Log.i(TAG, "Field replacement unavailable (${replaced.failureCode ?: replaced.message}); typing at the caret instead")
         return dispatch(action, context)
     }
 

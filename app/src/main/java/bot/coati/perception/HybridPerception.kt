@@ -48,6 +48,7 @@ object HybridPerception {
             overlay = tree.overlay ?: vision.overlay,
             elements = elements,
             regions = regions,
+            pageKeyElements = tree.elements.size,
         )
     }
 

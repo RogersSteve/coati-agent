@@ -53,4 +53,11 @@ class HybridPerceptionTest {
         assertEquals(listOf("E1", "E2", "E3", "E4"), merged.elements.map { it.id })
         assertEquals(PixelBounds(0, 900, 1080, 980), merged.element("E1")!!.bounds)
     }
+
+    @Test fun `a hybrid page is identified by its tree elements only`() {
+        val tree = screen(ScreenSource.ACCESSIBILITY, element("E1", "Submit order", 0, 900, 1080, 980))
+        val first = HybridPerception.merge(tree, screen(ScreenSource.VISION, element("E1", "+", 960, 420, 1040, 480)), 60)
+        val second = HybridPerception.merge(tree, screen(ScreenSource.VISION, element("E1", "Copies 3", 20, 420, 300, 480)), 60)
+        assertEquals(first.pageKey, second.pageKey)
+    }
 }
