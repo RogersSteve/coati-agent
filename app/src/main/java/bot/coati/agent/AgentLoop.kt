@@ -194,18 +194,22 @@ class AgentLoop(
             // sent to the model (BUG-5). Same alpha/updateViewLayout pattern as gesture
             // passthrough; 50ms gives the compositor time to re-render without the overlay.
             val screenContext: ScreenContext = carryOverContext.also { carryOverContext = null }
-                ?: run {
-                    overlayManager.hideForScreenshot()
-                    delay(50)
-                    try {
-                        ScreenContext.capture(a11y)
-                    } finally {
-                        overlayManager.showAfterScreenshot()
-                    }
-                }
+                ?: captureScreen()
                 ?: throw Exception("Failed to capture screen")
 
             screenshotCache.add(screenContext.screenshotJpeg)
+
+            // b2. SYSTEM AUTHORIZATION: permission and install dialogs belong to the user unless
+            // they fully trust the agent (TRUST).
+            val onSecurityDialog = SecurityDialogs.isSecurityDialog(screenContext.appPackage)
+            if (onSecurityDialog && !SecurityDialogs.agentMayAnswer(safetyMode)) {
+                if (!awaitUserAnswersSecurityDialog(task)) {
+                    updateTaskStatus("failed", "Timed out waiting for the user to answer a system dialog")
+                    throw Exception("No answer to the system dialog within ${SecurityDialogs.USER_RESPONSE_TIMEOUT_MS / 1000}s")
+                }
+                lastStepFeedback = SecurityDialogs.USER_HANDLED_FEEDBACK
+                continue
+            }
 
             val uiTree = a11y.getUiTree()
             val nodeCount = uiTree?.flatCount() ?: 0
@@ -297,7 +301,11 @@ class AgentLoop(
                 actionContext = response.statusUpdate,
                 modelSafetyLevel = response.safetyLevel,
             )
-            if (RuleEngine.shouldConfirm(safety.level, safetyMode)) {
+            // Over a system dialog Android hides our overlay, so a confirmation could never be seen;
+            // reaching this point there means the user chose TRUST and pre-authorized the answer.
+            if (onSecurityDialog) {
+                Log.i(TAG, "Answering system dialog without confirmation (${safety.level}/$safetyMode)")
+            } else if (RuleEngine.shouldConfirm(safety.level, safetyMode)) {
                 Log.i(TAG, "Safety confirmation needed (${safety.level}/$safetyMode): ${safety.reason}")
                 val confirmed = overlayManager.requestConfirmation(
                     title = when (safetyMode) {
@@ -867,6 +875,45 @@ class AgentLoop(
     }
 
     /**
+     * Captures the screen, retrying briefly: the platform occasionally fails a single capture
+     * (e.g. right after window transitions) and one miss should not end the task.
+     */
+    private suspend fun captureScreen(): ScreenContext? {
+        repeat(CAPTURE_ATTEMPTS) { attempt ->
+            if (attempt > 0) {
+                Log.w(TAG, "Screen capture failed, retrying (${attempt + 1}/$CAPTURE_ATTEMPTS)")
+                delay(CAPTURE_RETRY_DELAY_MS)
+            }
+            overlayManager.hideForScreenshot()
+            delay(50)
+            val context = try {
+                ScreenContext.capture(a11y)
+            } finally {
+                overlayManager.showAfterScreenshot()
+            }
+            if (context != null) return context
+        }
+        return null
+    }
+
+    /**
+     * Waits while a system authorization dialog is in front, for the user to answer it by hand.
+     * Returns false if it is still showing after [SecurityDialogs.USER_RESPONSE_TIMEOUT_MS].
+     */
+    private suspend fun awaitUserAnswersSecurityDialog(task: String): Boolean {
+        Log.i(TAG, "System dialog in front: waiting for the user to answer it")
+        // Hidden by the system while the dialog shows; visible again once it is answered.
+        overlayManager.updateProgress(task, "Waiting for you to answer the system dialog", "", stepCount, MAX_STEPS)
+        val answered = withTimeoutOrNull(SecurityDialogs.USER_RESPONSE_TIMEOUT_MS) {
+            while (SecurityDialogs.isSecurityDialog(a11y.rootInActiveWindow?.packageName?.toString())) {
+                delay(SECURITY_DIALOG_POLL_MS)
+            }
+        } != null
+        Log.i(TAG, "System dialog answered by the user: $answered")
+        return answered
+    }
+
+    /**
      * Turns a coordinate-binding rejection into step feedback for the next Reasoning turn. The
      * fail-closed guards stay intact: no gesture is sent, but the task continues. Returns false for
      * any other argument error, which keeps its previous (task-failing) behavior.
@@ -925,6 +972,9 @@ class AgentLoop(
 
     companion object {
         private const val TAG = "CoatiLoop"
+        private const val SECURITY_DIALOG_POLL_MS = 1_000L
+        private const val CAPTURE_ATTEMPTS = 3
+        private const val CAPTURE_RETRY_DELAY_MS = 1_000L
         const val MAX_STEPS = 200
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val MAX_VERIFY_RETRIES = 2

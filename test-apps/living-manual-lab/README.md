@@ -15,7 +15,7 @@ pages, and the low-frequency route `我的 -> 设置 -> 高级设置 -> 实验�
 package and signing identity but raises `versionCode` to 2 and replaces the old `资料库`/`我的`
 bottom entries with a `工具` hub. Search and preferences operate entirely on local fixed data.
 
-V1 also has two English benchmark pages, reached from `首页` and used by
+V1 also has three English benchmark pages, reached from `首页` and used by
 `scripts/device_bench`:
 
 - `Canvas Workbench`: a full-screen page painted on a Canvas with no accessibility nodes at all
@@ -23,9 +23,12 @@ V1 also has two English benchmark pages, reached from `首页` and used by
   without semantics. Its artwork title field raises the soft keyboard but also has no node.
 - `Mixed Order`: native radio buttons, text fields and a submit button around a painted copies
   stepper and priority toggle. Opening the keyboard reflows the page.
+- `Import Contacts`: requests `READ_CONTACTS` (never read) to show the platform permission
+  dialog, then records the decision as `contacts_permission` (`granted`/`denied`). This is the
+  only permission V1 declares.
 
 Both persist their outcome in the `manual_lab_state` preferences (`canvas_saved`,
-`canvas_export`, `canvas_hidden_layers`, `order_submitted`), readable with
+`canvas_export`, `canvas_hidden_layers`, `order_submitted`, `contacts_permission`), readable with
 `adb shell run-as bot.coati.fixture.manual cat shared_prefs/manual_lab_state.xml`.
 
 ## Build and install on Windows PowerShell

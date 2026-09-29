@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Requested (never used) by the Import Contacts page to show a real runtime-permission dialog. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+</manifest>
