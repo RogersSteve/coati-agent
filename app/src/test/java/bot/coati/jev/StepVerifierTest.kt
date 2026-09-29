@@ -34,6 +34,14 @@ class StepVerifierTest {
     }
 
     @Test
+    fun `a state label flipping below the global threshold still counts at the target`() {
+        // Board regression: "Visible" -> "Hidden" on a painted layer row changed 0.04% of the frame.
+        val obs = StepVerifier.observe(before, before, tapSwitch, null, VisualChange(0.0004, PixelBounds(900, 640, 960, 660)))
+
+        assertEquals(HostVerdict.CHANGED_AT_TARGET, obs.verdict)
+    }
+
+    @Test
     fun `a custom switch with no tree state still counts via pixels at the target`() {
         val obs = StepVerifier.observe(before, before, tapSwitch, null, VisualChange(0.02, PixelBounds(850, 620, 960, 680)))
 

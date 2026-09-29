@@ -213,8 +213,12 @@ class JevStepExecutor(
         previousLuma = luma
         val lastScreen = previousScreen
         // An unchanged frame keeps a previous model-backed parse and skips the model call.
+        // Pixels that moved on the element just acted on (a state label flipping) mean the parse is
+        // stale even when the change is tiny.
+        val lastTarget = (previousCandidate as? CandidateAction.Element)?.let { lastScreen?.element(it.elementId)?.bounds }
+        val changedAtLastTarget = lastTarget != null && visual?.bounds?.let { overlaps(it, lastTarget) } == true
         val reusedParse = lastScreen != null && lastScreen.source != ScreenSource.ACCESSIBILITY &&
-            lastScreen.packageName == context.appPackage &&
+            lastScreen.packageName == context.appPackage && !changedAtLastTarget &&
             visual != null && visual.changedFraction < StepVerifier.NO_CHANGE_FRACTION
         val screen: ParsedScreen = (if (reusedParse) lastScreen else perceive(context, tree, coordinates))
             ?: return FastStep.Escalate("the screen could not be parsed")
@@ -572,10 +576,17 @@ class JevStepExecutor(
         val replaced = actionEngine.execute(AgentAction.InputText(action.text, InputTextMode.REPLACE))
         if (replaced.success) return replaced
         // Unsafe editors (multiline, WebView, rich text) and fields without an accessibility node
-        // (custom-drawn inputs) cannot be replaced through the node; type through the IME instead.
+        // (custom-drawn inputs) cannot be replaced through the node. The tap above focused the field,
+        // so type at its caret through the input method; tapping again would leave no fresh caret
+        // evidence and be refused.
         Log.i(TAG, "Field replacement unavailable (${replaced.failureCode ?: replaced.message}); typing at the caret instead")
+        val typed = actionEngine.execute(AgentAction.InputText(action.text, InputTextMode.TYPE))
+        if (typed.success) return typed
         return dispatch(action, context)
     }
+
+    private fun overlaps(a: PixelBounds, b: PixelBounds) =
+        a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
 
     private fun AgentAction.isSpatial() = this is AgentAction.Tap || this is AgentAction.LongPress ||
         this is AgentAction.Swipe || this is AgentAction.FocusAndInputText

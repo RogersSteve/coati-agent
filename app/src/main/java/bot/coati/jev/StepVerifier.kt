@@ -88,6 +88,9 @@ object StepVerifier {
             before.packageName != after.packageName -> HostVerdict.PAGE_CHANGED
             fraction == null -> if (sameTexts) HostVerdict.UNKNOWN else classifyByTexts(before, after)
             targetStateChanged || typedVisible -> HostVerdict.CHANGED_AT_TARGET
+            // A state label flipping under the finger ("Visible" -> "Hidden") can be far below the
+            // global threshold; pixels moving on the target itself still count.
+            changedAtTarget && fraction > 0.0 && fraction < NO_CHANGE_FRACTION -> HostVerdict.CHANGED_AT_TARGET
             fraction < NO_CHANGE_FRACTION && sameTexts -> HostVerdict.NO_CHANGE
             fraction > PAGE_CHANGE_FRACTION || !ParsedScreen.samePage(before.pageKey, after.pageKey) ->
                 HostVerdict.PAGE_CHANGED
