@@ -63,8 +63,10 @@ class ExplorationMemory {
      * cycle: filling a form changes state without changing pages (see [isStagnant]).
      */
     fun isCycling(window: Int = 6, maxDistinct: Int = 2): Boolean {
-        if (visits.size < window) return false
-        val distinct = distinctPages(visits.takeLast(window))
+        // Only visits since the last intervention count; the break marker itself is not a page.
+        val recent = visits.drop(visits.indexOfLast { CYCLE_BREAK in it } + 1)
+        if (recent.size < window) return false
+        val distinct = distinctPages(recent.takeLast(window))
         return distinct in 2..maxDistinct
     }
 

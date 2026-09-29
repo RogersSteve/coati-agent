@@ -85,6 +85,16 @@ class JevCandidatesTest {
     }
 
     @Test
+    fun `an intervention marker is not a page`() {
+        val memory = ExplorationMemory()
+        val form = setOf("Mixed Order", "Copies", "Priority delivery", "Recipient", "Submit order")
+        repeat(3) { memory.visit(form) }
+        memory.breakCycle()
+        repeat(6) { memory.visit(form) }
+        assertFalse(memory.isCycling())
+    }
+
+    @Test
     fun `an action that left the page unchanged is removed while alternatives remain`() {
         val memory = ExplorationMemory()
         val page = screen(element("E1", "查看详情"), element("E2", "首页"), element("E3", "收藏"))
