@@ -1,0 +1,4 @@
+# OCR models and dictionary are loaded byte-for-byte by native code: never convert line endings.
+app/src/main/assets/ocr/*.param -text
+app/src/main/assets/ocr/*.bin binary
+app/src/main/assets/ocr/*.txt -text

@@ -9,7 +9,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import bot.coati.data.ConfigStore
 import bot.coati.data.SafetyMode
-import bot.coati.perception.PaddleOcr
+import bot.coati.perception.OcrEngines
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.CoatiService
 import bot.coati.service.UiTreeNode
@@ -57,18 +57,24 @@ class DebugAgentReceiver : BroadcastReceiver() {
 
     /**
      * Runs on-device OCR over every JPEG/PNG in getExternalFilesDir("ocr_bench") (push with adb)
-     * and logs per-image latency and the recognized lines. Each image runs `repeat` times; the first
-     * run of the first image includes model loading and warm-up. The work outlives the broadcast
+     * and logs per-image latency and the recognized lines. Each image runs `repeat` times; model loading
+     * is logged separately as init ms, and the first run of each new input size includes GPU
+     * pipeline setup. OCR runs on the Vulkan GPU only; without one the bench logs that OCR is
+     * unavailable. The work outlives the broadcast
      * (a receiver may only run for about a minute), so start Coati's service first to keep the
      * process alive until "OCR bench done" is logged.
      */
     private fun ocrBench(context: Context, intent: Intent) {
         val repeat = intent.getIntExtra("repeat", 3).coerceAtLeast(1)
         CoroutineScope(Dispatchers.Default).launch {
-            val threads = intent.getIntExtra("threads", 4)
-            val xnnpack = intent.getBooleanExtra("xnnpack", true)
-            Log.i(TAG, "OCR bench config: threads=$threads, xnnpack=$xnnpack")
-            val ocr = PaddleOcr(context, threads = threads, xnnpack = xnnpack)
+            val initStarted = System.nanoTime()
+            val ocr = OcrEngines.create(context)
+            if (ocr == null) {
+                Log.w(TAG, "OCR bench: OCR unavailable (no usable Vulkan GPU or native init failed)")
+                Log.i(TAG, "OCR bench done")
+                return@launch
+            }
+            Log.i(TAG, "OCR bench config: engine=ncnn-vulkan PP-OCRv5 mobile, init ms=${(System.nanoTime() - initStarted) / 1_000_000}")
             try {
                 val dir = context.getExternalFilesDir("ocr_bench")
                 val files = dir?.listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg", "png") }

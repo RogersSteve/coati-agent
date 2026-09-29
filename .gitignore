@@ -23,3 +23,6 @@ local.properties
 
 # Python
 __pycache__/
+
+# ncnn prebuilt, downloaded by app/src/main/cpp/CMakeLists.txt
+/app/src/main/cpp/third_party/

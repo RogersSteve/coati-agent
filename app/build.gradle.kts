@@ -9,6 +9,7 @@ plugins {
 android {
     namespace = "bot.coati"
     compileSdk = 35
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "bot.coati"
@@ -19,10 +20,18 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // ONNX Runtime ships ~25-40 MB of native code per ABI. Keep 64-bit ARM devices and the
-        // x86_64 benchmark emulator; 32-bit ABIs are rare at minSdk 30.
+        // Native OCR (ncnn) is built for 64-bit ARM devices and the x86_64 benchmark emulator;
+        // 32-bit ABIs are rare at minSdk 30.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    // On-device OCR: PaddleOCR PP-OCRv5 on ncnn's Vulkan backend (see src/main/cpp).
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 
@@ -92,9 +101,6 @@ dependencies {
 
     // Network
     implementation(libs.okhttp)
-
-    // On-device OCR (PaddleOCR models on ONNX Runtime)
-    implementation(libs.onnxruntime.android)
 
     // Testing
     testImplementation(libs.junit)
