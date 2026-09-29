@@ -18,8 +18,10 @@ data class VisualChange(val changedFraction: Double, val bounds: PixelBounds?)
  * Pixel-level before/after comparison for verification. Catches changes an accessibility tree
  * or a text parse cannot express (custom-drawn switches, color-only selection, canvas apps).
  *
- * Frames are decoded at 1/8 scale straight from the JPEG, so the whole comparison is a few
- * milliseconds and never needs an image library.
+ * Frames are decoded at 1/2 scale straight from the JPEG, so the whole comparison takes about
+ * 10 ms and never needs an image library. 1/8 scale averaged a short label change ("Visible" ->
+ * "Hidden") down to a luminance delta of 9 and missed it; at 1/2 it reaches 77 while two captures
+ * of an unchanged screen still differ nowhere.
  */
 object ScreenDiff {
     /** Per-cell luminance delta that counts as a real change, above JPEG noise. */
@@ -28,7 +30,7 @@ object ScreenDiff {
     /** Fallback top band when the real status-bar inset is unknown; its clock and icons change on their own. */
     private const val STATUS_BAR_FRACTION = 0.035
 
-    fun lumaGrid(jpeg: ByteArray, sampleSize: Int = 8): LumaGrid? {
+    fun lumaGrid(jpeg: ByteArray, sampleSize: Int = 2): LumaGrid? {
         val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
         val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, options) ?: return null
         return try {

@@ -36,7 +36,7 @@ data class HostObservation(
  */
 object StepVerifier {
     /**
-     * Below this fraction of changed cells (of a 1/8-scale frame) the frame is visually unchanged:
+     * Below this fraction of changed cells (of a 1/2-scale frame) the frame is visually unchanged:
      * a caret blink touches a few cells, while a toggled switch already changes ~0.4% of the screen.
      */
     const val NO_CHANGE_FRACTION = 0.0005
