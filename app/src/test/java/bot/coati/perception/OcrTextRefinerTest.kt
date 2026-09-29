@@ -20,68 +20,79 @@ class OcrTextRefinerTest {
         regions = emptyList(),
     )
 
-    private val base = screen(
-        el("E1", "在搞点呢", PixelBounds(600, 1700, 900, 1800)),
-        el("E2", "", PixelBounds(20, 20, 80, 80), type = "icon"),
-        el("E3", "日为萌", PixelBounds(100, 100, 900, 200)),
-    )
+    private fun line(text: String, l: Int, t: Int, r: Int, b: Int, conf: Float = 0.97f) = OcrLine(text, PixelBounds(l, t, r, b), conf)
 
     @Test
-    fun `ocr lines inside an element replace the model transcription in reading order`() {
-        val lines = listOf(
-            OcrLine("在高点呢", PixelBounds(640, 1720, 860, 1780), 0.98f),
-            OcrLine("月为暮。", PixelBounds(400, 120, 700, 180), 0.95f),
-            OcrLine("日为朝，", PixelBounds(120, 122, 390, 178), 0.97f),
+    fun `the model text is kept and OCR only appends what the model missed`() {
+        val row = screen(el("E1", "Noah Kahan - The Great Divide", PixelBounds(10, 240, 890, 315)))
+        val refined = OcrTextRefiner.refine(row, listOf(
+            line("Noah Kahan -The Great Divide", 137, 245, 476, 270), // same string, OCR typo
+            line("Noah Kahan", 143, 270, 206, 288),
+            line("29K watching", 212, 270, 300, 288),
+        ))
+        assertEquals("Noah Kahan - The Great Divide\n29K watching", refined.element("E1")!!.text)
+    }
+
+    @Test
+    fun `garbled glyphs and low-confidence lines never replace a label`() {
+        val buttons = screen(
+            el("E1", "Background", PixelBounds(500, 740, 580, 795), type = "button"),
+            el("E2", "Popup", PixelBounds(870, 740, 920, 795), type = "button"),
         )
+        val refined = OcrTextRefiner.refine(buttons, listOf(
+            line("F", 528, 741, 555, 771, conf = 0.39f),
+            line("Backgr", 507, 771, 546, 789, conf = 0.86f),
+            line("□", 882, 746, 912, 770, conf = 0.73f),
+        ))
+        assertEquals("Background", refined.element("E1")!!.text)
+        assertEquals("Popup", refined.element("E2")!!.text)
+    }
 
-        val refined = OcrTextRefiner.refine(base, lines)
-
-        assertEquals("在高点呢", refined.element("E1")!!.text)
-        assertEquals("日为朝，\n月为暮。", refined.element("E3")!!.text)
-        assertEquals(PixelBounds(600, 1700, 900, 1800), refined.element("E1")!!.bounds) // containers keep bounds
+    @Test
+    fun `an element without text takes the OCR text inside it`() {
+        val refined = OcrTextRefiner.refine(screen(el("E1", "", PixelBounds(0, 0, 400, 100))), listOf(line("Save canvas", 10, 20, 200, 60)))
+        assertEquals("Save canvas", refined.element("E1")!!.text)
     }
 
     @Test
     fun `text-like elements snap to the exact text position`() {
         val coarse = screen(el("E1", "Save canvas", PixelBounds(20, 400, 700, 500), type = "text_btn"))
-        val refined = OcrTextRefiner.refine(coarse, listOf(OcrLine("Save canvas", PixelBounds(440, 430, 640, 470), 0.99f)))
-
+        val refined = OcrTextRefiner.refine(coarse, listOf(line("Save canvas", 440, 430, 640, 470)))
         assertEquals(PixelBounds(432, 422, 648, 478), refined.element("E1")!!.bounds)
     }
 
     @Test
-    fun `a misplaced element moves to where its text is drawn`() {
+    fun `a misplaced element moves to where its text is drawn when unambiguous`() {
         val misplaced = screen(el("E1", "Show grid", PixelBounds(20, 900, 300, 960), type = "text"))
-        val refined = OcrTextRefiner.refine(misplaced, listOf(OcrLine("Show grid", PixelBounds(24, 330, 140, 356), 0.99f)))
-
+        val refined = OcrTextRefiner.refine(misplaced, listOf(line("Show grid", 24, 330, 140, 356)))
         assertEquals("Show grid", refined.element("E1")!!.text)
         assertEquals(PixelBounds(16, 322, 148, 364), refined.element("E1")!!.bounds)
     }
 
     @Test
-    fun `text the model left out is added and unfound text is marked unconfirmed`() {
-        val parsed = screen(
-            el("E1", "Brush color", PixelBounds(20, 150, 300, 190), type = "text"),
-            el("E2", "Purple", PixelBounds(500, 600, 600, 640), type = "text"),
+    fun `duplicate texts are not moved onto each other`() {
+        val page = screen(
+            el("E1", "资料库", PixelBounds(69, 46, 136, 69), type = "text"),
+            el("E2", "资料库", PixelBounds(380, 1881, 432, 1904), type = "tab"),
         )
-        val lines = listOf(
-            OcrLine("Brush color", PixelBounds(24, 158, 200, 184), 0.99f),
-            OcrLine("Blue", PixelBounds(260, 292, 300, 308), 0.97f),
-            OcrLine("12:45", PixelBounds(10, 5, 60, 20), 0.99f), // status bar
-            OcrLine("~", PixelBounds(400, 700, 410, 710), 0.99f), // not text
-        )
-
-        val refined = OcrTextRefiner.refine(parsed, lines, statusBarBottom = 40)
-
-        assertTrue(refined.element("E2")!!.purpose.contains(OcrTextRefiner.UNCONFIRMED))
-        assertEquals(listOf("Brush color", "Purple", "Blue"), refined.elements.map { it.text })
-        assertEquals(OcrTextRefiner.ADDED_PURPOSE, refined.element("E3")!!.purpose)
+        val refined = OcrTextRefiner.refine(page, listOf(line("资料库", 372, 1872, 438, 1911, conf = 1f)))
+        assertEquals(PixelBounds(69, 46, 136, 69), refined.element("E1")!!.bounds)
+        assertTrue(refined.element("E1")!!.purpose.contains(OcrTextRefiner.UNCONFIRMED))
     }
 
     @Test
-    fun `icons without text are left alone`() {
-        val refined = OcrTextRefiner.refine(base, listOf(OcrLine("x", PixelBounds(500, 500, 520, 520))))
-
-        assertEquals(base.element("E2"), refined.element("E2"))
+    fun `missed text is added and pictures keep their artwork text out of labels`() {
+        val parsed = screen(
+            el("E1", "Brush color", PixelBounds(20, 150, 300, 190), type = "text"),
+            el("E2", "", PixelBounds(600, 500, 900, 700), type = "image"),
+        )
+        val refined = OcrTextRefiner.refine(parsed, listOf(
+            line("Brush color", 24, 158, 200, 184),
+            line("Blue", 260, 292, 300, 308),
+            line("FIGHTS", 650, 550, 800, 600),
+            line("12:45", 10, 5, 60, 20),
+        ), statusBarBottom = 40)
+        assertEquals(listOf("Brush color", "", "Blue"), refined.elements.map { it.text })
+        assertEquals(OcrTextRefiner.ADDED_PURPOSE, refined.element("E3")!!.purpose)
     }
 }

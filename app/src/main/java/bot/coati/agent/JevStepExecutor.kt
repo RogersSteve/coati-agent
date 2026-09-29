@@ -47,6 +47,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** What one fast step did; [AgentLoop] owns everything that follows. */
 sealed interface FastStep {
@@ -370,7 +371,7 @@ class JevStepExecutor(
             // Only text the tree does not explain matters here, and recognition is the costly part of
             // OCR: text inside labelled nodes and the status bar is detected but not read.
             // The soft keyboard is another window, never part of the app's tree: never read it.
-            val labelled = A11yScreenParser.labelledBounds(tree, width, height) + inputMethodBounds()
+            val labelled = A11yScreenParser.labelledBounds(tree, width, height) + keyboardBounds(tree, width, height)
             val lines = engine.recognize(context.screenshotJpeg, scale, labelled + PixelBounds(0, 0, width, statusBar))
             val uncovered = HybridPerception.uncoveredLines(lines, labelled, statusBar)
             Log.i(TAG, "OCR ${System.currentTimeMillis() - ocrStarted}ms: ${uncovered.size} lines not in the tree")
@@ -383,21 +384,41 @@ class JevStepExecutor(
             val vision = parseVision(context, coordinates)?.let { OcrTextRefiner.refine(it, lines, statusBar) } ?: return treeScreen
             return HybridPerception.merge(treeScreen, vision, statusBar)
         }
+        val keyboard = keyboardBounds(tree, width, height)
         return coroutineScope {
-            val ocrLines = ocr?.let { engine -> async { engine.recognize(context.screenshotJpeg, scale) } }
+            val ocrLines = ocr?.let { engine -> async { engine.recognize(context.screenshotJpeg, scale, keyboard) } }
             val vision = parseVision(context, coordinates)
             if (vision == null) {
                 ocrLines?.cancel()
                 return@coroutineScope null
             }
-            ocrLines?.await()?.let { OcrTextRefiner.refine(vision, it, statusBar) } ?: vision
+            // OCR repairs the parse but must never make the step slower: on text-heavy screens it can
+            // outlast the vision parse, and then this step goes without the repair.
+            val lines = ocrLines?.let { withTimeoutOrNull(OCR_EXTRA_WAIT_MS) { it.await() } ?: run { it.cancel(); null } }
+            if (ocrLines != null && lines == null) Log.i(TAG, "OCR slower than the vision parse; parse used without repair")
+            lines?.let { OcrTextRefiner.refine(vision, it, statusBar) } ?: vision
         }
     }
 
-    private fun inputMethodBounds(): List<PixelBounds> = a11y.windows
-        .filter { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
-        .map { window -> Rect().also(window::getBoundsInScreen).let { PixelBounds(it.left, it.top, it.right, it.bottom) } }
-        .also { if (it.isNotEmpty()) Log.d(TAG, "Input method window: $it") }
+    /**
+     * Where the soft keyboard is drawn: the input-method window when the platform lists it (some
+     * devices omit it while Coati's own accessibility input method holds the input session).
+     * Otherwise, only while that input session is active, everything below the focused field: the
+     * platform keeps the focused field visible above the keyboard.
+     */
+    private fun keyboardBounds(tree: UiTreeNode?, width: Int, height: Int): List<PixelBounds> {
+        val windows = a11y.windows
+            .filter { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+            .map { window -> Rect().also(window::getBoundsInScreen).let { PixelBounds(it.left, it.top, it.right, it.bottom) } }
+        if (windows.isNotEmpty()) return windows
+        if (tree == null || !a11y.hasActiveInputConnection()) return emptyList()
+        val fieldBottom = focusedFieldBottom(tree) ?: return emptyList()
+        return if (fieldBottom < height) listOf(PixelBounds(0, fieldBottom, width, height)) else emptyList()
+    }
+
+    private fun focusedFieldBottom(node: UiTreeNode): Int? =
+        if (node.isEditable && node.isFocused) node.bounds.bottom
+        else node.children.firstNotNullOfOrNull(::focusedFieldBottom)
 
     private suspend fun parseVision(context: ScreenContext, coordinates: ScreenshotCoordinates): ParsedScreen? =
         visionParser.parse(
@@ -557,6 +578,7 @@ class JevStepExecutor(
         private const val FOCUS_SETTLE_MS = 600L
         private const val WAIT_MS = 1500L
         private const val RETRY_DELAY_MS = 1_000L
+        private const val OCR_EXTRA_WAIT_MS = 1_000L
         private const val TEXT_WAIT_MS = 30_000L
         private const val STALE_COORDINATES = "stale_screenshot_coordinates"
 
