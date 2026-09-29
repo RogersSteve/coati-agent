@@ -261,12 +261,19 @@ class AgentLoop(
                             return
                         }
                         fast.doneRejected()
+                        val auditReason = audit?.category ?: "completion evidence unavailable"
                         if (++taskCompletionAuditRejects >= MAX_TASK_COMPLETION_AUDIT_REJECTS) {
-                            failTask(task, "Task completion could not be verified after $taskCompletionAuditRejects attempts: " +
-                                (audit?.category ?: "completion evidence unavailable"))
+                            failTask(task, "Task completion could not be verified after $taskCompletionAuditRejects attempts: $auditReason")
                             return
                         }
-                        continue
+                        // JEV cannot read the audit's reason (a wrong count, an unsaved value): the
+                        // Reasoning model takes this step to fix exactly what the audit found.
+                        lastStepFeedback = "Task completion audit REJECTED: $auditReason. " +
+                            "The current screen does not yet prove every explicit user requirement."
+                        replanHint = "A fast executor claimed the task was done but the audit rejected it. " +
+                            "Its recent actions:\n${fast.recentHistory()}\nRe-check the original task against " +
+                            "the current screenshot and fix only the missing or wrong result (redo a submit or " +
+                            "save if its values were wrong)."
                     }
                     is FastStep.Escalate -> {
                         replanHint = "A fast executor handed this step to you: ${outcome.reason}. " +

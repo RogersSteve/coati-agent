@@ -115,6 +115,7 @@ class JevStepExecutor(
     private var launchers: Set<String> = emptySet()
     private var consecutiveBad = 0
     private var consecutiveRetries = 0
+    private var exploreStreak = 0
     private var auditRejects = 0
 
     // The previous fast action, verified on the next fast step.
@@ -157,6 +158,7 @@ class JevStepExecutor(
         launchers = launcherPackages()
         consecutiveBad = 0
         consecutiveRetries = 0
+        exploreStreak = 0
         auditRejects = 0
         escalations = 0
         forgetPrevious()
@@ -179,6 +181,7 @@ class JevStepExecutor(
         history += StepRecord("reasoning: $label", outcome)
         forgetPrevious()
         consecutiveBad = 0
+        exploreStreak = 0
         memory.breakCycle()
     }
 
@@ -293,6 +296,7 @@ class JevStepExecutor(
             }
         }
         adviseOnNewPage(stepNumber, task, context, tree, here, manual)
+        exploreStreak = if (decision.explored) exploreStreak + 1 else 0
 
         val chosen: Candidate = decision.candidate
         // A DONE claim is always audited first: a finished task naturally stops finding new pages.
@@ -302,6 +306,13 @@ class JevStepExecutor(
             chosen.action is CandidateAction.Escalate -> return escalate("JEV asked for the Reasoning model")
             consecutiveBad >= MAX_CONSECUTIVE_BAD -> return escalate("$consecutiveBad fast actions in a row had no effect")
             cycling -> return escalate("no new page for several steps")
+            // Every new page resets the cycle check, so blind exploration through a large app never
+            // escalates on its own: after a long streak without one confident choice, the task has
+            // usually left its target page. One Reasoning step reorients; JEV keeps its memory.
+            chosen.action !is CandidateAction.Done && exploreStreak >= MAX_EXPLORE_STREAK -> {
+                exploreStreak = 0
+                return escalate("$MAX_EXPLORE_STREAK exploratory steps in a row without a confident choice")
+            }
             chosen.action is CandidateAction.Done -> return FastStep.DoneClaimed(screen.summary)
             chosen.action is CandidateAction.Wait -> {
                 delay(WAIT_MS)
@@ -618,6 +629,8 @@ class JevStepExecutor(
         private const val TAG = "CoatiJev"
         private const val MAX_CONSECUTIVE_BAD = 3
         private const val PROGRESS_WINDOW = 6
+        /** Successful board runs explored at most 5 steps in a row (one deep search: 14); every timeout 7-27. */
+        private const val MAX_EXPLORE_STREAK = 6
         private const val MAX_CONSECUTIVE_RETRIES = 4
         private const val MAX_NO_CHANGE_REPEATS = 2
         private const val MAX_AUDIT_REJECTS = 2
