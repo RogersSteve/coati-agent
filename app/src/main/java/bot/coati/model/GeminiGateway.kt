@@ -99,7 +99,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.1)
-                    put("maxOutputTokens", compactJsonMaxTokens(manualObservationInstruction != null))
+                    put("maxOutputTokens", withThinking(compactJsonMaxTokens(manualObservationInstruction != null)))
                 })
             }.toString()
 
@@ -181,7 +181,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.1)
-                    put("maxOutputTokens", compactJsonMaxTokens(manualObservationInstruction != null))
+                    put("maxOutputTokens", withThinking(compactJsonMaxTokens(manualObservationInstruction != null)))
                 })
             }.toString()
 
@@ -234,7 +234,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.2)
-                    put("maxOutputTokens", 1024)
+                    put("maxOutputTokens", withThinking(1024))
                 })
             }.toString()
 
@@ -280,7 +280,7 @@ class GeminiGateway(
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", request.temperature)
-                    put("maxOutputTokens", request.maxOutputTokens)
+                    put("maxOutputTokens", withThinking(request.maxOutputTokens))
                 })
             }.toString()
             val httpRequest = Request.Builder()
@@ -388,19 +388,17 @@ class GeminiGateway(
             put("contents", contents)
             put("generationConfig", JSONObject().apply {
                 put("temperature", 0.2)
-                put("maxOutputTokens", 4096)
+                put("maxOutputTokens", withThinking(4096))
             })
         }.toString()
     }
 
     private fun extractResponseText(body: String): String {
-        return JSONObject(body)
-            .getJSONArray("candidates")
-            .getJSONObject(0)
-            .getJSONObject("content")
-            .getJSONArray("parts")
-            .getJSONObject(0)
-            .getString("text")
+        val candidate = JSONObject(body).getJSONArray("candidates").getJSONObject(0)
+        candidate.optString("finishReason").takeIf { it.isNotEmpty() && it != "STOP" }?.let {
+            Log.w(TAG, "Response ended with finishReason=$it; the answer may be cut off")
+        }
+        return extractAnswerText(candidate)
     }
 
     companion object {
@@ -408,5 +406,26 @@ class GeminiGateway(
         private const val DEFAULT_ENDPOINT = "https://generativelanguage.googleapis.com"
         private const val DEFAULT_MODEL = "gemini-3.1-pro-preview"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /**
+         * Gemini counts thinking tokens in maxOutputTokens: a Reasoning turn that thought for ~3.5k
+         * tokens had ~500 characters of its 4096-token budget left, and its JSON was cut off (board:
+         * "Unterminated object at character 493", three turns in a row). The cap only bounds output;
+         * unused headroom costs nothing.
+         */
+        internal const val THINKING_HEADROOM_TOKENS = 12_288
+
+        internal fun withThinking(answerTokens: Int): Int = answerTokens + THINKING_HEADROOM_TOKENS
+
+        /** The answer is every non-thought text part in order, not just the first part. */
+        internal fun extractAnswerText(candidate: JSONObject): String {
+            val parts = candidate.getJSONObject("content").getJSONArray("parts")
+            return buildString {
+                for (i in 0 until parts.length()) {
+                    val part = parts.getJSONObject(i)
+                    if (!part.optBoolean("thought", false)) append(part.optString("text", ""))
+                }
+            }
+        }
     }
 }
