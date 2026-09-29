@@ -1,5 +1,6 @@
 """Minimal ADB driver for device benchmarks. Honors ANDROID_SERIAL like adb itself."""
 import io
+import json
 import os
 import re
 import shutil
@@ -87,7 +88,38 @@ def size():
 
 
 def ui_nodes():
-    """Visible nodes from uiautomator: list of dicts with text/desc/cls/checked/bounds."""
+    """Visible nodes: list of dicts with text/desc/cls/checked/bounds.
+
+    Read through Coati's own accessibility service (debug build): `uiautomator dump` suppresses
+    accessibility services while it runs, and afterwards Coati's screenshots failed with error 1
+    until its process restarted, so every task after a UI-checked one broke. uiautomator remains
+    the fallback when Coati is not running.
+    """
+    nodes = coati_ui_nodes()
+    if nodes is not None:
+        return nodes
+    print("... Coati node dump unavailable; falling back to uiautomator", flush=True)
+    return uiautomator_nodes()
+
+
+def coati_ui_nodes():
+    sh("shell", "run-as", "bot.coati", "rm", "-f", "files/ui_nodes.json")  # never read an older dump
+    sh("shell", "am", "broadcast", "-a", "bot.coati.debug.DUMP_NODES", "-n", "bot.coati/.debug.DebugAgentReceiver")
+    for _ in range(10):
+        time.sleep(0.3)
+        raw = sh("shell", "run-as", "bot.coati", "cat", "files/ui_nodes.json")
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        if not data.get("ok"):
+            return None
+        return [{"text": n["text"], "desc": n["desc"], "cls": n["cls"], "checked": n["checked"],
+                 "bounds": tuple(n["bounds"])} for n in data["nodes"]]
+    return None
+
+
+def uiautomator_nodes():
     out = sh("exec-out", "uiautomator", "dump", "/dev/tty", timeout=20)
     xml = out[out.find("<?xml"): out.rfind(">") + 1] if "<?xml" in out else ""
     if not xml:
