@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.res.Resources
 import android.graphics.PixelFormat
 import android.util.Log
-import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -44,7 +43,6 @@ class OverlayManager(
     private var idleOverlaySuppressed = false
     val overlayState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
     private val gestureGate = OverlayGestureGate()
-    @Volatile private var lastPassthroughEndMs = 0L
     private val safetyMode = mutableStateOf(SafetyMode.STANDARD)
     private val manualMode = mutableStateOf(ManualMode.OFF)
 
@@ -128,15 +126,8 @@ class OverlayManager(
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
-                            if (event.type == PointerEventType.Press) {
-                                if (gestureGate.noteOverlayTouch()) {
-                                    Log.w(TAG, "Injected gesture reached the overlay during passthrough")
-                                } else {
-                                    val sinceMs = SystemClock.uptimeMillis() - lastPassthroughEndMs
-                                    if (sinceMs < LATE_PRESS_WINDOW_MS) {
-                                        Log.w(TAG, "Overlay press ${sinceMs}ms after passthrough ended")
-                                    }
-                                }
+                            if (event.type == PointerEventType.Press && gestureGate.noteOverlayTouch()) {
+                                Log.w(TAG, "Injected gesture reached the overlay during passthrough")
                             }
                             if (gestureGate.blocksTaskControls) event.changes.forEach { it.consume() }
                         }
@@ -435,17 +426,13 @@ class OverlayManager(
             delay(PASSTHROUGH_ENABLE_SETTLE_MS)
             gestureGate.takeSwallowed()
             val result = block()
-            // The gesture's completion callback only means injection finished: under load its events
-            // can reach InputDispatcher after the overlay is touchable again, and the overlay then
-            // swallows them. Keep passing touches through a little longer.
-            delay(PASSTHROUGH_HOLD_AFTER_MS)
             // A busy system_server can apply the flag later than the settle delay (152 ms observed
             // on the RK3576 right after GPU OCR); the gesture then lands on the overlay and the app
             // never sees any of its events, so sending it once more is safe.
             if (!gestureGate.takeSwallowed()) return result
             Log.w(TAG, "Overlay caught an injected gesture before passthrough applied; repeating it")
             delay(PASSTHROUGH_RETRY_SETTLE_MS)
-            return block().also { delay(PASSTHROUGH_HOLD_AFTER_MS) }
+            return block()
         } finally {
             // Cancellation must never leave the overlay permanently non-touchable or the task
             // controls permanently gated.
@@ -453,7 +440,6 @@ class OverlayManager(
                 updateGesturePassthrough(enable = false)
                 delay(PASSTHROUGH_DISABLE_SETTLE_MS)
                 gestureGate.exit()
-                lastPassthroughEndMs = SystemClock.uptimeMillis()
             }
         }
     }
@@ -647,9 +633,6 @@ class OverlayManager(
         private const val PASSTHROUGH_ENABLE_SETTLE_MS = 150L
         private const val PASSTHROUGH_DISABLE_SETTLE_MS = 100L
         private const val PASSTHROUGH_RETRY_SETTLE_MS = 400L
-        private const val PASSTHROUGH_HOLD_AFTER_MS = 200L
-        /** A press this soon after passthrough is likely a late injected event, not the user. */
-        private const val LATE_PRESS_WINDOW_MS = 1_000L
 
         @Suppress("unused")
         private const val TAG = "CoatiOverlay"
