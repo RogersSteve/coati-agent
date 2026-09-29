@@ -41,13 +41,20 @@ class ScreenshotCoordinatesTest {
         }
         var calls=0; s.dispatch({d}) { calls++ }; assertEquals(1,calls)
     }
-    @Test fun `unknown partial magnified or mismatched capture rejected`() {
+    @Test fun `unknown invalid magnified or mismatched capture rejected`() {
         val d=display()
-        val invalid=listOf(d.copy(displayId=1),d.copy(magnification=2f),d.copy(appBounds=PixelBounds(0,0,540,2400)),
-            d.copy(windowBounds=PixelBounds(0,128,1080,2400)))
+        val invalid=listOf(d.copy(displayId=1),d.copy(magnification=2f),d.copy(appBounds=PixelBounds(0,0,0,2400)),
+            d.copy(appBounds=PixelBounds(-20,600,1100,1800)),d.copy(windowBounds=PixelBounds(0,128,1080,2400)))
         for (bad in invalid) assertThrows(IllegalArgumentException::class.java) { space(bad) }
         assertThrows(IllegalArgumentException::class.java) { ScreenshotCoordinates(d,1080,2209,720,1472) }
         assertThrows(IllegalArgumentException::class.java) { ScreenshotCoordinates(d,1080,2400,720,1500) }
+    }
+    @Test fun `partial windows bind in display pixels without offsets`() {
+        // A permission dialog, a bottom sheet and a split-screen half: the full-frame mapping is unchanged.
+        for (bounds in listOf(PixelBounds(66,851,1014,1549),PixelBounds(0,1500,1080,2400),PixelBounds(0,0,540,2400))) {
+            val d=display().copy(appBounds=bounds)
+            assertEquals(756 to 2232,space(d).normalized(700,930))
+        }
     }
     @Test fun `fullscreen content bounds permitted but never used as coordinate origin`() {
         val d=display().copy(appBounds=PixelBounds(0,128,1080,2337))

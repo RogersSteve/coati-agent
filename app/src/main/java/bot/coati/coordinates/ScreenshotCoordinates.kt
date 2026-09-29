@@ -13,11 +13,13 @@ data class DisplaySpace(
         require(windowId >= 0 && packageName.isNotBlank()) { "unknown_active_window" }
         require(width > 0 && height > 0 && displayId == 0 && rotation in 0..3 && magnification == 1f) { "unsupported_display_space" }
         require(windowBounds == PixelBounds(0, 0, width, height)) { "unsupported_display_region" }
-        // Full-screen windows may draw behind any subset of system bars. Partial/freeform windows fail closed.
-        require(appBounds.left in setOf(0, insets.left) && appBounds.top in setOf(0, insets.top) &&
-            appBounds.right in setOf(width, width - insets.right) &&
-            appBounds.bottom in setOf(height, height - insets.bottom)) { "unsupported_app_window" }
+        // The screenshot always spans the whole display and gestures use display pixels, so the
+        // active window may be partial (dialog, popup, bottom sheet, split screen) without changing
+        // the mapping. It only has to be a real window on this display.
         require(appBounds.left < appBounds.right && appBounds.top < appBounds.bottom) { "invalid_app_bounds" }
+        require(appBounds.left >= 0 && appBounds.top >= 0 && appBounds.right <= width && appBounds.bottom <= height) {
+            "app_window_outside_display"
+        }
     }
 }
 
