@@ -17,6 +17,7 @@ class ManualLabCatalogTest {
         assertEquals(listOf("travel"), ManualLabCatalog.search("旅行").map { it.id })
         assertEquals(listOf("meeting"), ManualLabCatalog.search("工作").map { it.id })
         assertEquals(listOf("emergency"), ManualLabCatalog.search("应急用品").map { it.id })
+        assertEquals(listOf("meeting"), ManualLabCatalog.search("Meeting").map { it.id })
     }
 
     @Test

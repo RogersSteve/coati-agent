@@ -20,3 +20,6 @@ local.properties
 *.hprof
 *.jks
 *.keystore
+
+# Python
+__pycache__/

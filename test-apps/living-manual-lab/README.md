@@ -15,6 +15,19 @@ pages, and the low-frequency route `我的 -> 设置 -> 高级设置 -> 实验�
 package and signing identity but raises `versionCode` to 2 and replaces the old `资料库`/`我的`
 bottom entries with a `工具` hub. Search and preferences operate entirely on local fixed data.
 
+V1 also has two English benchmark pages, reached from `首页` and used by
+`scripts/device_bench`:
+
+- `Canvas Workbench`: a full-screen page painted on a Canvas with no accessibility nodes at all
+  (tabs, color swatches, a grid toggle, layer rows, export buttons), like a Flutter or game UI
+  without semantics. Its artwork title field raises the soft keyboard but also has no node.
+- `Mixed Order`: native radio buttons, text fields and a submit button around a painted copies
+  stepper and priority toggle. Opening the keyboard reflows the page.
+
+Both persist their outcome in the `manual_lab_state` preferences (`canvas_saved`,
+`canvas_export`, `canvas_hidden_layers`, `order_submitted`), readable with
+`adb shell run-as bot.coati.fixture.manual cat shared_prefs/manual_lab_state.xml`.
+
 ## Build and install on Windows PowerShell
 
 From the repository root:
