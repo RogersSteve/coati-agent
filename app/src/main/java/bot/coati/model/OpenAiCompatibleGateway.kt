@@ -268,8 +268,8 @@ class OpenAiCompatibleGateway(
                             "url", "data:image/jpeg;base64,${Base64.encodeToString(image, Base64.NO_WRAP)}",
                         ))
                     })
-                    .put(JSONObject().put("type", "text").put("text", request.userPrompt))
-            } ?: request.userPrompt
+                    .put(JSONObject().put("type", "text").put("text", request.promptText))
+            } ?: request.promptText
             val messages = JSONArray()
                 .put(JSONObject().apply {
                     put("role", "system")

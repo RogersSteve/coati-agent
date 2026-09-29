@@ -256,8 +256,8 @@ class ClaudeCompatibleGateway(
                         .put("type", "base64")
                         .put("media_type", "image/jpeg")
                         .put("data", Base64.encodeToString(image, Base64.NO_WRAP))))
-                    .put(JSONObject().put("type", "text").put("text", request.userPrompt))
-            } ?: request.userPrompt
+                    .put(JSONObject().put("type", "text").put("text", request.promptText))
+            } ?: request.promptText
             val messages = JSONArray().put(JSONObject().apply {
                 put("role", "user")
                 put("content", userContent)

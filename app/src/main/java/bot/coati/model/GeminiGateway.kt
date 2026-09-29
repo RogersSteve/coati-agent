@@ -280,7 +280,7 @@ class GeminiGateway(
                             .put("mime_type", "image/jpeg")
                             .put("data", Base64.encodeToString(image, Base64.NO_WRAP))))
                     }
-                    put("parts", parts.put(JSONObject().apply { put("text", request.userPrompt) }))
+                    put("parts", parts.put(JSONObject().apply { put("text", request.promptText) }))
                 })
             fun body(lowLatency: Boolean) = JSONObject().apply {
                 put("contents", contents)

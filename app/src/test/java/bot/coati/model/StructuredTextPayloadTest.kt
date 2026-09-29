@@ -56,4 +56,12 @@ class StructuredTextPayloadTest {
         assertEquals(markdown, StructuredTextPayloadExtractor.extract(markdown, StructuredPayloadFormat.MARKDOWN).text)
         assertTrue(runCatching { StructuredTextPayloadExtractor.extract(json, StructuredPayloadFormat.MARKDOWN) }.isFailure)
     }
+
+    @org.junit.Test
+    fun `prompts with an image name the image so text-keyed caches cannot mix screenshots`() {
+        val a = StructuredTextRequest("s", "parse", maxOutputTokens = 10, imageJpeg = byteArrayOf(1, 2, 3))
+        val b = StructuredTextRequest("s", "parse", maxOutputTokens = 10, imageJpeg = byteArrayOf(4, 5, 6))
+        org.junit.Assert.assertNotEquals(a.promptText, b.promptText)
+        org.junit.Assert.assertEquals("parse", StructuredTextRequest("s", "parse", maxOutputTokens = 10).promptText)
+    }
 }
