@@ -18,7 +18,11 @@ data class UiTreeNode(
     val actions: List<String> = emptyList(),
     val children: List<UiTreeNode>,
 ) {
-    fun toSimpleString(indent: Int = 0): String {
+    /**
+     * @param toNormalized maps a pixel to the model's 0..1000 space. Prompts must pass it: bounds
+     * in pixels next to a request for normalized coordinates made models copy pixel values.
+     */
+    fun toSimpleString(indent: Int = 0, toNormalized: ((Int, Int) -> Pair<Int, Int>)? = null): String {
         val sb = StringBuilder()
         val prefix = "  ".repeat(indent)
         val label = buildString {
@@ -34,10 +38,16 @@ data class UiTreeNode(
             if (isShowingHintText) append(" [showing-hint]")
             viewIdResourceName?.let { append(" id=$it") }
             if (actions.isNotEmpty()) append(" actions=${actions.joinToString("|")}")
-            append(" bounds=[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]")
+            if (toNormalized == null) {
+                append(" bounds=[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]")
+            } else {
+                val (left, top) = toNormalized(bounds.left, bounds.top)
+                val (right, bottom) = toNormalized(bounds.right, bounds.bottom)
+                append(" bounds=[$left,$top][$right,$bottom]")
+            }
         }
         sb.appendLine("$prefix$label")
-        children.forEach { sb.append(it.toSimpleString(indent + 1)) }
+        children.forEach { sb.append(it.toSimpleString(indent + 1, toNormalized)) }
         return sb.toString()
     }
 
