@@ -140,7 +140,9 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
     time.sleep(2)
     clear_task_state()
     log = dev.sh("logcat", "-d", "-s", *LOG_TAGS, timeout=60)
-    if status == "failed" and "Screenshot failed with error" in log and attempt < 3:
+    # Error 1 (internal) is the emulator's permanently broken capture; other codes such as 3
+    # (rate limited) are transient and handled by Coati itself.
+    if status == "failed" and "Screenshot failed with error: 1" in log and attempt < 3:
         # An environment failure, not an agent result: recover the device and run again.
         recover_device(mode, f"{name}: screenshots broken")
         return run_one(tid, mode, rep, out_dir, attempt + 1)
