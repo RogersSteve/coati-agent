@@ -45,13 +45,19 @@ class OpenAiCompatibleGateway(
                 return@withContext Result.failure(ApiHttpException(response.code))
             }
 
-            val text = JSONObject(body)
+            val choice = JSONObject(body)
                 .getJSONArray("choices")
                 .getJSONObject(0)
+            val text = choice
                 .getJSONObject("message")
                 .getString("content")
 
-            val modelResponse = GatewayUtils.parseModelResponse(text)
+            val modelResponse = try {
+                GatewayUtils.parseModelResponse(text)
+            } catch (e: MalformedModelResponseException) {
+                Log.w(TAG, "Malformed response, finish_reason=${choice.optString("finish_reason")}")
+                throw e
+            }
             Log.i(TAG, "Parsed response: action=${modelResponse.action}, safety=${modelResponse.safetyLevel}")
             Result.success(modelResponse)
         } catch (e: CancellationException) {

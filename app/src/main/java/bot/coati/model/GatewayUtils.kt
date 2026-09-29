@@ -1,6 +1,7 @@
 package bot.coati.model
 
 import bot.coati.agent.PromptBuilder
+import org.json.JSONException
 import org.json.JSONObject
 
 /**
@@ -8,6 +9,12 @@ import org.json.JSONObject
  * spend part of max_tokens on hidden reasoning; the former 128/256 budgets truncated the JSON to
  * nothing, so completion audits came back "unavailable" and verification fell to UNKNOWN.
  */
+/**
+ * The model's reply could not be read as an action: cut-off or non-JSON text, or values outside the
+ * response schema (such as pixel instead of normalized coordinates). Asking again can succeed.
+ */
+class MalformedModelResponseException(message: String, cause: Throwable) : IllegalArgumentException(message, cause)
+
 internal fun compactJsonMaxTokens(withManualObservation: Boolean): Int = if (withManualObservation) 2048 else 1024
 
 object GatewayUtils {
@@ -38,7 +45,18 @@ object GatewayUtils {
         return text
     }
 
-    fun parseModelResponse(text: String): ModelResponse {
+    fun parseModelResponse(text: String): ModelResponse = try {
+        parseModelResponseStrict(text)
+    } catch (e: JSONException) {
+        throw MalformedModelResponseException(malformedMessage(e, text), e)
+    } catch (e: IllegalArgumentException) {
+        throw MalformedModelResponseException(malformedMessage(e, text), e)
+    }
+
+    private fun malformedMessage(error: Exception, text: String): String =
+        "${error.message} (response length ${text.length}, starts: ${text.take(40).replace('\n', ' ')})"
+
+    private fun parseModelResponseStrict(text: String): ModelResponse {
         val jsonStr = extractJsonFromText(text)
         val json = JSONObject(jsonStr)
 

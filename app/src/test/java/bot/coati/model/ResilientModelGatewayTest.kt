@@ -69,6 +69,17 @@ class ResilientModelGatewayTest {
         assertEquals(2, server.requestCount)
     }
 
+    @Test fun `out of schema coordinates are retried`() = runBlocking {
+        server.enqueue(completion("""{"action": "tap", "x": 1080, "y": 1860}"""))
+        server.enqueue(completion("```json"))
+        server.enqueue(completion("""{"action": "tap", "x": 500, "y": 775}"""))
+
+        val result = analyze()
+
+        assertEquals(775, result.getOrThrow().y)
+        assertEquals(3, server.requestCount)
+    }
+
     @Test fun `server errors are retried up to the attempt limit`() = runBlocking {
         repeat(3) { server.enqueue(MockResponse().setResponseCode(502)) }
 
@@ -103,6 +114,9 @@ class ResilientModelGatewayTest {
         assertFalse(ResilientModelGateway.isTransient(SocketTimeoutException("timeout"), retryMalformed = false))
         assertTrue(ResilientModelGateway.isTransient(JSONException("Unterminated object"), retryMalformed = true))
         assertFalse(ResilientModelGateway.isTransient(JSONException("Unterminated object"), retryMalformed = false))
-        assertFalse(ResilientModelGateway.isTransient(IllegalArgumentException("invalid_normalized_coordinate"), retryMalformed = true))
+        val malformed = MalformedModelResponseException("invalid_normalized_coordinate", IllegalArgumentException())
+        assertTrue(ResilientModelGateway.isTransient(malformed, retryMalformed = true))
+        assertFalse(ResilientModelGateway.isTransient(malformed, retryMalformed = false))
+        assertFalse(ResilientModelGateway.isTransient(IllegalStateException("bug"), retryMalformed = true))
     }
 }

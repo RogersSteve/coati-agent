@@ -10,8 +10,9 @@ import java.io.InterruptedIOException
  * Retries transient model failures for the agent runtime, so one bad response does not count as
  * an agent failure (which triggers re-planning and, after a few, aborts the task).
  *
- * Transient: HTTP 408/429/5xx, connection errors, and for [analyzeScreen] a malformed or truncated
- * response body (OpenAI-compatible relays occasionally cut responses mid-JSON). Not retried:
+ * Transient: HTTP 408/429/5xx, connection errors, and for [analyzeScreen] a malformed response:
+ * cut off mid-JSON, not JSON at all, or outside the schema (OpenAI-compatible relays occasionally
+ * return such bodies with finish_reason "stop"). Not retried:
  * timeouts (the request budget is already spent), other HTTP errors such as auth or bad requests,
  * and cancellation. quickCheck/verifyAction parse leniently, so only their transport is retried.
  * Connection tests are passed through unchanged so configuration errors surface immediately.
@@ -83,7 +84,7 @@ class ResilientModelGateway(
             // Covers SocketTimeoutException and call timeouts: the request budget is already spent.
             is InterruptedIOException -> false
             is IOException -> true
-            is JSONException -> retryMalformed
+            is MalformedModelResponseException, is JSONException -> retryMalformed
             else -> false
         }
     }
