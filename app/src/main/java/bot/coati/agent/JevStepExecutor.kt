@@ -9,6 +9,7 @@ import bot.coati.action.AgentAction
 import bot.coati.action.InputTextMode
 import bot.coati.action.toLogSummary
 import bot.coati.coordinates.DisplaySpaceReader
+import bot.coati.coordinates.ScreenshotCoordinates
 import bot.coati.experience.AppManualRuntime
 import bot.coati.experience.RenderedAppManual
 import bot.coati.jev.BackgroundAdvisor
@@ -25,6 +26,9 @@ import bot.coati.jev.StepVerifier
 import bot.coati.model.ModelRouter
 import bot.coati.model.ScreenContext
 import bot.coati.perception.A11yScreenParser
+import bot.coati.perception.HybridPerception
+import bot.coati.perception.OcrEngine
+import bot.coati.perception.OcrTextRefiner
 import bot.coati.perception.ElementOp
 import bot.coati.perception.LumaGrid
 import bot.coati.perception.ParsedScreen
@@ -37,6 +41,8 @@ import bot.coati.ui.overlay.OverlayManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 
@@ -74,6 +80,8 @@ class JevStepExecutor(
     private val a11y: CoatiAccessibilityService,
     private val decisionEngine: JevDecisionEngine,
     private val manualRuntime: AppManualRuntime? = null,
+    /** On-device GPU OCR, or null when the device cannot run it; perception works without it. */
+    private val ocr: OcrEngine? = null,
 ) {
     /** Performs a safety confirmation for a candidate; false when the user declined. */
     fun interface Confirmer {
@@ -192,25 +200,13 @@ class JevStepExecutor(
             null
         }
         previousLuma = luma
-        val useTree = A11yScreenParser.isUsable(tree)
         val lastScreen = previousScreen
-        val reusedParse = !useTree && lastScreen?.source == ScreenSource.VISION &&
+        // An unchanged frame keeps a previous model-backed parse and skips the model call.
+        val reusedParse = lastScreen != null && lastScreen.source != ScreenSource.ACCESSIBILITY &&
             lastScreen.packageName == context.appPackage &&
             visual != null && visual.changedFraction < StepVerifier.NO_CHANGE_FRACTION
-        val screen: ParsedScreen = when {
-            // An unchanged frame keeps the previous vision parse and skips a model call.
-            reusedParse -> lastScreen!!
-            useTree -> A11yScreenParser.parse(tree!!, context.appPackage, coordinates.rawWidth, coordinates.rawHeight)
-            else -> visionParser.parse(
-                context.screenshotJpeg,
-                coordinates.imageWidth,
-                coordinates.imageHeight,
-                context.appPackage,
-            ) { x, y -> coordinates.normalized(x, y) }.getOrElse { e ->
-                Log.w(TAG, "Vision parse failed: ${e.message}")
-                return FastStep.Escalate("the screen could not be parsed")
-            }
-        }
+        val screen: ParsedScreen = (if (reusedParse) lastScreen else perceive(context, tree, coordinates))
+            ?: return FastStep.Escalate("the screen could not be parsed")
         val perceiveMs = System.currentTimeMillis() - started
         consecutiveRetries = 0
         val here = screen.pageKey
@@ -342,6 +338,50 @@ class JevStepExecutor(
         delay(SETTLE_MS)
         return FastStep.Acted
     }
+
+    /**
+     * The tree when it explains the screen; a vision parse when it does not. With GPU OCR, rendered
+     * text that no tree node accounts for reveals painted content on a native screen, and the
+     * vision parse of it is merged into the tree (hybrid); OCR also corrects vision transcriptions.
+     */
+    private suspend fun perceive(context: ScreenContext, tree: UiTreeNode?, coordinates: ScreenshotCoordinates): ParsedScreen? {
+        val width = coordinates.rawWidth
+        val height = coordinates.rawHeight
+        val scale = width.toFloat() / coordinates.imageWidth
+        val statusBar = coordinates.display.insets.top
+        if (tree != null && A11yScreenParser.isUsable(tree)) {
+            val treeScreen = A11yScreenParser.parse(tree, context.appPackage, width, height)
+            val engine = ocr ?: return treeScreen
+            val ocrStarted = System.currentTimeMillis()
+            val lines = engine.recognize(context.screenshotJpeg, scale)
+            val uncovered = HybridPerception.uncoveredLines(lines, A11yScreenParser.labelledBounds(tree, width, height), statusBar)
+            Log.i(TAG, "OCR ${System.currentTimeMillis() - ocrStarted}ms: ${lines.size} lines, ${uncovered.size} not in the tree")
+            if (uncovered.size < HybridPerception.MIN_UNCOVERED_LINES) return treeScreen
+            Log.i(TAG, "Painted content on a native screen (${uncovered.take(4).joinToString { it.text }}); merging a vision parse")
+            val vision = parseVision(context, coordinates)?.let { OcrTextRefiner.refine(it, lines) } ?: return treeScreen
+            return HybridPerception.merge(treeScreen, vision, statusBar)
+        }
+        return coroutineScope {
+            val ocrLines = ocr?.let { engine -> async { engine.recognize(context.screenshotJpeg, scale) } }
+            val vision = parseVision(context, coordinates)
+            if (vision == null) {
+                ocrLines?.cancel()
+                return@coroutineScope null
+            }
+            ocrLines?.await()?.let { OcrTextRefiner.refine(vision, it) } ?: vision
+        }
+    }
+
+    private suspend fun parseVision(context: ScreenContext, coordinates: ScreenshotCoordinates): ParsedScreen? =
+        visionParser.parse(
+            context.screenshotJpeg,
+            coordinates.imageWidth,
+            coordinates.imageHeight,
+            context.appPackage,
+        ) { x, y -> coordinates.normalized(x, y) }.getOrElse { e ->
+            Log.w(TAG, "Vision parse failed: ${e.message}")
+            null
+        }
 
     private fun absorb() {
         val guidance = advisor.poll() ?: return

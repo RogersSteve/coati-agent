@@ -6,7 +6,8 @@ enum class ElementOp { TAP, LONG, INPUT }
 
 enum class ScrollAxis { VERTICAL, HORIZONTAL }
 
-enum class ScreenSource { ACCESSIBILITY, VISION }
+/** How a screen was perceived; HYBRID merges the tree with a vision parse of painted content. */
+enum class ScreenSource { ACCESSIBILITY, VISION, HYBRID }
 
 /** One actionable or informative element. [bounds] are raw display pixels. */
 data class ScreenElement(

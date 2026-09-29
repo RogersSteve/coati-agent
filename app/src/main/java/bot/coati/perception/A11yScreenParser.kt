@@ -64,6 +64,13 @@ object A11yScreenParser {
         )
     }
 
+    /** Bounds of visible nodes whose own text or description explains what is drawn there. */
+    fun labelledBounds(root: UiTreeNode, displayWidth: Int, displayHeight: Int): List<PixelBounds> =
+        flatten(root).filter { node ->
+            node.isVisibleToUser &&
+                listOfNotNull(node.text, node.contentDescription, node.hintText).any { it.isNotBlank() }
+        }.mapNotNull { it.bounds.clampTo(displayWidth, displayHeight) }
+
     private fun UiTreeNode.isActionable() = isClickable || isEditable || isLongClickable
 
     private fun label(node: UiTreeNode): String {
