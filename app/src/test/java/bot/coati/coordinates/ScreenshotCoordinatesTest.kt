@@ -15,6 +15,13 @@ class ScreenshotCoordinatesTest {
         assertEquals(2054,oldY); assertTrue(oldY < 2127)
         assertEquals(756 to 2232,space().normalized(700,930))
     }
+    @Test fun `pixels map back to the normalized space`() {
+        val s = space(display(1080, 1920))
+        assertEquals(500 to 984, s.toNormalized(540, 1890))
+        assertEquals(1000 to 1000, s.toNormalized(1080, 1920))
+        val (x, y) = s.toNormalized(540, 1890)
+        assertEquals(540 to 1889, s.normalized(x, y))
+    }
     @Test fun `resolutions resizing orientation and bars do not add offsets`() {
         for ((w,h) in listOf(1080 to 2400,1440 to 3200,480 to 800,2400 to 1080,800 to 480)) {
             for (top in listOf(0,24,128)) for (bottom in listOf(0,48,63)) {

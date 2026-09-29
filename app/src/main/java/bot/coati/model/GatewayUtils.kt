@@ -101,7 +101,7 @@ object GatewayUtils {
         if (!json.has(key) || json.isNull(key)) return null
         val value = json.get(key)
         require(value is Number && value.toDouble().isFinite() &&
-            value.toDouble() == value.toInt().toDouble() && value.toInt() in 0..1000) { "invalid_normalized_coordinate" }
+            value.toDouble() == value.toInt().toDouble() && value.toInt() in 0..1000) { "invalid_normalized_coordinate $key=$value" }
         return value.toInt()
     }
 
