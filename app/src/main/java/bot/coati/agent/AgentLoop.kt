@@ -429,17 +429,28 @@ class AgentLoop(
             // and the VERIFY step captures a fresh screenshot (stored as carryOverContext), so
             // the next step the model sees the result and can issue screenshot + isTaskComplete=true.
             if (response.isTaskComplete && response.action.lowercase() == "screenshot") {
-                val audit = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
-                    modelRouter.fast.quickCheck(
-                        // screenshot is a read-only completion action, so the current
-                        // overlay-free OBSERVE frame is the authoritative final state.
-                        screenshot = screenContext.screenshotJpeg,
-                        question = buildTaskCompletionAuditQuestion(task),
-                        // Page learning was already handled by the current Reasoning response.
-                        // Keep this independent audit compact and single-purpose.
-                        manualObservationInstruction = null,
-                    )
-                }?.getOrNull()
+                // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not
+                // hold a finished task for the gateway's full limit, so a slow attempt is retried.
+                var audit: QuickCheckResult? = null
+                for (attempt in 1..AUDIT_ATTEMPTS) {
+                    val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
+                        modelRouter.fast.quickCheck(
+                            // screenshot is a read-only completion action, so the current
+                            // overlay-free OBSERVE frame is the authoritative final state.
+                            screenshot = screenContext.screenshotJpeg,
+                            question = buildTaskCompletionAuditQuestion(task),
+                            // Page learning was already handled by the current Reasoning response.
+                            // Keep this independent audit compact and single-purpose.
+                            manualObservationInstruction = null,
+                        )
+                    }
+                    if (result == null) {
+                        Log.w(TAG, "Task completion audit attempt $attempt timed out")
+                        continue
+                    }
+                    audit = result.getOrNull()
+                    break
+                }
                 val auditDecision = classifyTaskCompletionAudit(audit)
                 Log.i(
                     TAG,
@@ -979,6 +990,8 @@ class AgentLoop(
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val MAX_VERIFY_RETRIES = 2
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
+        private const val AUDIT_ATTEMPTS = 2
+        private const val AUDIT_ATTEMPT_TIMEOUT_MS = 20_000L
 
         /** Model-facing explanation for a rejected spatial action, or null when [message] is not a binding guard. */
         internal fun coordinateFailureFeedback(message: String?): String? = when (message) {
