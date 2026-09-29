@@ -31,6 +31,7 @@ import bot.coati.experience.AppManualRuntime
 import bot.coati.experience.ManualSeedCatalog
 import bot.coati.experience.ManualUpdateCoordinator
 import bot.coati.model.GatewayFactory
+import bot.coati.model.ResilientModelGateway
 import bot.coati.model.ModelProviders
 import bot.coati.model.ModelRouter
 import bot.coati.state.StateManager
@@ -186,8 +187,13 @@ class CoatiService : Service() {
 
         val client = GatewayFactory.createRuntimeClient()
 
-        val reasoningGateway = GatewayFactory.create(reasoningProvider, client, reasoningConfig.apiKey, reasoningConfig.endpoint, reasoningConfig.modelName)
-        val fastGateway = GatewayFactory.create(fastProvider, client, fastConfig.apiKey, fastConfig.endpoint, fastConfig.modelName)
+        // Runtime calls retry transient failures (e.g. relay-truncated JSON); settings checks do not.
+        val reasoningGateway = ResilientModelGateway(
+            GatewayFactory.create(reasoningProvider, client, reasoningConfig.apiKey, reasoningConfig.endpoint, reasoningConfig.modelName),
+        )
+        val fastGateway = ResilientModelGateway(
+            GatewayFactory.create(fastProvider, client, fastConfig.apiKey, fastConfig.endpoint, fastConfig.modelName),
+        )
         val modelRouter = ModelRouter(reasoningGateway, fastGateway)
         val actionEngine = ActionEngine(a11y)
         val overlay = overlayManager ?: return
