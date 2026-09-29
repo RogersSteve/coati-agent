@@ -42,6 +42,14 @@ class StepVerifierTest {
     }
 
     @Test
+    fun `a small change next to the target is not a no-change`() {
+        // Board regression: "+" raised a painted counter beside it from 1 to 2; judged no change.
+        val obs = StepVerifier.observe(before, before, tapSwitch, null, VisualChange(0.0002, PixelBounds(700, 620, 760, 680)))
+
+        assertTrue(obs.verdict != HostVerdict.NO_CHANGE)
+    }
+
+    @Test
     fun `a custom switch with no tree state still counts via pixels at the target`() {
         val obs = StepVerifier.observe(before, before, tapSwitch, null, VisualChange(0.02, PixelBounds(850, 620, 960, 680)))
 

@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityWindowInfo
 import bot.coati.action.ActionEngine
+import bot.coati.action.ActionFailureCode
 import bot.coati.action.ActionResult
 import bot.coati.action.AgentAction
 import bot.coati.action.InputTextMode
@@ -18,6 +19,7 @@ import bot.coati.jev.BackgroundAdvisor
 import bot.coati.jev.Candidate
 import bot.coati.jev.CandidateAction
 import bot.coati.jev.ExplorationMemory
+import bot.coati.jev.HostVerdict
 import bot.coati.jev.JevCandidates
 import bot.coati.jev.JevDecisionEngine
 import bot.coati.jev.JevStepInput
@@ -126,6 +128,7 @@ class JevStepExecutor(
     private var previousAction: AgentAction? = null
     private var previousTree: UiTreeNode? = null
     private var previousLuma: LumaGrid? = null
+    private val recentVerdicts = mutableListOf<HostVerdict>()
 
     // The last native page OCR found free of painted content; later steps on it skip OCR.
     private var plainPage: Pair<String, Set<String>>? = null
@@ -159,6 +162,7 @@ class JevStepExecutor(
         forgetPrevious()
         previousLuma = null
         plainPage = null
+        recentVerdicts.clear()
     }
 
     fun finishTask() {
@@ -219,7 +223,7 @@ class JevStepExecutor(
         val changedAtLastTarget = lastTarget != null && visual?.bounds?.let { overlaps(it, lastTarget) } == true
         val reusedParse = lastScreen != null && lastScreen.source != ScreenSource.ACCESSIBILITY &&
             lastScreen.packageName == context.appPackage && !changedAtLastTarget &&
-            visual != null && visual.changedFraction < StepVerifier.NO_CHANGE_FRACTION
+            visual != null && visual.bounds == null
         val screen: ParsedScreen = (if (reusedParse) lastScreen else perceive(context, tree, coordinates))
             ?: return FastStep.Escalate("the screen could not be parsed")
         val perceiveMs = System.currentTimeMillis() - started
@@ -232,6 +236,8 @@ class JevStepExecutor(
         if (previous != null && before != null && beforeAction != null) {
             val observation = StepVerifier.observe(before, screen, beforeAction, previousTyped, visual)
             previous = previous!!.copy(observation = observation)
+            recentVerdicts += observation.verdict
+            if (recentVerdicts.size > PROGRESS_WINDOW) recentVerdicts.removeAt(0)
             Log.i(TAG, "Verify evidence (reusedParse=$reusedParse): ${observation.note}")
         }
         if (previousPage != null && previousIdentity != null) {
@@ -290,7 +296,8 @@ class JevStepExecutor(
 
         val chosen: Candidate = decision.candidate
         // A DONE claim is always audited first: a finished task naturally stops finding new pages.
-        val cycling = chosen.action !is CandidateAction.Done && (memory.isCycling() || memory.isStagnant())
+        val cycling = chosen.action !is CandidateAction.Done && !makingProgress() &&
+            (memory.isCycling() || memory.isStagnant())
         when {
             chosen.action is CandidateAction.Escalate -> return escalate("JEV asked for the Reasoning model")
             consecutiveBad >= MAX_CONSECUTIVE_BAD -> return escalate("$consecutiveBad fast actions in a row had no effect")
@@ -454,6 +461,14 @@ class JevStepExecutor(
             null
         }
 
+    /**
+     * Most recent fast actions changed something on their own target: the task is advancing on one
+     * page (a form, with the keyboard scrolling it), whatever the page fingerprints look like.
+     */
+    private fun makingProgress(): Boolean =
+        recentVerdicts.size >= PROGRESS_WINDOW / 2 &&
+            recentVerdicts.count { it == HostVerdict.CHANGED_AT_TARGET } * 2 > recentVerdicts.size
+
     private fun absorb() {
         val guidance = advisor.poll() ?: return
         planReceived = true
@@ -584,8 +599,10 @@ class JevStepExecutor(
         // so type at its caret through the input method; tapping again would leave no fresh caret
         // evidence and be refused.
         Log.i(TAG, "Field replacement unavailable (${replaced.failureCode ?: replaced.message}); typing at the caret instead")
-        val typed = actionEngine.execute(AgentAction.InputText(action.text, InputTextMode.TYPE))
-        if (typed.success) return typed
+        if (replaced.failureCode == ActionFailureCode.TEXT_NOT_EDITABLE) {
+            val typed = actionEngine.execute(AgentAction.InputText(action.text, InputTextMode.TYPE))
+            if (typed.success) return typed
+        }
         return dispatch(action, context)
     }
 
@@ -600,6 +617,7 @@ class JevStepExecutor(
     companion object {
         private const val TAG = "CoatiJev"
         private const val MAX_CONSECUTIVE_BAD = 3
+        private const val PROGRESS_WINDOW = 6
         private const val MAX_CONSECUTIVE_RETRIES = 4
         private const val MAX_NO_CHANGE_REPEATS = 2
         private const val MAX_AUDIT_REJECTS = 2

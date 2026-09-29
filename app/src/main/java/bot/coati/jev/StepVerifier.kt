@@ -91,7 +91,9 @@ object StepVerifier {
             // A state label flipping under the finger ("Visible" -> "Hidden") can be far below the
             // global threshold; pixels moving on the target itself still count.
             changedAtTarget && fraction > 0.0 && fraction < NO_CHANGE_FRACTION -> HostVerdict.CHANGED_AT_TARGET
-            fraction < NO_CHANGE_FRACTION && sameTexts -> HostVerdict.NO_CHANGE
+            // Only a frame with no changed cell at all is a certain no-change: a counter beside a
+            // "+" button changes a few cells next to the target, not on it.
+            fraction < NO_CHANGE_FRACTION && sameTexts && visual?.bounds == null -> HostVerdict.NO_CHANGE
             fraction > PAGE_CHANGE_FRACTION || !ParsedScreen.samePage(before.pageKey, after.pageKey) ->
                 HostVerdict.PAGE_CHANGED
             changedAtTarget -> HostVerdict.CHANGED_AT_TARGET
