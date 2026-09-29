@@ -96,7 +96,7 @@ class OpenAiCompatibleGateway(
                 put("model", modelName)
                 put("messages", messages)
                 put("temperature", 0.1)
-                put("max_tokens", if (manualObservationInstruction == null) 128 else 512)
+                put("max_tokens", compactJsonMaxTokens(manualObservationInstruction != null))
             }.toString()
 
             val request = Request.Builder()
@@ -174,7 +174,7 @@ class OpenAiCompatibleGateway(
                 put("model", modelName)
                 put("messages", messages)
                 put("temperature", 0.1)
-                put("max_tokens", if (manualObservationInstruction == null) 256 else 512)
+                put("max_tokens", compactJsonMaxTokens(manualObservationInstruction != null))
             }.toString()
 
             val request = Request.Builder()

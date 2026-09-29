@@ -15,6 +15,15 @@ import org.junit.Test
 class AgentLoopTest {
 
     @Test
+    fun `coordinate guard rejections become model feedback instead of task failures`() {
+        assertTrue(AgentLoop.coordinateFailureFeedback("missing_screenshot_coordinates")!!.contains("pressKey BACK"))
+        assertTrue(AgentLoop.coordinateFailureFeedback("stale_screenshot_coordinates")!!.contains("Re-observe"))
+        // Other argument errors (malformed model output, unsupported actions) keep failing loudly.
+        assertNull(AgentLoop.coordinateFailureFeedback("normalized_coordinate_out_of_range"))
+        assertNull(AgentLoop.coordinateFailureFeedback(null))
+    }
+
+    @Test
     fun `task completion audit distinguishes accepted rejected and unavailable`() {
         assertEquals(
             CompletionAuditDecision.ACCEPT,
