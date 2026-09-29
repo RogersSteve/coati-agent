@@ -84,11 +84,13 @@ def task_state():
 
 
 def recover_device(mode, reason):
-    print(f"!!! {reason}: recovering the device", flush=True)
+    """Emulators whose capture broke need a cold restart. Physical devices are never rebooted by the
+    benchmark (a reboot drops adb reverse tunnels and heats the device); restarting Coati is enough."""
     if dev.is_emulator():
+        print(f"!!! {reason}: cold-restarting the emulator", flush=True)
         dev.cold_restart_emulator(EMULATOR_AVD)
     else:
-        dev.reboot()
+        print(f"!!! {reason}: restarting Coati", flush=True)
     configure(mode)
 
 
