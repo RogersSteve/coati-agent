@@ -111,4 +111,15 @@ class OcrTextRefinerTest {
         )
         assertEquals(1.0, OcrTextRefiner.agreement(right, workbench)!!, 0.0)
     }
+
+    @Test
+    fun `a painted counter digit is kept while single glyphs are dropped`() {
+        val parsed = screen(el("E1", "Copies", PixelBounds(18, 420, 300, 460), type = "text"))
+        val refined = OcrTextRefiner.refine(parsed, listOf(
+            line("Copies", 30, 425, 120, 455),
+            line("2", 948, 420, 966, 450, conf = 0.99f),
+            line("+", 1000, 420, 1030, 450, conf = 0.99f),
+        ))
+        assertEquals(listOf("Copies", "2"), refined.elements.map { it.text })
+    }
 }

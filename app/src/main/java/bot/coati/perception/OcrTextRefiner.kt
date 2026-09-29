@@ -39,7 +39,7 @@ object OcrTextRefiner {
     private val PICTURES = setOf("icon", "image", "avatar")
 
     fun refine(screen: ParsedScreen, ocrLines: List<OcrLine>, statusBarBottom: Int = 0): ParsedScreen {
-        val lines = ocrLines.filter { it.confidence >= MIN_CONFIDENCE && it.text.count(Char::isLetterOrDigit) >= MIN_CHARS }
+        val lines = ocrLines.filter { it.confidence >= MIN_CONFIDENCE && (isText(it.text) || isCount(it)) }
         if (lines.isEmpty()) return screen
         val elements = screen.elements
         val used = BooleanArray(lines.size)
@@ -98,6 +98,14 @@ object OcrTextRefiner {
                 )
             }
         return screen.copy(elements = refined + added)
+    }
+
+    /** Words: at least two letters or digits (single glyphs such as "+", "□" or "F" are icon noise). */
+    private fun isText(s: String) = s.count(Char::isLetterOrDigit) >= MIN_CHARS
+
+    /** A confident bare number (a counter, a badge, a quantity) carries state even as one digit. */
+    private fun isCount(line: OcrLine) = line.confidence >= MIN_EXTRA_CONFIDENCE && line.text.trim().let { t ->
+        t.isNotEmpty() && t.all(Char::isDigit)
     }
 
     /**
