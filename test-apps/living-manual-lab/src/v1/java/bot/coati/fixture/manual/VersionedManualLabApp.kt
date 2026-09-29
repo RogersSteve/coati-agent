@@ -63,6 +63,7 @@ private enum class LabPage(val title: String) {
     TOOLS("工具"),
     WORKBENCH("Canvas Workbench"),
     ORDER("Mixed Order"),
+    CONTACTS("Import Contacts"),
 }
 
 private val isLayoutV2: Boolean
@@ -192,6 +193,7 @@ internal fun VersionedManualLabApp() {
                     onTools = { navigate(LabPage.TOOLS) },
                     onWorkbench = { navigate(LabPage.WORKBENCH) },
                     onOrder = { navigate(LabPage.ORDER) },
+                    onContacts = { navigate(LabPage.CONTACTS) },
                 )
 
                 LabPage.CATALOG -> CatalogPage(
@@ -244,6 +246,7 @@ internal fun VersionedManualLabApp() {
 
                 LabPage.WORKBENCH -> Unit
                 LabPage.ORDER -> MixedOrderPage(preferences)
+                LabPage.CONTACTS -> ContactsImportPage(preferences)
                 LabPage.HELP -> HelpPage()
                 LabPage.ARCHIVE -> ArchivePage()
                 LabPage.TOOLS -> ToolsPage(
@@ -358,6 +361,7 @@ private fun HomePage(
     onTools: () -> Unit,
     onWorkbench: () -> Unit,
     onOrder: () -> Unit,
+    onContacts: () -> Unit,
 ) {
     PageIntro("欢迎使用手册实验室", "离线浏览资料、保存收藏并调整本地偏好。")
     SectionCard(
@@ -377,6 +381,7 @@ private fun HomePage(
     NavigationCard("帮助与关于", "查看使用说明和版本信息。", onHelp)
     NavigationCard("Canvas Workbench", "Painted canvas: adjust brush and layers, export artwork.", onWorkbench)
     NavigationCard("Mixed Order", "Choose an item, set print copies and delivery.", onOrder)
+    NavigationCard("Import Contacts", "Share checklists with your contacts.", onContacts)
 }
 
 @Composable
