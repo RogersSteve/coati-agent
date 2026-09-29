@@ -507,6 +507,25 @@ class CoatiAccessibilityService : AccessibilityService() {
                         "sequence=${current.selectionSequence}, selection=" +
                         "${current.selectionStart}..${current.selectionEnd}, packageMatches=true",
                 )
+                val committed = commitTextThroughInputConnectionApi33(
+                    text = text,
+                    mode = DirectTextEditMode.CARET,
+                    expectedPackage = expectedPackage,
+                )
+                if (committed.status != DirectTextEditStatus.PRECONDITION_FAILED) return committed
+                // Some editors restart their input session right after gaining focus (board: session
+                // 7 -> 8 within 16 ms of the focus callback). Nothing was committed; once the restarted
+                // session is live for the same app, the caret is still in the field just focused.
+                delay(SESSION_RESTART_SETTLE_MS)
+                val restarted = trackingInputMethod
+                if (
+                    restarted == null || !restarted.currentInputStarted ||
+                    restarted.currentInputConnection == null ||
+                    restarted.currentInputEditorInfo?.packageName != expectedPackage
+                ) {
+                    return committed
+                }
+                Log.i(TAG, "Input session restarted after focus; committing into session ${restarted.currentSessionId()}")
                 return commitTextThroughInputConnectionApi33(
                     text = text,
                     mode = DirectTextEditMode.CARET,
@@ -868,6 +887,7 @@ class CoatiAccessibilityService : AccessibilityService() {
         private const val SELECTION_ACK_TIMEOUT_MS = 750L
         private const val SELECTION_POLL_INTERVAL_MS = 25L
         private const val FOCUS_EVIDENCE_TIMEOUT_MS = 2_000L
+        private const val SESSION_RESTART_SETTLE_MS = 150L
         private const val FOCUS_EVIDENCE_POLL_MS = 25L
         private const val MAX_ATOMIC_CONNECTION_EVIDENCE_READS = 3
 
