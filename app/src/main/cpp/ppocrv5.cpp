@@ -380,7 +380,8 @@ int PPOCRv5::recognize_batch(const unsigned char* rgba, int width, int height, i
 }
 
 int PPOCRv5::detect_and_recognize(const unsigned char* rgba, int width, int height, int stride,
-                                  const std::vector<int>& skip, std::vector<OcrText>& results)
+                                  const std::vector<int>& skip, const std::vector<int>& only,
+                                  std::vector<OcrText>& results)
 {
     const auto started = std::chrono::steady_clock::now();
     std::vector<Box> detected;
@@ -395,7 +396,10 @@ int PPOCRv5::detect_and_recognize(const unsigned char* rgba, int width, int heig
         bool skipped = false;
         for (size_t i = 0; i + 3 < skip.size() && !skipped; i += 4)
             skipped = cx >= skip[i] && cx < skip[i + 2] && cy >= skip[i + 1] && cy < skip[i + 3];
-        if (!skipped)
+        bool wanted = only.empty();
+        for (size_t i = 0; i + 3 < only.size() && !wanted; i += 4)
+            wanted = cx >= only[i] && cx < only[i + 2] && cy >= only[i + 1] && cy < only[i + 3];
+        if (!skipped && wanted)
             boxes.push_back(box);
     }
     const auto rec_started = std::chrono::steady_clock::now();

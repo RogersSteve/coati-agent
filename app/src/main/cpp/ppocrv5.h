@@ -35,9 +35,11 @@ public:
 
     // Runs detection then recognition on a tightly or loosely packed RGBA image.
     // Text boxes whose center lies inside any [skip] rectangle (x0,y0,x1,y1 in image pixels) are
-    // detected but not recognized: callers use it for regions they already understand.
+    // detected but not recognized: callers use it for regions they already understand. When [only]
+    // is not empty, just boxes centered inside one of its rectangles are recognized.
     int detect_and_recognize(const unsigned char* rgba, int width, int height, int stride,
-                             const std::vector<int>& skip, std::vector<OcrText>& results);
+                             const std::vector<int>& skip, const std::vector<int>& only,
+                             std::vector<OcrText>& results);
 
 private:
     struct Box

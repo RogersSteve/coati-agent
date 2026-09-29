@@ -25,7 +25,7 @@ internal object NcnnOcrNative {
      * [Array<String> texts, FloatArray conf,x0,y0,x1,y1 per line] for an ARGB_8888 bitmap, or null on
      * failure. Boxes centered inside [skipRects] (x0,y0,x1,y1 quadruples, image pixels) are not read.
      */
-    @JvmStatic external fun nativeRecognize(handle: Long, bitmap: Bitmap, skipRects: IntArray?): Array<Any>?
+    @JvmStatic external fun nativeRecognize(handle: Long, bitmap: Bitmap, skipRects: IntArray?, onlyRects: IntArray?): Array<Any>?
 
     @JvmStatic external fun nativeRelease(handle: Long)
 }
@@ -38,11 +38,16 @@ internal object NcnnOcrNative {
 class NcnnOcr private constructor(private var handle: Long) : OcrEngine {
     private val mutex = Mutex()
 
-    override suspend fun recognize(jpeg: ByteArray, scale: Float, skip: List<PixelBounds>): List<OcrLine> = withContext(Dispatchers.Default) {
+    override suspend fun recognize(
+        jpeg: ByteArray,
+        scale: Float,
+        skip: List<PixelBounds>,
+        only: List<PixelBounds>?,
+    ): List<OcrLine> = withContext(Dispatchers.Default) {
         val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
         val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, options) ?: return@withContext emptyList()
         try {
-            run(bitmap, scale, skip)
+            run(bitmap, scale, skip, only)
         } finally {
             bitmap.recycle()
         }
@@ -52,21 +57,25 @@ class NcnnOcr private constructor(private var handle: Long) : OcrEngine {
         val blank = Bitmap.createBitmap(WARM_UP_WIDTH, WARM_UP_HEIGHT, Bitmap.Config.ARGB_8888)
         blank.eraseColor(Color.WHITE)
         try {
-            withContext(Dispatchers.Default) { run(blank, 1f, emptyList()) }
+            withContext(Dispatchers.Default) { run(blank, 1f, emptyList(), null) }
         } finally {
             blank.recycle()
         }
     }
 
-    private suspend fun run(bitmap: Bitmap, scale: Float, skip: List<PixelBounds>): List<OcrLine> = mutex.withLock {
+    private suspend fun run(bitmap: Bitmap, scale: Float, skip: List<PixelBounds>, only: List<PixelBounds>?): List<OcrLine> = mutex.withLock {
         if (handle == 0L) return emptyList()
         try {
             val started = System.nanoTime()
             // Skip regions arrive in display pixels; the bitmap is the (possibly downscaled) capture.
-            val rects = skip.takeIf { it.isNotEmpty() }?.flatMap { b ->
+            fun toImage(boxes: List<PixelBounds>) = boxes.flatMap { b ->
                 listOf((b.left / scale).toInt(), (b.top / scale).toInt(), (b.right / scale).toInt(), (b.bottom / scale).toInt())
-            }?.toIntArray()
-            val result = NcnnOcrNative.nativeRecognize(handle, bitmap, rects) ?: return emptyList()
+            }.toIntArray()
+            // An empty "only" list means nothing is wanted; skip the inference altogether.
+            if (only != null && only.isEmpty()) return emptyList()
+            val result = NcnnOcrNative.nativeRecognize(
+                handle, bitmap, skip.takeIf { it.isNotEmpty() }?.let(::toImage), only?.let(::toImage),
+            ) ?: return emptyList()
             @Suppress("UNCHECKED_CAST")
             val lines = OcrReadingOrder.toLines(result[0] as Array<String>, result[1] as FloatArray, scale)
             Log.d(TAG, "OCR ${bitmap.width}x${bitmap.height}: ${(System.nanoTime() - started) / 1_000_000}ms, ${lines.size} lines")

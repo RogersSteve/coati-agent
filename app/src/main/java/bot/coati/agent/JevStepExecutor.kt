@@ -376,11 +376,15 @@ class JevStepExecutor(
             // Only text the tree does not explain matters here, and recognition is the costly part of
             // OCR: text inside labelled nodes and the status bar is detected but not read.
             // The soft keyboard is another window, never part of the app's tree: never read it.
-            val labelled = A11yScreenParser.labelledBounds(tree, width, height) + keyboardBounds(tree, width, height)
-            val lines = engine.recognize(context.screenshotJpeg, scale, labelled + PixelBounds(0, 0, width, statusBar))
-            val uncovered = HybridPerception.uncoveredLines(lines, labelled, statusBar)
+            val hosts = A11yScreenParser.textHosts(tree, width, height)
+            val keyboard = keyboardBounds(tree, width, height)
+            val labelled = hosts.filter { it.labelled }.map { it.bounds } + keyboard
+            // Painted content can only sit in unlabelled, non-image nodes: read just those.
+            val candidates = hosts.filter { !it.labelled && !it.image }.map { it.bounds }
+            val lines = engine.recognize(context.screenshotJpeg, scale, labelled + PixelBounds(0, 0, width, statusBar), candidates)
+            val uncovered = HybridPerception.paintedLines(lines, hosts, statusBar, keyboard)
             Log.i(TAG, "OCR ${System.currentTimeMillis() - ocrStarted}ms: ${uncovered.size} lines not in the tree")
-            if (uncovered.size < HybridPerception.MIN_UNCOVERED_LINES) {
+            if (uncovered.size < HybridPerception.MIN_PAINTED_LINES) {
                 plainPage = context.appPackage to treeScreen.pageKey
                 return treeScreen
             }

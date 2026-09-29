@@ -135,14 +135,19 @@ Java_bot_coati_perception_NcnnOcrNative_nativeDeviceName(JNIEnv* env, jclass)
 // Returns [String[] texts, float[] conf,x0,y0,x1,y1 per line] or null on failure.
 JNIEXPORT jobjectArray JNICALL
 Java_bot_coati_perception_NcnnOcrNative_nativeRecognize(JNIEnv* env, jclass, jlong handle, jobject bitmap,
-                                                        jintArray skip_rects)
+                                                        jintArray skip_rects, jintArray only_rects)
 {
-    std::vector<int> skip;
-    if (skip_rects)
-    {
-        skip.resize((size_t)env->GetArrayLength(skip_rects));
-        env->GetIntArrayRegion(skip_rects, 0, (jsize)skip.size(), skip.data());
-    }
+    auto read_rects = [env](jintArray array) {
+        std::vector<int> rects;
+        if (array)
+        {
+            rects.resize((size_t)env->GetArrayLength(array));
+            env->GetIntArrayRegion(array, 0, (jsize)rects.size(), rects.data());
+        }
+        return rects;
+    };
+    const std::vector<int> skip = read_rects(skip_rects);
+    const std::vector<int> only = read_rects(only_rects);
     Engine* engine = reinterpret_cast<Engine*>(handle);
     if (!engine)
         return nullptr;
@@ -163,7 +168,7 @@ Java_bot_coati_perception_NcnnOcrNative_nativeRecognize(JNIEnv* env, jclass, jlo
     {
         std::lock_guard<std::mutex> lock(engine->mutex);
         rc = engine->ocr.detect_and_recognize(static_cast<const unsigned char*>(pixels), (int)info.width,
-                                              (int)info.height, (int)info.stride, skip, lines);
+                                              (int)info.height, (int)info.stride, skip, only, lines);
     }
     AndroidBitmap_unlockPixels(env, bitmap);
     if (rc != 0)

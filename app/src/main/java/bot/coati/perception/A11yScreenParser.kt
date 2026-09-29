@@ -78,6 +78,20 @@ object A11yScreenParser {
             .filter { b -> (b.right - b.left).toLong() * (b.bottom - b.top) <= maxArea }
     }
 
+    /** Visible, not page-sized nodes, with whether they carry text and whether they are images. */
+    fun textHosts(root: UiTreeNode, displayWidth: Int, displayHeight: Int): List<HybridPerception.TreeBox> {
+        val maxArea = displayWidth.toLong() * displayHeight * MAX_LABELLED_AREA
+        return flatten(root).filter { it.isVisibleToUser }.mapNotNull { node ->
+            val bounds = node.bounds.clampTo(displayWidth, displayHeight) ?: return@mapNotNull null
+            if ((bounds.right - bounds.left).toLong() * (bounds.bottom - bounds.top) > maxArea) return@mapNotNull null
+            HybridPerception.TreeBox(
+                bounds = bounds,
+                labelled = listOfNotNull(node.text, node.contentDescription, node.hintText).any { it.isNotBlank() },
+                image = node.className?.contains("Image") == true,
+            )
+        }
+    }
+
     private fun UiTreeNode.isActionable() = isClickable || isEditable || isLongClickable
 
     private fun label(node: UiTreeNode): String {

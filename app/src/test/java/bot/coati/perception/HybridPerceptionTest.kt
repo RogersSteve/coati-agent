@@ -13,25 +13,32 @@ class HybridPerceptionTest {
     private fun screen(source: ScreenSource, vararg elements: ScreenElement) =
         ParsedScreen(source, "app", "", false, null, elements.toList(), emptyList())
 
-    @Test fun `text explained by tree nodes is covered`() {
-        val labelled = listOf(PixelBounds(0, 100, 1080, 200))
+    private fun box(l: Int, t: Int, r: Int, b: Int, labelled: Boolean = false, image: Boolean = false) =
+        HybridPerception.TreeBox(PixelBounds(l, t, r, b), labelled, image)
+
+    @Test fun `text explained by a labelled node is not painted`() {
+        val hosts = listOf(box(0, 100, 1080, 200, labelled = true))
         val lines = listOf(line("Submit order", 400, 130, 700, 170))
-        assertEquals(emptyList<OcrLine>(), HybridPerception.uncoveredLines(lines, labelled, statusBarBottom = 60))
+        assertEquals(emptyList<OcrLine>(), HybridPerception.paintedLines(lines, hosts, statusBarBottom = 60))
     }
 
-    @Test fun `painted text outside the tree is uncovered`() {
-        val labelled = listOf(PixelBounds(0, 100, 1080, 200))
-        val painted = line("Priority delivery", 30, 500, 300, 540)
-        assertEquals(listOf(painted), HybridPerception.uncoveredLines(listOf(painted), labelled, statusBarBottom = 60))
+    @Test fun `text inside an unlabelled node is painted`() {
+        val canvas = box(18, 400, 1062, 550)
+        val painted = listOf(line("Copies", 30, 420, 120, 450), line("Priority delivery", 30, 500, 300, 540))
+        assertEquals(painted, HybridPerception.paintedLines(painted, listOf(canvas), statusBarBottom = 60))
     }
 
-    @Test fun `status bar, low confidence and symbol-only lines are ignored`() {
+    @Test fun `text in no node, in images, in the status bar or the keyboard is not painted`() {
+        val thumbnail = box(10, 600, 300, 800, image = true)
+        val keyboard = PixelBounds(0, 1400, 1080, 1920)
         val lines = listOf(
+            line("Gallery", 400, 300, 600, 340), // backdrop outside the tree
+            line("WARZONE", 50, 650, 250, 700), // thumbnail artwork
             line("12:45", 10, 5, 80, 40),
-            line("Blurry", 30, 500, 200, 540, conf = 0.5f),
-            line("+", 900, 600, 940, 640),
+            line("When", 100, 1450, 200, 1490),
         )
-        assertEquals(emptyList<OcrLine>(), HybridPerception.uncoveredLines(lines, emptyList(), statusBarBottom = 60))
+        val hosts = listOf(thumbnail, box(0, 1400, 1080, 1920))
+        assertEquals(emptyList<OcrLine>(), HybridPerception.paintedLines(lines, hosts, 60, listOf(keyboard)))
     }
 
     @Test fun `merge keeps tree elements and adds only uncovered vision elements`() {
