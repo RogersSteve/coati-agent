@@ -43,6 +43,7 @@
                 <action android:name="bot.coati.debug.RUN_TASK" />
                 <action android:name="bot.coati.debug.STOP_TASK" />
                 <action android:name="bot.coati.debug.DUMP_TREE" />
+                <action android:name="bot.coati.debug.OCR_BENCH" />
             </intent-filter>
         </receiver>
     </application>

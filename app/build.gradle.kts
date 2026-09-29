@@ -18,6 +18,12 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ONNX Runtime ships ~25-40 MB of native code per ABI. Keep 64-bit ARM devices and the
+        // x86_64 benchmark emulator; 32-bit ABIs are rare at minSdk 30.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     buildTypes {
@@ -86,6 +92,9 @@ dependencies {
 
     // Network
     implementation(libs.okhttp)
+
+    // On-device OCR (PaddleOCR models on ONNX Runtime)
+    implementation(libs.onnxruntime.android)
 
     // Testing
     testImplementation(libs.junit)

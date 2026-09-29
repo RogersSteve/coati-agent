@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import bot.coati.data.ConfigStore
 import bot.coati.data.SafetyMode
+import bot.coati.perception.PaddleOcr
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.CoatiService
 import bot.coati.service.UiTreeNode
@@ -17,7 +18,11 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.util.Locale
 
 /**
  * Debug-only control for device benchmarks: configure models and start or stop a task without
@@ -32,6 +37,8 @@ import kotlinx.coroutines.runBlocking
  * adb shell am broadcast -a bot.coati.debug.RUN_TASK -n bot.coati/.debug.DebugAgentReceiver --es task "..."
  * adb shell am broadcast -a bot.coati.debug.STOP_TASK -n bot.coati/.debug.DebugAgentReceiver
  * adb shell am broadcast -a bot.coati.debug.DUMP_TREE -n bot.coati/.debug.DebugAgentReceiver
+ * adb push shot.jpg /sdcard/Android/data/bot.coati/files/ocr_bench/
+ * adb shell am broadcast -a bot.coati.debug.OCR_BENCH -n bot.coati/.debug.DebugAgentReceiver --ei repeat 3
  */
 class DebugAgentReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -44,6 +51,45 @@ class DebugAgentReceiver : BroadcastReceiver() {
             }
             ACTION_STOP_TASK -> Log.i(TAG, "Debug task stopped=${CoatiService.stopTask()}")
             ACTION_DUMP_TREE -> dumpTree()
+            ACTION_OCR_BENCH -> ocrBench(context, intent)
+        }
+    }
+
+    /**
+     * Runs on-device OCR over every JPEG/PNG in getExternalFilesDir("ocr_bench") (push with adb)
+     * and logs per-image latency and the recognized lines. Each image runs `repeat` times; the first
+     * run of the first image includes model loading and warm-up.
+     */
+    private fun ocrBench(context: Context, intent: Intent) {
+        val pending = goAsync()
+        val repeat = intent.getIntExtra("repeat", 3).coerceAtLeast(1)
+        CoroutineScope(Dispatchers.Default).launch {
+            val ocr = PaddleOcr(context)
+            try {
+                val dir = context.getExternalFilesDir("ocr_bench")
+                val files = dir?.listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg", "png") }
+                    .orEmpty().sortedBy { it.name }
+                Log.i(TAG, "OCR bench: ${files.size} images in $dir, repeat=$repeat")
+                files.forEach { file ->
+                    val bytes = file.readBytes()
+                    val runs = (1..repeat).map {
+                        val started = System.nanoTime()
+                        val lines = ocr.recognize(bytes, 1f)
+                        ((System.nanoTime() - started) / 1_000_000) to lines
+                    }
+                    val lines = runs.last().second
+                    Log.i(TAG, "OCR ${file.name}: ms=${runs.map { it.first }} lines=${lines.size}")
+                    lines.forEach { line ->
+                        Log.i(TAG, "OCR ${file.name} | ${line.text} | conf=${"%.3f".format(Locale.US, line.confidence)} | ${line.bounds}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "OCR bench failed", e)
+            } finally {
+                ocr.close()
+                Log.i(TAG, "OCR bench done")
+                pending.finish()
+            }
         }
     }
 
@@ -115,5 +161,6 @@ class DebugAgentReceiver : BroadcastReceiver() {
         const val ACTION_RUN_TASK = "bot.coati.debug.RUN_TASK"
         const val ACTION_STOP_TASK = "bot.coati.debug.STOP_TASK"
         const val ACTION_DUMP_TREE = "bot.coati.debug.DUMP_TREE"
+        const val ACTION_OCR_BENCH = "bot.coati.debug.OCR_BENCH"
     }
 }
