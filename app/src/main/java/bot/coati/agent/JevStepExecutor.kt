@@ -30,6 +30,7 @@ import bot.coati.model.ScreenContext
 import bot.coati.perception.A11yScreenParser
 import bot.coati.perception.HybridPerception
 import bot.coati.perception.OcrEngine
+import bot.coati.perception.OcrLine
 import bot.coati.perception.OcrTextRefiner
 import bot.coati.perception.ElementOp
 import bot.coati.perception.LumaGrid
@@ -387,7 +388,7 @@ class JevStepExecutor(
         val keyboard = keyboardBounds(tree, width, height)
         return coroutineScope {
             val ocrLines = ocr?.let { engine -> async { engine.recognize(context.screenshotJpeg, scale, keyboard) } }
-            val vision = parseVision(context, coordinates)
+            var vision = parseVision(context, coordinates)
             if (vision == null) {
                 ocrLines?.cancel()
                 return@coroutineScope null
@@ -396,6 +397,10 @@ class JevStepExecutor(
             // outlast the vision parse, and then this step goes without the repair.
             val lines = ocrLines?.let { withTimeoutOrNull(OCR_EXTRA_WAIT_MS) { it.await() } ?: run { it.cancel(); null } }
             if (ocrLines != null && lines == null) Log.i(TAG, "OCR slower than the vision parse; parse used without repair")
+            if (lines != null && isForeign(vision, lines)) {
+                // The parse describes some other image: acting on it only wastes steps. Ask once more.
+                vision = parseVision(context, coordinates)?.takeUnless { isForeign(it, lines) } ?: return@coroutineScope null
+            }
             lines?.let { OcrTextRefiner.refine(vision, it, statusBar) } ?: vision
         }
     }
@@ -419,6 +424,16 @@ class JevStepExecutor(
     private fun focusedFieldBottom(node: UiTreeNode): Int? =
         if (node.isEditable && node.isFocused) node.bounds.bottom
         else node.children.firstNotNullOfOrNull(::focusedFieldBottom)
+
+    private fun isForeign(vision: ParsedScreen, lines: List<OcrLine>): Boolean {
+        val agreement = OcrTextRefiner.agreement(vision, lines) ?: return false
+        val foreign = agreement < MIN_PARSE_AGREEMENT
+        if (foreign) {
+            Log.w(TAG, "Vision parse disagrees with OCR (${"%.0f".format(agreement * 100)}% of its texts on screen): " +
+                vision.elements.take(6).joinToString { it.text.lineSequence().first().take(24) })
+        }
+        return foreign
+    }
 
     private suspend fun parseVision(context: ScreenContext, coordinates: ScreenshotCoordinates): ParsedScreen? =
         visionParser.parse(
@@ -579,6 +594,8 @@ class JevStepExecutor(
         private const val WAIT_MS = 1500L
         private const val RETRY_DELAY_MS = 1_000L
         private const val OCR_EXTRA_WAIT_MS = 1_000L
+        /** Below this share of its texts confirmed by OCR, a vision parse describes another image (normal parses scored >= 0.5 on the board set). */
+        private const val MIN_PARSE_AGREEMENT = 0.3
         private const val TEXT_WAIT_MS = 30_000L
         private const val STALE_COORDINATES = "stale_screenshot_coordinates"
 

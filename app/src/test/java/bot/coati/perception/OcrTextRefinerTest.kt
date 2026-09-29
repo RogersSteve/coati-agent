@@ -95,4 +95,20 @@ class OcrTextRefinerTest {
         assertEquals(listOf("Brush color", "", "Blue"), refined.elements.map { it.text })
         assertEquals(OcrTextRefiner.ADDED_PURPOSE, refined.element("E3")!!.purpose)
     }
+
+    @Test
+    fun `a parse of another image disagrees with OCR`() {
+        val parse = screen(
+            el("E1", "24 hours", PixelBounds(0, 100, 200, 150)), el("E2", "7 days", PixelBounds(0, 160, 200, 210)),
+            el("E3", "90 days", PixelBounds(0, 220, 200, 270)), el("E4", "Custom range", PixelBounds(0, 280, 200, 330)),
+        )
+        val workbench = listOf(line("Canvas Workbench", 431, 41, 656, 86), line("Layers", 141, 122, 213, 153),
+            line("Brush", 503, 119, 564, 153), line("Export", 863, 119, 930, 153))
+        assertEquals(0.0, OcrTextRefiner.agreement(parse, workbench)!!, 0.0)
+        val right = screen(
+            el("E1", "Canvas Workbench", PixelBounds(430, 40, 660, 90)), el("E2", "Layers", PixelBounds(0, 110, 360, 170)),
+            el("E3", "Brush", PixelBounds(360, 110, 720, 170)), el("E4", "Export", PixelBounds(720, 110, 1080, 170)),
+        )
+        assertEquals(1.0, OcrTextRefiner.agreement(right, workbench)!!, 0.0)
+    }
 }

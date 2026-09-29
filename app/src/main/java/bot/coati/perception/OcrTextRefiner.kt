@@ -100,6 +100,24 @@ object OcrTextRefiner {
         return screen.copy(elements = refined + added)
     }
 
+    /**
+     * Share of the parse's texts that OCR also reads somewhere on the screen, or null when either
+     * side has too little text to judge. A parse of a different image (seen from relays under load)
+     * scores near zero; a normal parse of a text-bearing screen scores well above half.
+     */
+    fun agreement(screen: ParsedScreen, ocrLines: List<OcrLine>): Double? {
+        val read = ocrLines.filter { it.confidence >= MIN_CONFIDENCE }.map { normalize(it.text) }.filter { it.length >= MIN_CHARS }
+        val texts = screen.elements.map { normalize(it.text.lineSequence().first()) }.filter { it.length >= AGREEMENT_MIN_CHARS }
+        if (read.size < AGREEMENT_MIN_LINES || texts.size < AGREEMENT_MIN_TEXTS) return null
+        val seen = texts.count { t -> read.any { r -> r in t || t in r || similarity(r, t) >= AGREEMENT_SIMILARITY } }
+        return seen.toDouble() / texts.size
+    }
+
+    private const val AGREEMENT_MIN_CHARS = 3
+    private const val AGREEMENT_MIN_LINES = 3
+    private const val AGREEMENT_MIN_TEXTS = 4
+    private const val AGREEMENT_SIMILARITY = 0.6
+
     /** OCR reads the same string as the model (typo-level differences), not a fragment of it. */
     private fun sameString(model: String, ocr: String): Boolean {
         val m = normalize(model)
