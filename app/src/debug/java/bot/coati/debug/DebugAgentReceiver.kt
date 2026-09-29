@@ -9,7 +9,9 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import bot.coati.data.ConfigStore
 import bot.coati.data.SafetyMode
+import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.CoatiService
+import bot.coati.service.UiTreeNode
 import bot.coati.ui.onboarding.OnboardingViewModel
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -28,6 +30,7 @@ import kotlinx.coroutines.runBlocking
  *   --es reasoning_model m1 --es fast_model m2 --es safety TRUST
  * adb shell am broadcast -a bot.coati.debug.RUN_TASK -n bot.coati/.debug.DebugAgentReceiver --es task "..."
  * adb shell am broadcast -a bot.coati.debug.STOP_TASK -n bot.coati/.debug.DebugAgentReceiver
+ * adb shell am broadcast -a bot.coati.debug.DUMP_TREE -n bot.coati/.debug.DebugAgentReceiver
  */
 class DebugAgentReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -39,6 +42,7 @@ class DebugAgentReceiver : BroadcastReceiver() {
                 Log.i(TAG, "Debug task started=$started task=$task")
             }
             ACTION_STOP_TASK -> Log.i(TAG, "Debug task stopped=${CoatiService.stopTask()}")
+            ACTION_DUMP_TREE -> dumpTree()
         }
     }
 
@@ -61,6 +65,31 @@ class DebugAgentReceiver : BroadcastReceiver() {
         Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}")
     }
 
+    /** Logs what the accessibility service can read right now: every window and the active tree's text. */
+    private fun dumpTree() {
+        val a11y = CoatiAccessibilityService.instance
+        if (a11y == null) {
+            Log.w(TAG, "Dump: accessibility service not connected")
+            return
+        }
+        a11y.windows.forEach { window ->
+            Log.i(TAG, "Dump window: type=${window.type} layer=${window.layer} title=${window.title} " +
+                "package=${window.root?.packageName} active=${window.isActive}")
+        }
+        val tree = a11y.getUiTree()
+        if (tree == null) {
+            Log.i(TAG, "Dump tree: no active window root")
+            return
+        }
+        val texts = mutableListOf<String>()
+        fun collect(node: UiTreeNode) {
+            listOfNotNull(node.text, node.contentDescription).filter { it.isNotBlank() }.forEach(texts::add)
+            node.children.forEach(::collect)
+        }
+        collect(tree)
+        Log.i(TAG, "Dump tree: ${texts.size} labels: ${texts.joinToString(" | ")}")
+    }
+
     private fun completeOnboarding(context: Context) {
         val dataStore = EntryPointAccessors
             .fromApplication(context.applicationContext, DebugAgentEntryPoint::class.java)
@@ -80,5 +109,6 @@ class DebugAgentReceiver : BroadcastReceiver() {
         const val ACTION_CONFIGURE = "bot.coati.debug.CONFIGURE_AGENT"
         const val ACTION_RUN_TASK = "bot.coati.debug.RUN_TASK"
         const val ACTION_STOP_TASK = "bot.coati.debug.STOP_TASK"
+        const val ACTION_DUMP_TREE = "bot.coati.debug.DUMP_TREE"
     }
 }

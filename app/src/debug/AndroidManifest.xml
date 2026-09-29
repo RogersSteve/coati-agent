@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Requested (never used) by PermissionFixtureActivity to show a real runtime-permission dialog. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <application>
+        <activity
+            android:name="bot.coati.debug.PermissionFixtureActivity"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            android:excludeFromRecents="true" />
         <receiver android:name="bot.coati.debug.ScrollFixtureControlReceiver" android:exported="true" android:permission="android.permission.DUMP" />
         <activity android:name="bot.coati.debug.ScrollFixtureActivity" android:exported="true" android:permission="android.permission.DUMP"
             android:launchMode="singleTask" android:excludeFromRecents="true"
@@ -35,6 +42,7 @@
                 <action android:name="bot.coati.debug.CONFIGURE_AGENT" />
                 <action android:name="bot.coati.debug.RUN_TASK" />
                 <action android:name="bot.coati.debug.STOP_TASK" />
+                <action android:name="bot.coati.debug.DUMP_TREE" />
             </intent-filter>
         </receiver>
     </application>
