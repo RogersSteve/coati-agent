@@ -58,29 +58,35 @@ class ExplorationMemory {
     fun visitCount(page: Set<String>): Int = visits.count { ParsedScreen.samePage(it, page) }
 
     /**
-     * True when the last [window] visits bounce among at most [maxDistinct] pages: every step
-     * "succeeds" (the screen changes) yet the task makes no progress.
+     * True when the last [window] visits bounce between 2..[maxDistinct] pages: every step
+     * "succeeds" (the screen changes) yet the task makes no progress. Staying on one page is not a
+     * cycle: filling a form changes state without changing pages (see [isStagnant]).
      */
     fun isCycling(window: Int = 6, maxDistinct: Int = 2): Boolean {
         if (visits.size < window) return false
-        val distinct = mutableListOf<Set<String>>()
-        visits.takeLast(window).forEach { page ->
-            if (distinct.none { ParsedScreen.samePage(it, page) }) distinct += page
-        }
-        return distinct.size <= maxDistinct
+        val distinct = distinctPages(visits.takeLast(window))
+        return distinct in 2..maxDistinct
     }
 
     /**
      * True when none of the last [window] visits reached a page never seen before: the executor
      * is circling through known pages (a cycle over any number of pages, not just two).
      */
-    fun isStagnant(window: Int = 8): Boolean {
+    fun isStagnant(window: Int = 8, singlePageWindow: Int = 12): Boolean {
         val real = visits.withIndex().filter { CYCLE_BREAK !in it.value }
-        if (real.size <= window) return false
         val breakAt = visits.indexOfLast { CYCLE_BREAK in it }
-        return real.takeLast(window).all { (index, page) ->
+        fun allRevisits(n: Int) = real.size > n && real.takeLast(n).all { (index, page) ->
             index > breakAt && visits.subList(0, index).any { ParsedScreen.samePage(it, page) }
         }
+        // One page for a while is normal on forms and settings pages, so it gets a longer window.
+        val onOnePage = real.size >= window && distinctPages(real.takeLast(window).map { it.value }) == 1
+        return if (onOnePage) allRevisits(singlePageWindow) else allRevisits(window)
+    }
+
+    private fun distinctPages(pages: List<Set<String>>): Int {
+        val distinct = mutableListOf<Set<String>>()
+        pages.forEach { page -> if (distinct.none { ParsedScreen.samePage(it, page) }) distinct += page }
+        return distinct.size
     }
 
     /** Starts a fresh cycle window after an intervention. */

@@ -231,7 +231,7 @@ class CoatiService : Service() {
         manualRuntime = newManualRuntime
         // With a JEV key, the fast path takes each step first; without one, Reasoning decides every step.
         val jevConfig = configStore.getJevConfig()
-        val ocr = if (jevConfig != null) ocrEngine() else null
+        val ocr = if (jevConfig != null && configStore.isOcrEnabled()) ocrEngine() else null
         val fastExecutor = jevConfig?.let {
             JevStepExecutor(
                 overlay, modelRouter, actionEngine, a11y,

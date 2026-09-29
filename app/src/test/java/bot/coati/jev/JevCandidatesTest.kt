@@ -73,6 +73,18 @@ class JevCandidatesTest {
     }
 
     @Test
+    fun `filling a form on one page is neither a cycle nor stagnation until it goes on for long`() {
+        val memory = ExplorationMemory()
+        val form = setOf("Mixed Order", "Copies", "Priority delivery", "Recipient", "Submit order")
+        repeat(8) { memory.visit(form) }
+        assertFalse(memory.isCycling())
+        assertFalse(memory.isStagnant())
+
+        repeat(6) { memory.visit(form) }
+        assertTrue(memory.isStagnant())
+    }
+
+    @Test
     fun `an action that left the page unchanged is removed while alternatives remain`() {
         val memory = ExplorationMemory()
         val page = screen(element("E1", "查看详情"), element("E2", "首页"), element("E3", "收藏"))

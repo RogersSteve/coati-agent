@@ -66,4 +66,20 @@ class A11yScreenParserTest {
         val opaque = node(children = List(5) { node(clickable = true, bounds = rect(0, it * 100, 100, it * 100 + 90)) })
         assertFalse(A11yScreenParser.isUsable(opaque))
     }
+
+    @Test
+    fun `labelled bounds skip page-sized containers`() {
+        val screen = node(
+            bounds = rect(0, 0, 1080, 2400),
+            children = listOf(
+                node("ScrollView", desc = "页面：Mixed Order", bounds = rect(0, 168, 1080, 2180), children = listOf(
+                    node("TextView", text = "Submit order", bounds = rect(40, 1500, 1040, 1580)),
+                )),
+            ),
+        )
+        assertEquals(
+            listOf(rect(40, 1500, 1040, 1580)).map { bot.coati.coordinates.PixelBounds(it.left, it.top, it.right, it.bottom) },
+            A11yScreenParser.labelledBounds(screen, 1080, 2400),
+        )
+    }
 }

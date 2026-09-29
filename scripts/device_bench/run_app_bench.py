@@ -36,7 +36,9 @@ JEV_KEY = os.environ.get("JEV_KEY", "")
 # before the mode runs, so a mode can use a build of another branch such as main.
 MODES = {
     "classic": ["--es", "jev_key", ""],
-    "jev": ["--es", "jev_key", JEV_KEY],
+    "jev": ["--es", "jev_key", JEV_KEY, "--ez", "ocr", "true"],
+    # The same fast path without GPU OCR, to measure what OCR adds.
+    "jevnoocr": ["--es", "jev_key", JEV_KEY, "--ez", "ocr", "false"],
 }
 LOG_TAGS.append("CoatiJev")
 
@@ -74,7 +76,7 @@ def install_mode_apk(mode):
 
 
 def configure(mode):
-    if mode == "jev" and not JEV_KEY:
+    if mode.startswith("jev") and not JEV_KEY:
         raise SystemExit("mode jev needs JEV_KEY")
     install_mode_apk(mode)
     clear_task_state()

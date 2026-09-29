@@ -1,7 +1,9 @@
 package bot.coati.agent
 
 import android.content.Intent
+import android.graphics.Rect
 import android.util.Log
+import android.view.accessibility.AccessibilityWindowInfo
 import bot.coati.action.ActionEngine
 import bot.coati.action.ActionFailureCode
 import bot.coati.action.ActionResult
@@ -124,6 +126,9 @@ class JevStepExecutor(
     private var previousTree: UiTreeNode? = null
     private var previousLuma: LumaGrid? = null
 
+    // The last native page OCR found free of painted content; later steps on it skip OCR.
+    private var plainPage: Pair<String, Set<String>>? = null
+
     /** Escalations in this task; past [MAX_ESCALATIONS] the Reasoning model keeps the task. */
     var escalations = 0
         private set
@@ -152,6 +157,7 @@ class JevStepExecutor(
         escalations = 0
         forgetPrevious()
         previousLuma = null
+        plainPage = null
     }
 
     fun finishTask() {
@@ -357,16 +363,25 @@ class JevStepExecutor(
         if (tree != null && A11yScreenParser.isUsable(tree)) {
             val treeScreen = A11yScreenParser.parse(tree, context.appPackage, width, height)
             val engine = ocr ?: return treeScreen
+            val plain = plainPage
+            if (plain != null && plain.first == context.appPackage && ParsedScreen.samePage(plain.second, treeScreen.pageKey)) {
+                return treeScreen
+            }
             val ocrStarted = System.currentTimeMillis()
             // Only text the tree does not explain matters here, and recognition is the costly part of
             // OCR: text inside labelled nodes and the status bar is detected but not read.
-            val labelled = A11yScreenParser.labelledBounds(tree, width, height)
+            // The soft keyboard is another window, never part of the app's tree: never read it.
+            val labelled = A11yScreenParser.labelledBounds(tree, width, height) + inputMethodBounds()
             val lines = engine.recognize(context.screenshotJpeg, scale, labelled + PixelBounds(0, 0, width, statusBar))
             val uncovered = HybridPerception.uncoveredLines(lines, labelled, statusBar)
             Log.i(TAG, "OCR ${System.currentTimeMillis() - ocrStarted}ms: ${uncovered.size} lines not in the tree")
-            if (uncovered.size < HybridPerception.MIN_UNCOVERED_LINES) return treeScreen
+            if (uncovered.size < HybridPerception.MIN_UNCOVERED_LINES) {
+                plainPage = context.appPackage to treeScreen.pageKey
+                return treeScreen
+            }
+            plainPage = null
             Log.i(TAG, "Painted content on a native screen (${uncovered.take(4).joinToString { it.text }}); merging a vision parse")
-            val vision = parseVision(context, coordinates)?.let { OcrTextRefiner.refine(it, lines) } ?: return treeScreen
+            val vision = parseVision(context, coordinates)?.let { OcrTextRefiner.refine(it, lines, statusBar) } ?: return treeScreen
             return HybridPerception.merge(treeScreen, vision, statusBar)
         }
         return coroutineScope {
@@ -376,9 +391,14 @@ class JevStepExecutor(
                 ocrLines?.cancel()
                 return@coroutineScope null
             }
-            ocrLines?.await()?.let { OcrTextRefiner.refine(vision, it) } ?: vision
+            ocrLines?.await()?.let { OcrTextRefiner.refine(vision, it, statusBar) } ?: vision
         }
     }
+
+    private fun inputMethodBounds(): List<PixelBounds> = a11y.windows
+        .filter { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        .map { window -> Rect().also(window::getBoundsInScreen).let { PixelBounds(it.left, it.top, it.right, it.bottom) } }
+        .also { if (it.isNotEmpty()) Log.d(TAG, "Input method window: $it") }
 
     private suspend fun parseVision(context: ScreenContext, coordinates: ScreenshotCoordinates): ParsedScreen? =
         visionParser.parse(

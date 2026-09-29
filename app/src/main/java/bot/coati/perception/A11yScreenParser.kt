@@ -64,12 +64,19 @@ object A11yScreenParser {
         )
     }
 
-    /** Bounds of visible nodes whose own text or description explains what is drawn there. */
-    fun labelledBounds(root: UiTreeNode, displayWidth: Int, displayHeight: Int): List<PixelBounds> =
-        flatten(root).filter { node ->
+    /**
+     * Bounds of visible nodes whose own text or description explains what is drawn there. Large
+     * containers are left out: a page-level description on a full-screen root explains nothing
+     * about the text painted inside it.
+     */
+    fun labelledBounds(root: UiTreeNode, displayWidth: Int, displayHeight: Int): List<PixelBounds> {
+        val maxArea = displayWidth.toLong() * displayHeight * MAX_LABELLED_AREA
+        return flatten(root).filter { node ->
             node.isVisibleToUser &&
                 listOfNotNull(node.text, node.contentDescription, node.hintText).any { it.isNotBlank() }
         }.mapNotNull { it.bounds.clampTo(displayWidth, displayHeight) }
+            .filter { b -> (b.right - b.left).toLong() * (b.bottom - b.top) <= maxArea }
+    }
 
     private fun UiTreeNode.isActionable() = isClickable || isEditable || isLongClickable
 
@@ -125,6 +132,7 @@ object A11yScreenParser {
     private fun PixelBounds.width() = right - left
     private fun PixelBounds.height() = bottom - top
 
+    private const val MAX_LABELLED_AREA = 0.25
     private const val MIN_ACTIONABLE = 3
     private const val MIN_LABELLED_RATIO = 0.8
     private const val MAX_TEXT = 80

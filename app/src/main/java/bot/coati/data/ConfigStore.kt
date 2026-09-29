@@ -141,6 +141,13 @@ class ConfigStore(context: Context) {
         )
     }
 
+    /** Debug/benchmark switch: GPU OCR in the JEV fast path (on by default where a GPU exists). */
+    fun isOcrEnabled(): Boolean = prefs.getBoolean(KEY_OCR_ENABLED, true)
+
+    fun setOcrEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_OCR_ENABLED, enabled).apply()
+    }
+
     fun clearJevConfig() {
         prefs.edit().remove(KEY_JEV_API_KEY).apply()
         Log.i(TAG, "JEV config cleared")
@@ -225,6 +232,7 @@ class ConfigStore(context: Context) {
         private const val KEY_JEV_API_KEY = "jev_api_key"
         private const val KEY_JEV_ENDPOINT = "jev_endpoint"
         private const val KEY_JEV_MODEL = "jev_model"
+        private const val KEY_OCR_ENABLED = "ocr_enabled"
         const val DEFAULT_JEV_ENDPOINT = "https://api.typesafe.ai"
         const val DEFAULT_JEV_MODEL = "jev-1.13.0"
 
