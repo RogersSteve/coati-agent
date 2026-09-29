@@ -59,7 +59,9 @@ data class ScreenContext(
 
             // Get UI tree
             val uiTree = a11y.getUiTree()
-            val uiTreeStr = uiTree?.toSimpleString() ?: ""
+            // Bounds in the same 0..1000 space as the requested x/y: with pixel bounds the model
+            // copied pixel values (y=1890 on a 1920 px screen) and every such answer was rejected.
+            val uiTreeStr = uiTree?.toSimpleString(toNormalized = coordinates?.let { it::toNormalized }) ?: ""
             Log.i(TAG, "UI tree: ${uiTree?.flatCount() ?: 0} nodes")
 
             // Get current app package and input focus state

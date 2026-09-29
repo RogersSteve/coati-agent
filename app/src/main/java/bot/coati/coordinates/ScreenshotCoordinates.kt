@@ -59,6 +59,10 @@ data class ScreenshotCoordinates(
         return minOf((x.toLong() * rawWidth / 1000).toInt(), rawWidth - 1) to
             minOf((y.toLong() * rawHeight / 1000).toInt(), rawHeight - 1)
     }
+    /** A display pixel in the 0..1000 space the models answer in (inverse of [normalized]). */
+    fun toNormalized(x: Int, y: Int): Pair<Int, Int> =
+        (x.toLong() * 1000 / rawWidth).toInt().coerceIn(0, 1000) to
+            (y.toLong() * 1000 / rawHeight).toInt().coerceIn(0, 1000)
     fun absolute(x: Int, y: Int): Pair<Int, Int> {
         require(x in 0 until rawWidth && y in 0 until rawHeight) { "screen_coordinate_out_of_range" }
         return x to y

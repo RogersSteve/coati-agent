@@ -73,7 +73,7 @@ object PromptBuilder {
 
         Screen dimensions: ${screenWidth}x${screenHeight}
 
-        UI Tree (simplified):
+        UI Tree (simplified; bounds are [left,top][right,bottom] in the same normalized 0-1000 space as x/y):
         $uiTreeHint
 
         Analyze the screenshot and UI tree above. Decide the single best action to perform next.
