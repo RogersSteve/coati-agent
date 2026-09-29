@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.Lifecycle
@@ -118,52 +120,66 @@ class OverlayManager(
             setContent {
                 val state = overlayState.value
                 val ballState = agentBallState.value
-                OverlayContent(
-                    state = state,
-                    ballState = ballState,
-                    safetyMode = safetyMode.value,
-                    manualMode = manualMode.value,
-                    onExecute = { task ->
-                        lastTask = task
-                        onExecuteTask?.invoke(task)
-                    },
-                    onSafetyModeChanged = { mode ->
-                        setSafetyMode(mode)
-                        onSafetyModeChanged?.invoke(mode)
-                    },
-                    onStop = { invokeTaskControl("stop", onStopTask) },
-                    onPause = { invokeTaskControl("pause", onPauseTask) },
-                    onResume = { onResumeTask?.invoke() },
-                    onConfirm = {
-                        confirmationDeferred?.complete(true)
-                        onConfirmAction?.invoke()
-                    },
-                    onCancel = {
-                        confirmationDeferred?.complete(false)
-                        onCancelAction?.invoke()
-                    },
-                    onRetry = {
-                        taskFailedDeferred?.complete(true)
-                        onRetryTask?.invoke()
-                    },
-                    onDismiss = {
-                        // Handle dismiss for both TaskComplete and TaskFailed
-                        taskCompleteDeferred?.complete(Unit)
-                        taskFailedDeferred?.complete(false)
-                        collapse()
-                    },
-                    onCollapse = { collapse() },
-                    onSettings = { onSettings?.invoke() },
-                    onExit = { onExit?.invoke() },
-                    onRecoveryResume = {
-                        recoveryDeferred?.complete(true)
-                        onRecoveryResume?.invoke()
-                    },
-                    onRecoveryAbandon = {
-                        recoveryDeferred?.complete(false)
-                        onRecoveryAbandon?.invoke()
-                    },
-                )
+                // Sees every press before the overlay's own controls do (the view's touch listener
+                // only gets touches no composable consumed).
+                Box(modifier = Modifier.pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.type == PointerEventType.Press && gestureGate.noteOverlayTouch()) {
+                                Log.w(TAG, "Injected gesture reached the overlay during passthrough")
+                            }
+                            if (gestureGate.blocksTaskControls) event.changes.forEach { it.consume() }
+                        }
+                    }
+                }) {
+                    OverlayContent(
+                        state = state,
+                        ballState = ballState,
+                        safetyMode = safetyMode.value,
+                        manualMode = manualMode.value,
+                        onExecute = { task ->
+                            lastTask = task
+                            onExecuteTask?.invoke(task)
+                        },
+                        onSafetyModeChanged = { mode ->
+                            setSafetyMode(mode)
+                            onSafetyModeChanged?.invoke(mode)
+                        },
+                        onStop = { invokeTaskControl("stop", onStopTask) },
+                        onPause = { invokeTaskControl("pause", onPauseTask) },
+                        onResume = { onResumeTask?.invoke() },
+                        onConfirm = {
+                            confirmationDeferred?.complete(true)
+                            onConfirmAction?.invoke()
+                        },
+                        onCancel = {
+                            confirmationDeferred?.complete(false)
+                            onCancelAction?.invoke()
+                        },
+                        onRetry = {
+                            taskFailedDeferred?.complete(true)
+                            onRetryTask?.invoke()
+                        },
+                        onDismiss = {
+                            // Handle dismiss for both TaskComplete and TaskFailed
+                            taskCompleteDeferred?.complete(Unit)
+                            taskFailedDeferred?.complete(false)
+                            collapse()
+                        },
+                        onCollapse = { collapse() },
+                        onSettings = { onSettings?.invoke() },
+                        onExit = { onExit?.invoke() },
+                        onRecoveryResume = {
+                            recoveryDeferred?.complete(true)
+                            onRecoveryResume?.invoke()
+                        },
+                        onRecoveryAbandon = {
+                            recoveryDeferred?.complete(false)
+                            onRecoveryAbandon?.invoke()
+                        },
+                    )
+                }
             }
         }
 
@@ -408,6 +424,14 @@ class OverlayManager(
         try {
             updateGesturePassthrough(enable = true)
             delay(PASSTHROUGH_ENABLE_SETTLE_MS)
+            gestureGate.takeSwallowed()
+            val result = block()
+            // A busy system_server can apply the flag later than the settle delay (152 ms observed
+            // on the RK3576 right after GPU OCR); the gesture then lands on the overlay and the app
+            // never sees any of its events, so sending it once more is safe.
+            if (!gestureGate.takeSwallowed()) return result
+            Log.w(TAG, "Overlay caught an injected gesture before passthrough applied; repeating it")
+            delay(PASSTHROUGH_RETRY_SETTLE_MS)
             return block()
         } finally {
             // Cancellation must never leave the overlay permanently non-touchable or the task
@@ -535,6 +559,12 @@ class OverlayManager(
             if (overlayState.value is OverlayState.CollapsedIdle) onClick()
         }
         view.setOnTouchListener { _, event ->
+            // During passthrough the overlay must not react: the touch is an injected gesture.
+            if (event.actionMasked == MotionEvent.ACTION_DOWN && gestureGate.noteOverlayTouch()) {
+                Log.w(TAG, "Injected gesture reached the overlay window during passthrough")
+                return@setOnTouchListener true
+            }
+            if (gestureGate.blocksTaskControls) return@setOnTouchListener true
             // Only handle drag/click on collapsed state
             if (overlayState.value !is OverlayState.CollapsedIdle) return@setOnTouchListener false
 
@@ -602,6 +632,7 @@ class OverlayManager(
     companion object {
         private const val PASSTHROUGH_ENABLE_SETTLE_MS = 150L
         private const val PASSTHROUGH_DISABLE_SETTLE_MS = 100L
+        private const val PASSTHROUGH_RETRY_SETTLE_MS = 400L
 
         @Suppress("unused")
         private const val TAG = "CoatiOverlay"
