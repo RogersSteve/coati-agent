@@ -45,6 +45,7 @@
                 <action android:name="bot.coati.debug.DUMP_TREE" />
                 <action android:name="bot.coati.debug.OCR_BENCH" />
                 <action android:name="bot.coati.debug.PARSE_BENCH" />
+                <action android:name="bot.coati.debug.DUMP_NODES" />
             </intent-filter>
         </receiver>
     </application>
