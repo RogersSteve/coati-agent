@@ -1014,9 +1014,20 @@ class AgentLoop(
     /** Independent Fast-model check that the current screen proves the task is done. */
     private suspend fun auditCompletion(task: String, screenshot: ByteArray): QuickCheckResult? {
         overlayManager.updateProgress(task, "Checking result...", "", stepCount, MAX_STEPS)
-        val audit = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
-            modelRouter.fast.quickCheck(screenshot, buildTaskCompletionAuditQuestion(task), null)
-        }?.getOrNull()
+        // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not hold a
+        // finished task for the gateway's full limit, so a slow attempt is retried.
+        var audit: QuickCheckResult? = null
+        for (attempt in 1..AUDIT_ATTEMPTS) {
+            val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
+                modelRouter.fast.quickCheck(screenshot, buildTaskCompletionAuditQuestion(task), null)
+            }
+            if (result == null) {
+                Log.w(TAG, "Task completion audit attempt $attempt timed out")
+                continue
+            }
+            audit = result.getOrNull()
+            break
+        }
         Log.i(TAG, "Task completion audit: decision=${classifyTaskCompletionAudit(audit)}, category=${audit?.category}")
         return audit
     }
@@ -1103,6 +1114,8 @@ class AgentLoop(
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val MAX_VERIFY_RETRIES = 2
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
+        private const val AUDIT_ATTEMPTS = 2
+        private const val AUDIT_ATTEMPT_TIMEOUT_MS = 20_000L
 
         /** Model-facing explanation for a rejected spatial action, or null when [message] is not a binding guard. */
         internal fun coordinateFailureFeedback(message: String?): String? = when (message) {
