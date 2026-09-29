@@ -11,7 +11,6 @@ import bot.coati.coordinates.PixelBounds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.Closeable
 import java.nio.FloatBuffer
 
 /**
@@ -24,7 +23,9 @@ class PaddleOcr(
     context: Context,
     private val detMaxSide: Int = OcrPostprocess.DET_MAX_SIDE,
     private val threads: Int = DEFAULT_THREADS,
-) : Closeable {
+    /** Use ONNX Runtime's XNNPACK execution provider (ARM-optimized kernels) when available. */
+    private val xnnpack: Boolean = true,
+) : OcrEngine {
     private val assets = context.applicationContext.assets
     private val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
     private val detLazy = lazy { createSession(DET_MODEL) }
@@ -39,10 +40,12 @@ class PaddleOcr(
      * Recognizes text lines in [jpeg] (any format BitmapFactory decodes). [scale] multiplies image
      * pixels into display pixels. Lines are in reading order. Returns an empty list on failure.
      */
-    suspend fun recognize(jpeg: ByteArray, scale: Float): List<OcrLine> = withContext(Dispatchers.Default) {
+    override suspend fun recognize(jpeg: ByteArray, scale: Float): List<OcrLine> = withContext(Dispatchers.Default) {
         val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return@withContext emptyList()
         try {
+            val t0 = System.nanoTime()
             val boxes = detect(bitmap)
+            val t1 = System.nanoTime()
             val lines = recognizeBoxes(bitmap, boxes).map { line ->
                 line.copy(
                     bounds = PixelBounds(
@@ -51,6 +54,8 @@ class PaddleOcr(
                     ),
                 )
             }
+            Log.d(TAG, "OCR ${bitmap.width}x${bitmap.height}: det ${(t1 - t0) / 1_000_000}ms (${boxes.size} boxes), " +
+                "rec ${(System.nanoTime() - t1) / 1_000_000}ms")
             OcrPostprocess.sortLines(lines)
         } catch (e: CancellationException) {
             throw e
@@ -62,14 +67,26 @@ class PaddleOcr(
         }
     }
 
+    override suspend fun warmUp() {
+        val blank = Bitmap.createBitmap(WARM_UP_WIDTH, WARM_UP_HEIGHT, Bitmap.Config.ARGB_8888)
+        val jpeg = java.io.ByteArrayOutputStream().use { out ->
+            blank.compress(Bitmap.CompressFormat.JPEG, 80, out)
+            out.toByteArray()
+        }
+        blank.recycle()
+        recognize(jpeg, 1f)
+    }
+
     /** Text boxes in image pixels. */
     private fun detect(bitmap: Bitmap): List<Pair<PixelBounds, Float>> {
         val (w, h) = OcrPostprocess.detInputSize(bitmap.width, bitmap.height, detMaxSide)
+        val started = System.nanoTime()
         val resized = Bitmap.createScaledBitmap(bitmap, w, h, true)
         val pixels = IntArray(w * h)
         resized.getPixels(pixels, 0, w, 0, 0, w, h)
         if (resized !== bitmap) resized.recycle()
         val input = OcrPostprocess.detTensor(pixels, w, h)
+        val prepared = System.nanoTime()
         val prob = OnnxTensor.createTensor(env, FloatBuffer.wrap(input), longArrayOf(1, 3, h.toLong(), w.toLong())).use { tensor ->
             detSession.run(mapOf(detSession.inputNames.first() to tensor)).use { result ->
                 val out = result[0] as OnnxTensor
@@ -80,9 +97,13 @@ class PaddleOcr(
                 FloatArray(mapW * mapH).also { out.floatBuffer.get(it) }
             }
         }
-        return OcrPostprocess.extractBoxes(prob, w, h).map { box ->
+        val inferred = System.nanoTime()
+        val boxes = OcrPostprocess.extractBoxes(prob, w, h).map { box ->
             OcrPostprocess.mapToImage(box, w, h, bitmap.width, bitmap.height) to box.score
         }.filter { (b, _) -> b.right - b.left >= MIN_CROP && b.bottom - b.top >= MIN_CROP }
+        Log.d(TAG, "det ${w}x$h: prepare ${(prepared - started) / 1_000_000}ms, infer " +
+            "${(inferred - prepared) / 1_000_000}ms, boxes ${(System.nanoTime() - inferred) / 1_000_000}ms")
+        return boxes
     }
 
     /** Reads each box; lines stay in image pixels. Crops are batched by similar aspect ratio. */
@@ -108,6 +129,7 @@ class PaddleOcr(
                 OcrPostprocess.recTensorInto(pixels, w, height, padded, input, slot * stride)
             }
             val shape = longArrayOf(batch.size.toLong(), 3, height.toLong(), padded.toLong())
+            val batchStarted = System.nanoTime()
             OnnxTensor.createTensor(env, FloatBuffer.wrap(input), shape).use { tensor ->
                 recSession.run(mapOf(recSession.inputNames.first() to tensor)).use { result ->
                     val out = result[0] as OnnxTensor
@@ -127,6 +149,7 @@ class PaddleOcr(
                     }
                 }
             }
+            Log.d(TAG, "rec batch n=${batch.size} width=$padded: ${(System.nanoTime() - batchStarted) / 1_000_000}ms")
         }
         return lines
     }
@@ -136,6 +159,13 @@ class PaddleOcr(
         return OrtSession.SessionOptions().use { options ->
             options.setIntraOpNumThreads(threads)
             options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            // Some screens drive activations into subnormal floats, which made the same-size
+            // detection run 10x slower depending on image content; flush them to zero.
+            options.addConfigEntry("session.set_denormal_as_zero", "1")
+            if (xnnpack) {
+                runCatching { options.addXnnpack(mapOf("intra_op_num_threads" to threads.toString())) }
+                    .onFailure { Log.w(TAG, "XNNPACK unavailable: ${it.message}") }
+            }
             env.createSession(bytes, options)
         }
     }
@@ -154,5 +184,7 @@ class PaddleOcr(
         private const val REC_BATCH = 6
         private const val MIN_CROP = 4
         private const val MIN_REC_CONFIDENCE = 0.5f
+        private const val WARM_UP_WIDTH = 720
+        private const val WARM_UP_HEIGHT = 1280
     }
 }

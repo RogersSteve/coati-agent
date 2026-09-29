@@ -58,13 +58,17 @@ class DebugAgentReceiver : BroadcastReceiver() {
     /**
      * Runs on-device OCR over every JPEG/PNG in getExternalFilesDir("ocr_bench") (push with adb)
      * and logs per-image latency and the recognized lines. Each image runs `repeat` times; the first
-     * run of the first image includes model loading and warm-up.
+     * run of the first image includes model loading and warm-up. The work outlives the broadcast
+     * (a receiver may only run for about a minute), so start Coati's service first to keep the
+     * process alive until "OCR bench done" is logged.
      */
     private fun ocrBench(context: Context, intent: Intent) {
-        val pending = goAsync()
         val repeat = intent.getIntExtra("repeat", 3).coerceAtLeast(1)
         CoroutineScope(Dispatchers.Default).launch {
-            val ocr = PaddleOcr(context)
+            val threads = intent.getIntExtra("threads", 4)
+            val xnnpack = intent.getBooleanExtra("xnnpack", true)
+            Log.i(TAG, "OCR bench config: threads=$threads, xnnpack=$xnnpack")
+            val ocr = PaddleOcr(context, threads = threads, xnnpack = xnnpack)
             try {
                 val dir = context.getExternalFilesDir("ocr_bench")
                 val files = dir?.listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg", "png") }
@@ -88,7 +92,6 @@ class DebugAgentReceiver : BroadcastReceiver() {
             } finally {
                 ocr.close()
                 Log.i(TAG, "OCR bench done")
-                pending.finish()
             }
         }
     }
