@@ -2,9 +2,24 @@ package bot.coati.perception
 
 import bot.coati.coordinates.PixelBounds
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HybridPerceptionTest {
+
+    @Test
+    fun `painted content is unchanged only with the same lines in the same places`() {
+        fun line(text: String, left: Int, top: Int) = OcrLine(text, PixelBounds(left, top, left + 60, top + 30))
+        val before = listOf(line("Copies", 40, 400), line("2", 900, 400), line("Priority delivery", 40, 480))
+
+        assertTrue(HybridPerception.samePainted(before, listOf(line("Copies", 42, 401), line("2", 899, 400), line("Priority delivery", 40, 482))))
+        // The counter moved on.
+        assertFalse(HybridPerception.samePainted(before, listOf(line("Copies", 40, 400), line("3", 900, 400), line("Priority delivery", 40, 480))))
+        // The page scrolled.
+        assertFalse(HybridPerception.samePainted(before, before.map { line(it.text, it.bounds.left, it.bounds.top - 120) }))
+        assertFalse(HybridPerception.samePainted(before, before.dropLast(1)))
+    }
     private fun line(text: String, l: Int, t: Int, r: Int, b: Int, conf: Float = 0.95f) = OcrLine(text, PixelBounds(l, t, r, b), conf)
 
     private fun element(id: String, text: String, l: Int, t: Int, r: Int, b: Int) =

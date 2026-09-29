@@ -23,6 +23,7 @@ import bot.coati.jev.HostVerdict
 import bot.coati.jev.JevCandidates
 import bot.coati.jev.JevDecisionEngine
 import bot.coati.jev.JevStepInput
+import bot.coati.jev.PreCommitCheck
 import bot.coati.jev.PreviousStep
 import bot.coati.jev.StepOutcome
 import bot.coati.jev.StepRecord
@@ -40,6 +41,7 @@ import bot.coati.perception.ParsedScreen
 import bot.coati.perception.ScreenDiff
 import bot.coati.perception.ScreenSource
 import bot.coati.perception.VisionScreenParser
+import bot.coati.perception.VisualChange
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.UiTreeNode
 import bot.coati.ui.overlay.OverlayManager
@@ -98,6 +100,7 @@ class JevStepExecutor(
     }
 
     private val visionParser = VisionScreenParser(modelRouter.fast)
+    private val preCommit = PreCommitCheck(modelRouter.fast)
     private var scope = newScope()
     private var advisor = BackgroundAdvisor(modelRouter.reasoning, scope)
     private var memory = ExplorationMemory()
@@ -134,6 +137,15 @@ class JevStepExecutor(
     // The last native page OCR found free of painted content; later steps on it skip OCR.
     private var plainPage: Pair<String, Set<String>>? = null
 
+    /** The last vision parse merged into a hybrid page, with the painted lines OCR read then. */
+    private class HybridCache(
+        val packageName: String,
+        val painted: List<OcrLine>,
+        val vision: ParsedScreen,
+        val paintedBounds: List<PixelBounds>,
+    )
+    private var hybridCache: HybridCache? = null
+
     /** Escalations in this task; past [MAX_ESCALATIONS] the Reasoning model keeps the task. */
     var escalations = 0
         private set
@@ -164,6 +176,7 @@ class JevStepExecutor(
         forgetPrevious()
         previousLuma = null
         plainPage = null
+        hybridCache = null
         recentVerdicts.clear()
     }
 
@@ -227,7 +240,7 @@ class JevStepExecutor(
         val reusedParse = lastScreen != null && lastScreen.source != ScreenSource.ACCESSIBILITY &&
             lastScreen.packageName == context.appPackage && !changedAtLastTarget &&
             visual != null && visual.bounds == null
-        val screen: ParsedScreen = (if (reusedParse) lastScreen else perceive(context, tree, coordinates))
+        val screen: ParsedScreen = (if (reusedParse) lastScreen else perceive(context, tree, coordinates, visual))
             ?: return FastStep.Escalate("the screen could not be parsed")
         val perceiveMs = System.currentTimeMillis() - started
         consecutiveRetries = 0
@@ -338,6 +351,14 @@ class JevStepExecutor(
         val action = toAgentAction(chosen.action, screen, text)
         if (chosen.action is CandidateAction.OpenApp) taskPackage = null // re-anchored on the next screen
         val label = chosen.description.substringBefore(" [") + (text?.let { " typing '$it'" } ?: "")
+        val elementType = element?.let { screen.element(it.elementId)?.type }.orEmpty()
+        if (element?.op == ElementOp.TAP && PreCommitCheck.isCommit(label, elementType)) {
+            val verdict = preCommit.check(task, label, context.screenshotJpeg)
+            Log.i(TAG, "Pre-commit check for '$label': ready=${verdict?.ready} missing=${verdict?.missing}")
+            if (verdict?.ready == false) {
+                return escalate("before '$label' the screen is not ready: ${verdict.missing ?: "a required value is missing"}")
+            }
+        }
         if (!confirmer.confirm(context.appPackage, actionName(chosen.action), label, baseSafetyLevel(chosen.action))) {
             return FastStep.Declined
         }
@@ -377,7 +398,12 @@ class JevStepExecutor(
      * text that no tree node accounts for reveals painted content on a native screen, and the
      * vision parse of it is merged into the tree (hybrid); OCR also corrects vision transcriptions.
      */
-    private suspend fun perceive(context: ScreenContext, tree: UiTreeNode?, coordinates: ScreenshotCoordinates): ParsedScreen? {
+    private suspend fun perceive(
+        context: ScreenContext,
+        tree: UiTreeNode?,
+        coordinates: ScreenshotCoordinates,
+        visual: VisualChange?,
+    ): ParsedScreen? {
         val width = coordinates.rawWidth
         val height = coordinates.rawHeight
         val scale = width.toFloat() / coordinates.imageWidth
@@ -407,9 +433,28 @@ class JevStepExecutor(
                 return treeScreen
             }
             plainPage = null
-            Log.i(TAG, "Painted content on a native screen (${uncovered.take(4).joinToString { it.text }}); merging a vision parse")
-            val vision = parseVision(context, coordinates)?.let { OcrTextRefiner.refine(it, lines, statusBar) } ?: return treeScreen
-            return HybridPerception.merge(treeScreen, vision, statusBar)
+            // Typing into a native field of a hybrid page leaves its painted part alone: when OCR reads
+            // the same painted lines in the same places and no pixel changed over a painted element,
+            // the last vision parse still holds and only the tree is fresh (saves 4-6 s per step).
+            val cached = hybridCache?.takeIf { cache ->
+                visual != null && cache.packageName == context.appPackage &&
+                    HybridPerception.samePainted(cache.painted, uncovered) &&
+                    cache.paintedBounds.none { painted -> visual.bounds?.let { overlaps(it, painted) } == true }
+            }
+            val vision = if (cached != null) {
+                Log.i(TAG, "Painted content unchanged (${uncovered.size} lines); reusing the vision parse")
+                cached.vision
+            } else {
+                Log.i(TAG, "Painted content on a native screen (${uncovered.take(4).joinToString { it.text }}); merging a vision parse")
+                parseVision(context, coordinates)?.let { OcrTextRefiner.refine(it, lines, statusBar) } ?: return treeScreen
+            }
+            val merged = HybridPerception.merge(treeScreen, vision, statusBar)
+            if (cached == null) {
+                hybridCache = HybridCache(
+                    context.appPackage, uncovered, vision, merged.elements.drop(merged.pageKeyElements).map { it.bounds },
+                )
+            }
+            return merged
         }
         val keyboard = keyboardBounds(tree, width, height)
         return coroutineScope {

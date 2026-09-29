@@ -1,6 +1,7 @@
 package bot.coati.perception
 
 import bot.coati.coordinates.PixelBounds
+import kotlin.math.abs
 
 /**
  * Same-screen hybrid of the accessibility tree and a vision parse. Many real screens mix native
@@ -68,7 +69,19 @@ object HybridPerception {
         )
     }
 
+    /**
+     * Whether the painted lines OCR reads now are the ones it read before, in the same places: then
+     * the painted part of the page is unchanged and an earlier vision parse still describes it.
+     * A counter that moved (2 -> 3) or a scrolled page reads differently.
+     */
+    fun samePainted(before: List<OcrLine>, now: List<OcrLine>, tolerancePx: Int = PAINTED_TOLERANCE_PX): Boolean =
+        before.size == now.size && before.zip(now).all { (a, b) ->
+            a.text == b.text && abs(a.bounds.left - b.bounds.left) <= tolerancePx &&
+                abs(a.bounds.top - b.bounds.top) <= tolerancePx
+        }
+
     private fun PixelBounds.contains(x: Int, y: Int) = x in left until right && y in top until bottom
 
     private const val MAX_SUMMARY = 600
+    private const val PAINTED_TOLERANCE_PX = 12
 }
