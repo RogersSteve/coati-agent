@@ -6,6 +6,7 @@ import bot.coati.model.GatewayUtils
 import bot.coati.model.StructuredTextFinishReason
 import bot.coati.model.StructuredTextRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -31,16 +32,24 @@ class VisionScreenParser(private val gateway: CloudModelGateway) {
         var lastError: Exception = IllegalStateException("vision_parse_not_attempted")
         repeat(MAX_ATTEMPTS) {
             try {
-                val result = gateway.generateStructuredText(
-                    StructuredTextRequest(
-                        systemPrompt = SYSTEM_PROMPT,
-                        userPrompt = userPrompt(imageWidth, imageHeight),
-                        temperature = 0.0,
-                        maxOutputTokens = MAX_OUTPUT_TOKENS,
-                        imageJpeg = screenshotJpeg,
-                        lowLatency = true,
-                    ),
-                ).getOrThrow()
+                // A parse normally takes 3-10 s; a stalled connection must not hold the step for
+                // the gateway's 300 s limit (board: one parse hung 306 s after a proxy error).
+                val result = withTimeoutOrNull(ATTEMPT_TIMEOUT_MS) {
+                    gateway.generateStructuredText(
+                        StructuredTextRequest(
+                            systemPrompt = SYSTEM_PROMPT,
+                            userPrompt = userPrompt(imageWidth, imageHeight),
+                            temperature = 0.0,
+                            maxOutputTokens = MAX_OUTPUT_TOKENS,
+                            imageJpeg = screenshotJpeg,
+                            lowLatency = true,
+                        ),
+                    )
+                }?.getOrThrow()
+                if (result == null) {
+                    lastError = IllegalStateException("vision_parse_timeout")
+                    return@repeat
+                }
                 if (result.finishReason == StructuredTextFinishReason.FILTERED) {
                     return Result.failure(IllegalStateException("vision_parse_filtered"))
                 }
@@ -57,6 +66,7 @@ class VisionScreenParser(private val gateway: CloudModelGateway) {
 
     companion object {
         private const val MAX_ATTEMPTS = 2
+        private const val ATTEMPT_TIMEOUT_MS = 30_000L
         private const val MAX_OUTPUT_TOKENS = 8192
 
         private val SYSTEM_PROMPT = """
