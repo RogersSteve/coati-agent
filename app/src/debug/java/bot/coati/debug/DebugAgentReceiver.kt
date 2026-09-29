@@ -3,7 +3,10 @@ package bot.coati.debug
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Rect
 import android.util.Log
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -18,6 +21,9 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 
 /**
  * Debug-only control for device benchmarks: configure models and start or stop a task without
@@ -31,6 +37,8 @@ import kotlinx.coroutines.runBlocking
  * adb shell am broadcast -a bot.coati.debug.RUN_TASK -n bot.coati/.debug.DebugAgentReceiver --es task "..."
  * adb shell am broadcast -a bot.coati.debug.STOP_TASK -n bot.coati/.debug.DebugAgentReceiver
  * adb shell am broadcast -a bot.coati.debug.DUMP_TREE -n bot.coati/.debug.DebugAgentReceiver
+ * adb shell am broadcast -a bot.coati.debug.DUMP_NODES -n bot.coati/.debug.DebugAgentReceiver
+ *   (then: adb shell run-as bot.coati cat files/ui_nodes.json)
  */
 class DebugAgentReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -43,6 +51,7 @@ class DebugAgentReceiver : BroadcastReceiver() {
             }
             ACTION_STOP_TASK -> Log.i(TAG, "Debug task stopped=${CoatiService.stopTask()}")
             ACTION_DUMP_TREE -> dumpTree()
+            ACTION_DUMP_NODES -> dumpNodes(context)
         }
     }
 
@@ -90,6 +99,37 @@ class DebugAgentReceiver : BroadcastReceiver() {
         Log.i(TAG, "Dump tree: ${texts.size} labels: ${texts.joinToString(" | ")}")
     }
 
+    /**
+     * Visible nodes of the active window as JSON, for benchmark checks. Through Coati's own service:
+     * `uiautomator dump` suppresses accessibility services while it runs, and on the test board
+     * Coati's screenshots then failed with error 1 until its process restarted.
+     */
+    private fun dumpNodes(context: Context) {
+        val out = File(context.filesDir, NODES_FILE)
+        // The topmost app window, not the active one: right after a task Coati's own overlay can be
+        // the active window, and the app under it is what the checks read.
+        val root = CoatiAccessibilityService.instance?.windows
+            ?.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            ?.maxByOrNull { it.layer }?.root
+        val nodes = JSONArray()
+        fun visit(node: AccessibilityNodeInfo) {
+            val bounds = Rect().also(node::getBoundsInScreen)
+            if (node.isVisibleToUser && bounds.width() > 0 && bounds.height() > 0) {
+                nodes.put(JSONObject().apply {
+                    put("text", node.text?.toString().orEmpty())
+                    put("desc", node.contentDescription?.toString().orEmpty())
+                    put("cls", node.className?.toString()?.substringAfterLast('.').orEmpty())
+                    put("checked", node.isChecked)
+                    put("bounds", JSONArray(listOf(bounds.left, bounds.top, bounds.right, bounds.bottom)))
+                })
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(::visit)
+        }
+        root?.let(::visit)
+        out.writeText(JSONObject().put("ok", root != null).put("nodes", nodes).toString())
+        Log.i(TAG, "Dump nodes: ${nodes.length()} visible nodes")
+    }
+
     private fun completeOnboarding(context: Context) {
         val dataStore = EntryPointAccessors
             .fromApplication(context.applicationContext, DebugAgentEntryPoint::class.java)
@@ -110,5 +150,7 @@ class DebugAgentReceiver : BroadcastReceiver() {
         const val ACTION_RUN_TASK = "bot.coati.debug.RUN_TASK"
         const val ACTION_STOP_TASK = "bot.coati.debug.STOP_TASK"
         const val ACTION_DUMP_TREE = "bot.coati.debug.DUMP_TREE"
+        const val ACTION_DUMP_NODES = "bot.coati.debug.DUMP_NODES"
+        private const val NODES_FILE = "ui_nodes.json"
     }
 }
