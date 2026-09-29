@@ -284,10 +284,6 @@ class JevStepExecutor(
             chosen.action is CandidateAction.Escalate -> return escalate("JEV asked for the Reasoning model")
             consecutiveBad >= MAX_CONSECUTIVE_BAD -> return escalate("$consecutiveBad fast actions in a row had no effect")
             cycling -> return escalate("no new page for several steps")
-            // Finding where something lives is a reasoning problem: blind exploration by JEV wanders,
-            // while the Reasoning model knows common app layouts. JEV keeps the confident steps.
-            decision.explored && decision.confidence < EXPLORE_CONFIDENCE ->
-                return escalate("JEV would explore with confidence ${"%.2f".format(decision.confidence)}")
             chosen.action is CandidateAction.Done -> return FastStep.DoneClaimed(screen.summary)
             chosen.action is CandidateAction.Wait -> {
                 delay(WAIT_MS)
@@ -488,7 +484,6 @@ class JevStepExecutor(
         private const val MAX_NO_CHANGE_REPEATS = 2
         private const val MAX_AUDIT_REJECTS = 2
         const val MAX_ESCALATIONS = 10
-        private const val EXPLORE_CONFIDENCE = 0.5
         private const val SETTLE_MS = 800L
         private const val FOCUS_SETTLE_MS = 600L
         private const val WAIT_MS = 1500L
