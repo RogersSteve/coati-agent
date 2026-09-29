@@ -6,6 +6,8 @@ internal data class LabEntry(
     val category: String,
     val summary: String,
     val details: List<String>,
+    /** English search aliases, so ASCII-only input paths (adb, IMEs without CJK) can search too. */
+    val keywords: List<String> = emptyList(),
 )
 
 internal object ManualLabCatalog {
@@ -16,6 +18,7 @@ internal object ManualLabCatalog {
             category = "出行",
             summary = "整理出发前需要确认的常用事项。",
             details = listOf("确认身份证件", "下载离线地图", "准备充电设备"),
+            keywords = listOf("travel", "trip"),
         ),
         LabEntry(
             id = "meeting",
@@ -23,6 +26,7 @@ internal object ManualLabCatalog {
             category = "工作",
             summary = "帮助会前核对材料、设备和参会信息。",
             details = listOf("检查会议议程", "准备演示文件", "确认会议地点"),
+            keywords = listOf("meeting", "work"),
         ),
         LabEntry(
             id = "emergency",
@@ -30,6 +34,7 @@ internal object ManualLabCatalog {
             category = "生活",
             summary = "记录家庭应急用品的基础准备项目。",
             details = listOf("检查饮用水", "检查照明工具", "记录紧急联系人"),
+            keywords = listOf("emergency", "home"),
         ),
     )
 
@@ -41,7 +46,8 @@ internal object ManualLabCatalog {
         return entries.filter { entry ->
             entry.title.contains(normalized, ignoreCase = true) ||
                 entry.category.contains(normalized, ignoreCase = true) ||
-                entry.summary.contains(normalized, ignoreCase = true)
+                entry.summary.contains(normalized, ignoreCase = true) ||
+                entry.keywords.any { it.contains(normalized, ignoreCase = true) }
         }
     }
 }

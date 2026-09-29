@@ -61,6 +61,8 @@ private enum class LabPage(val title: String) {
     HELP("帮助与关于"),
     ARCHIVE("实验档案"),
     TOOLS("工具"),
+    WORKBENCH("Canvas Workbench"),
+    ORDER("Mixed Order"),
 }
 
 private val isLayoutV2: Boolean
@@ -151,6 +153,12 @@ internal fun VersionedManualLabApp() {
         )
     }
 
+    if (currentPage == LabPage.WORKBENCH) {
+        // Full-screen painted page without native chrome: no accessibility tree at all.
+        CanvasWorkbenchPage(preferences = preferences, onBack = ::goBack)
+        return
+    }
+
     Scaffold(
         topBar = {
             LabTopBar(
@@ -182,6 +190,8 @@ internal fun VersionedManualLabApp() {
                     onHelp = { navigate(LabPage.HELP) },
                     onFeatured = { navigateToEntry("travel") },
                     onTools = { navigate(LabPage.TOOLS) },
+                    onWorkbench = { navigate(LabPage.WORKBENCH) },
+                    onOrder = { navigate(LabPage.ORDER) },
                 )
 
                 LabPage.CATALOG -> CatalogPage(
@@ -232,6 +242,8 @@ internal fun VersionedManualLabApp() {
                     onArchive = { navigate(LabPage.ARCHIVE) },
                 )
 
+                LabPage.WORKBENCH -> Unit
+                LabPage.ORDER -> MixedOrderPage(preferences)
                 LabPage.HELP -> HelpPage()
                 LabPage.ARCHIVE -> ArchivePage()
                 LabPage.TOOLS -> ToolsPage(
@@ -330,7 +342,7 @@ private fun LabBottomBar(selectedPage: LabPage, onSelect: (LabPage) -> Unit) {
 }
 
 @Composable
-private fun PageIntro(title: String, subtitle: String) {
+internal fun PageIntro(title: String, subtitle: String) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(title, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -344,6 +356,8 @@ private fun HomePage(
     onHelp: () -> Unit,
     onFeatured: () -> Unit,
     onTools: () -> Unit,
+    onWorkbench: () -> Unit,
+    onOrder: () -> Unit,
 ) {
     PageIntro("欢迎使用手册实验室", "离线浏览资料、保存收藏并调整本地偏好。")
     SectionCard(
@@ -361,6 +375,8 @@ private fun HomePage(
     }
     NavigationCard("收藏", "查看已经收藏的条目。", onFavorites)
     NavigationCard("帮助与关于", "查看使用说明和版本信息。", onHelp)
+    NavigationCard("Canvas Workbench", "Painted canvas: adjust brush and layers, export artwork.", onWorkbench)
+    NavigationCard("Mixed Order", "Choose an item, set print copies and delivery.", onOrder)
 }
 
 @Composable

@@ -448,7 +448,7 @@ class AgentLoop(
                         )
                     }
                     val elapsed = System.currentTimeMillis() - taskStartTime
-                    Log.i(TAG, "Task complete at step $stepCount!")
+                    Log.i(TAG, "Task complete at step $stepCount in ${elapsed}ms")
                     updateTaskStatus("completed")
                     // Freeze and enqueue an immutable update request before waiting for the
                     // result dialog. Enqueue is non-blocking and cannot change task outcome.

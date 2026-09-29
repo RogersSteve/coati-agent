@@ -516,5 +516,20 @@ class CoatiService : Service() {
             }
             context.startForegroundService(intent)
         }
+
+        /** Stops the running task exactly as the overlay's Stop button does. */
+        fun stopTask(): Boolean {
+            val stop = instance?.overlayManager?.onStopTask ?: return false
+            stop()
+            return true
+        }
+
+        /** Starts a task exactly as the overlay's Execute button does. Returns false when not ready. */
+        fun executeTask(task: String): Boolean {
+            val overlay = instance?.overlayManager ?: return false
+            val execute = overlay.onExecuteTask ?: return false
+            execute(task)
+            return true
+        }
     }
 }
