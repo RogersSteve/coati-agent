@@ -170,6 +170,13 @@
     <string name="settings_endpoint_required">API endpoint is required</string>
     <string name="settings_model_required">Model name is required</string>
     <string name="settings_key_required">API key is required</string>
+    <string name="settings_jev_section">Fast executor</string>
+    <string name="settings_jev_title">JEV · Optional</string>
+    <string name="settings_jev_description">With a JEV API key, JEV picks and checks most steps in about a second while the Reasoning model plans in the background and takes over whenever JEV is unsure. Without a key, the Reasoning model decides every step.</string>
+    <string name="settings_jev_api_key">JEV API key</string>
+    <string name="settings_jev_remove">Remove JEV key</string>
+    <string name="settings_jev_removed">JEV key removed; the Reasoning model decides every step</string>
+    <string name="settings_jev_disclosure">JEV receives a text description of each screen, never the screenshot. Changes apply to the next task.</string>
 
     <!-- Overlay -->
     <string name="overlay_task_hint">Describe a task…</string>

@@ -2,11 +2,15 @@ package bot.coati.model
 
 import org.json.JSONObject
 
-data class StructuredTextRequest(
+class StructuredTextRequest(
     val systemPrompt: String,
     val userPrompt: String,
     val temperature: Double = 0.1,
     val maxOutputTokens: Int,
+    /** Optional JPEG attached to the user turn. */
+    val imageJpeg: ByteArray? = null,
+    /** Ask for minimal model-side thinking; providers that reject the hint are retried without it. */
+    val lowLatency: Boolean = false,
 )
 
 enum class StructuredTextFinishReason {

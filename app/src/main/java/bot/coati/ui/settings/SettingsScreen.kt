@@ -140,6 +140,11 @@ fun SettingsScreen(
                 ModelSettingsCard(state = state, viewModel = viewModel)
             }
             item {
+                SectionTitle(stringResource(R.string.settings_jev_section))
+                Spacer(Modifier.height(8.dp))
+                JevCard(state = state.jev, viewModel = viewModel)
+            }
+            item {
                 SectionTitle(stringResource(R.string.settings_safety_support))
                 Spacer(Modifier.height(8.dp))
                 InformationCard(
@@ -700,6 +705,67 @@ private fun ModelSettingsCard(
 }
 
 @Composable
+private fun JevCard(
+    state: JevEditorState,
+    viewModel: SettingsViewModel,
+) {
+    Card(shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text(stringResource(R.string.settings_jev_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(
+                stringResource(R.string.settings_jev_description),
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ApiKeyField(
+                value = state.apiKeyInput,
+                maskedKey = state.maskedApiKey,
+                hasSavedKey = state.hasSavedKey,
+                isError = false,
+                onValueChange = viewModel::updateJevApiKey,
+                label = stringResource(R.string.settings_jev_api_key),
+            )
+            state.errorMessage?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+            state.successMessage?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = viewModel::verifyAndApplyJev,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.verifying,
+            ) {
+                if (state.verifying) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.height(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Text(stringResource(R.string.settings_verify_apply))
+                }
+            }
+            if (state.hasSavedKey) {
+                TextButton(onClick = viewModel::removeJevKey, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.settings_jev_remove))
+                }
+            }
+            Text(
+                text = stringResource(R.string.settings_jev_disclosure),
+                modifier = Modifier.padding(top = 10.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun ProviderPicker(
     selectedProviderId: String,
     onSelected: (String) -> Unit,
@@ -775,13 +841,14 @@ private fun ApiKeyField(
     hasSavedKey: Boolean,
     isError: Boolean,
     onValueChange: (String) -> Unit,
+    label: String = stringResource(R.string.settings_api_key),
 ) {
     var visible by rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth(),
-        label = { Text(stringResource(R.string.settings_api_key)) },
+        label = { Text(label) },
         placeholder = {
             Text(
                 if (hasSavedKey) stringResource(R.string.settings_saved_key_hint, maskedKey)

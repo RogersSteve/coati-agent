@@ -10,6 +10,7 @@ import bot.coati.data.ProviderConfig
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
 import bot.coati.experience.AppManualRepository
+import bot.coati.jev.JevClient
 import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
 import bot.coati.model.userFacingConnectionError
@@ -71,9 +72,13 @@ class SettingsViewModel @Inject constructor(
             reasoning = initialReasoning,
             fast = initialFast,
             fastSameAsReasoning = initialFastSameAsReasoning,
+            jev = configStore.getJevConfig().let { jev ->
+                JevEditorState(maskedApiKey = jev?.apiKey?.let(::maskApiKey).orEmpty(), hasSavedKey = jev != null)
+            },
         ),
     )
     val uiState: StateFlow<SettingsUiState> = _uiState
+    private var jevVerifyJob: Job? = null
 
     init {
         refreshPermissions()
@@ -222,6 +227,57 @@ class SettingsViewModel @Inject constructor(
     fun updateApiKey(role: ModelRole, apiKey: String) {
         cancelVerification(role)
         updateEditor(role) { it.copy(apiKeyInput = apiKey, successMessage = null, errorMessage = null) }
+    }
+
+    fun updateJevApiKey(apiKey: String) {
+        updateJev { it.copy(apiKeyInput = apiKey, successMessage = null, errorMessage = null) }
+    }
+
+    fun verifyAndApplyJev() {
+        val saved = configStore.getJevConfig()
+        val key = resolveApiKey(_uiState.value.jev.apiKeyInput, saved?.apiKey, canReuseSavedKey = true)
+        if (key.isNullOrBlank()) {
+            updateJev { it.copy(errorMessage = getApplication<Application>().getString(R.string.settings_key_required)) }
+            return
+        }
+        jevVerifyJob?.cancel()
+        updateJev { it.copy(verifying = true, successMessage = null, errorMessage = null) }
+        jevVerifyJob = viewModelScope.launch {
+            try {
+                val endpoint = saved?.endpoint ?: ConfigStore.DEFAULT_JEV_ENDPOINT
+                val model = saved?.model ?: ConfigStore.DEFAULT_JEV_MODEL
+                JevClient(okHttpClient, key, endpoint, model).testConnection().getOrThrow()
+                configStore.saveJevConfig(key, endpoint, model)
+                updateJev {
+                    it.copy(
+                        apiKeyInput = "",
+                        maskedApiKey = maskApiKey(key),
+                        hasSavedKey = true,
+                        successMessage = getApplication<Application>().getString(R.string.settings_connection_applied),
+                    )
+                }
+                reloadModelsIfAvailable()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isActive) updateJev { it.copy(errorMessage = userFacingConnectionError(e)) }
+            } finally {
+                if (isActive) updateJev { it.copy(verifying = false) }
+            }
+        }
+    }
+
+    fun removeJevKey() {
+        jevVerifyJob?.cancel()
+        configStore.clearJevConfig()
+        updateJev {
+            JevEditorState(successMessage = getApplication<Application>().getString(R.string.settings_jev_removed))
+        }
+        reloadModelsIfAvailable()
+    }
+
+    private fun updateJev(transform: (JevEditorState) -> JevEditorState) {
+        _uiState.value = _uiState.value.copy(jev = transform(_uiState.value.jev))
     }
 
     fun verifyAndApply(role: ModelRole) {

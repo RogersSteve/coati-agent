@@ -17,6 +17,10 @@ data class UiTreeNode(
     val viewIdResourceName: String?,
     val actions: List<String> = emptyList(),
     val children: List<UiTreeNode>,
+    val isLongClickable: Boolean = false,
+    val isChecked: Boolean = false,
+    val isSelected: Boolean = false,
+    val isVisibleToUser: Boolean = true,
 ) {
     fun toSimpleString(indent: Int = 0): String {
         val sb = StringBuilder()

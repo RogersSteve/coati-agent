@@ -23,6 +23,9 @@ import androidx.core.content.ContextCompat
 import bot.coati.R
 import bot.coati.action.ActionEngine
 import bot.coati.agent.AgentLoop
+import bot.coati.agent.JevStepExecutor
+import bot.coati.jev.JevClient
+import bot.coati.jev.JevDecisionEngine
 import bot.coati.data.ConfigStore
 import bot.coati.experience.AppIdentityResolver
 import bot.coati.experience.AppManualRenderer
@@ -211,10 +214,20 @@ class CoatiService : Service() {
             modeProvider = { configStore.getManualMode() },
         )
         manualRuntime = newManualRuntime
+        // With a JEV key, the fast path takes each step first; without one, Reasoning decides every step.
+        val jevConfig = configStore.getJevConfig()
+        val fastExecutor = jevConfig?.let {
+            JevStepExecutor(
+                overlay, modelRouter, actionEngine, a11y,
+                JevDecisionEngine(JevClient(client, it.apiKey, it.endpoint, it.model)),
+                newManualRuntime,
+            )
+        }
         val loop = AgentLoop(
             overlay, modelRouter, actionEngine, a11y,
             stateManager, newManualRuntime,
             safetyModeProvider = { configStore.getSafetyMode() },
+            fastExecutor = fastExecutor,
         )
         agentLoop = loop
 
@@ -243,7 +256,7 @@ class CoatiService : Service() {
         Log.i(
             TAG,
             "Agent initialized: reasoning=${reasoningConfig.providerId}/${reasoningConfig.modelName}, " +
-                "fast=${fastConfig.providerId}/${fastConfig.modelName}, " +
+                "fast=${fastConfig.providerId}/${fastConfig.modelName}, jev=${jevConfig?.model ?: "off"}, " +
                 "manualSchema=v2-learning, knowledgeUpdater=reasoning, " +
                 "confirmationMode=${configStore.getSafetyMode()}, manualMode=${configStore.getManualMode()}",
         )

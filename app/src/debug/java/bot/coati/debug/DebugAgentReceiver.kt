@@ -27,7 +27,8 @@ import kotlinx.coroutines.runBlocking
  *
  * adb shell am broadcast -a bot.coati.debug.CONFIGURE_AGENT -n bot.coati/.debug.DebugAgentReceiver \
  *   --es provider openai_compatible --es endpoint https://relay.example --es api_key KEY \
- *   --es reasoning_model m1 --es fast_model m2 --es safety TRUST
+ *   --es reasoning_model m1 --es fast_model m2 --es safety TRUST --es jev_key KEY
+ * (an empty jev_key removes it, so every step uses the Reasoning model)
  * adb shell am broadcast -a bot.coati.debug.RUN_TASK -n bot.coati/.debug.DebugAgentReceiver --es task "..."
  * adb shell am broadcast -a bot.coati.debug.STOP_TASK -n bot.coati/.debug.DebugAgentReceiver
  * adb shell am broadcast -a bot.coati.debug.DUMP_TREE -n bot.coati/.debug.DebugAgentReceiver
@@ -58,11 +59,15 @@ class DebugAgentReceiver : BroadcastReceiver() {
             store.saveFastModelName(intent.getStringExtra("fast_model") ?: reasoningModel)
             completeOnboarding(context)
         }
+        intent.getStringExtra("jev_key")?.let { key ->
+            if (key.isBlank()) store.clearJevConfig()
+            else store.saveJevConfig(key, ConfigStore.DEFAULT_JEV_ENDPOINT, ConfigStore.DEFAULT_JEV_MODEL)
+        }
         intent.getStringExtra("safety")?.let { name ->
             runCatching { SafetyMode.valueOf(name.uppercase()) }.getOrNull()?.let(store::setSafetyMode)
         }
         if (CoatiService.isRunning()) CoatiService.reloadModelConfiguration(context)
-        Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}")
+        Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}, jev=${store.getJevConfig() != null}")
     }
 
     /** Logs what the accessibility service can read right now: every window and the active tree's text. */

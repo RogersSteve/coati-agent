@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 import adbdev as dev
-from tasks import TASKS
+from tasks import SETUP, TASKS
 
 RECEIVER = "bot.coati/.debug.DebugAgentReceiver"
 RUN_TIMEOUT_S = 600
@@ -30,10 +30,15 @@ EMULATOR_AVD = os.environ.get("EMULATOR_AVD", "Medium_Phone_API_36.0")
 # Emulator host memory grows over many runs; a periodic cold restart bounds it.
 EMULATOR_RESTART_EVERY = 10
 
-# Extra CONFIGURE_AGENT extras per mode; builds with more executors add their modes here.
+JEV_KEY = os.environ.get("JEV_KEY", "")
+# Extra CONFIGURE_AGENT extras per mode. An empty jev_key removes the key: Reasoning decides every
+# step, i.e. the classic flow. BENCH_APK_<MODE> (e.g. BENCH_APK_CLASSIC) installs that Coati build
+# before the mode runs, so a mode can use a build of another branch such as main.
 MODES = {
-    "classic": [],
+    "classic": ["--es", "jev_key", ""],
+    "jev": ["--es", "jev_key", JEV_KEY],
 }
+LOG_TAGS.append("CoatiJev")
 
 _runs_since_restart = 0
 
@@ -61,7 +66,17 @@ def prepare_device():
     dev.sh("shell", "settings", "put", "secure", "accessibility_enabled", "1")
 
 
+def install_mode_apk(mode):
+    apk = os.environ.get(f"BENCH_APK_{mode.upper()}")
+    if apk:
+        print(f"--- installing {apk} for mode {mode}", flush=True)
+        dev.sh("install", "-r", apk, timeout=180)
+
+
 def configure(mode):
+    if mode == "jev" and not JEV_KEY:
+        raise SystemExit("mode jev needs JEV_KEY")
+    install_mode_apk(mode)
     clear_task_state()
     dev.force_stop("bot.coati")
     prepare_device()  # force-stop unbinds the accessibility service; re-enable it
@@ -97,6 +112,8 @@ def recover_device(mode, reason):
 def start_task(pkg, task):
     dev.force_stop(pkg)
     dev.sh("shell", "pm", "clear", pkg)
+    if pkg in SETUP:
+        SETUP[pkg]()
     dev.key("HOME")
     time.sleep(1)
     dev.launch(pkg)
@@ -154,7 +171,11 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
     m = re.search(r"Task complete at step (\d+)", log)
     steps = int(m.group(1)) if m else len(re.findall(r"── Step \d+/", log))
     rec = {"task": tid, "mode": mode, "rep": rep, "tags": tags, "status": status, "verified": verified,
-           "wall": round(wall, 1), "steps": steps, "errors": state.get("errors", [])}
+           "wall": round(wall, 1), "steps": steps, "errors": state.get("errors", []),
+           # Where the decisions came from: fast JEV steps vs Reasoning steps, and hand-overs.
+           "jev_steps": len(re.findall(r"CoatiJev: Step \d+ \[", log)),
+           "reasoning_calls": log.count("Calling reasoning model"),
+           "escalations": log.count("Escalating to the Reasoning model")}
     (out_dir / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
     (out_dir / f"{name}.log").write_text(log, encoding="utf-8")
     print(f"=== {name}: status={status} verified={verified} steps={steps} wall={wall:.0f}s", flush=True)

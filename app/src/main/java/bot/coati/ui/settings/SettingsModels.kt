@@ -36,6 +36,15 @@ data class ModelEditorState(
     val errorMessage: String? = null,
 )
 
+data class JevEditorState(
+    val apiKeyInput: String = "",
+    val maskedApiKey: String = "",
+    val hasSavedKey: Boolean = false,
+    val verifying: Boolean = false,
+    val successMessage: String? = null,
+    val errorMessage: String? = null,
+)
+
 data class SettingsUiState(
     val versionName: String = "",
     val safetyMode: SafetyMode = SafetyMode.STANDARD,
@@ -52,6 +61,7 @@ data class SettingsUiState(
     val reasoning: ModelEditorState,
     val fast: ModelEditorState,
     val fastSameAsReasoning: Boolean = true,
+    val jev: JevEditorState = JevEditorState(),
 ) {
     val startupIssues: List<StartupIssue>
         get() = startupIssues(
