@@ -34,8 +34,10 @@ public:
     void set_target_size(int target_size);
 
     // Runs detection then recognition on a tightly or loosely packed RGBA image.
+    // Text boxes whose center lies inside any [skip] rectangle (x0,y0,x1,y1 in image pixels) are
+    // detected but not recognized: callers use it for regions they already understand.
     int detect_and_recognize(const unsigned char* rgba, int width, int height, int stride,
-                             std::vector<OcrText>& results);
+                             const std::vector<int>& skip, std::vector<OcrText>& results);
 
 private:
     struct Box
@@ -46,6 +48,11 @@ private:
 
     int detect(const unsigned char* rgba, int width, int height, int stride, std::vector<Box>& boxes);
     int recognize(const unsigned char* rgba, int width, int height, int stride, const Box& box, OcrText& out);
+    // Recognizes several boxes in one GPU pass: crops are laid side by side with blank gaps and the
+    // output time steps are split back per crop.
+    int recognize_batch(const unsigned char* rgba, int width, int height, int stride, const std::vector<Box>& boxes,
+                        std::vector<OcrText>& out);
+    std::string decode(const ncnn::Mat& probs, int step_begin, int step_end, float& prob) const;
 
     ncnn::Net det_;
     ncnn::Net rec_;

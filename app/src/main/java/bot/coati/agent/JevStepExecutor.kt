@@ -9,6 +9,7 @@ import bot.coati.action.AgentAction
 import bot.coati.action.InputTextMode
 import bot.coati.action.toLogSummary
 import bot.coati.coordinates.DisplaySpaceReader
+import bot.coati.coordinates.PixelBounds
 import bot.coati.coordinates.ScreenshotCoordinates
 import bot.coati.experience.AppManualRuntime
 import bot.coati.experience.RenderedAppManual
@@ -80,8 +81,11 @@ class JevStepExecutor(
     private val a11y: CoatiAccessibilityService,
     private val decisionEngine: JevDecisionEngine,
     private val manualRuntime: AppManualRuntime? = null,
-    /** On-device GPU OCR, or null when the device cannot run it; perception works without it. */
-    private val ocr: OcrEngine? = null,
+    /**
+     * On-device GPU OCR once it is ready, or null (no usable GPU, or still loading); perception works
+     * without it and never waits for it.
+     */
+    private val ocrProvider: () -> OcrEngine? = { null },
 ) {
     /** Performs a safety confirmation for a candidate; false when the user declined. */
     fun interface Confirmer {
@@ -349,13 +353,17 @@ class JevStepExecutor(
         val height = coordinates.rawHeight
         val scale = width.toFloat() / coordinates.imageWidth
         val statusBar = coordinates.display.insets.top
+        val ocr = ocrProvider()
         if (tree != null && A11yScreenParser.isUsable(tree)) {
             val treeScreen = A11yScreenParser.parse(tree, context.appPackage, width, height)
             val engine = ocr ?: return treeScreen
             val ocrStarted = System.currentTimeMillis()
-            val lines = engine.recognize(context.screenshotJpeg, scale)
-            val uncovered = HybridPerception.uncoveredLines(lines, A11yScreenParser.labelledBounds(tree, width, height), statusBar)
-            Log.i(TAG, "OCR ${System.currentTimeMillis() - ocrStarted}ms: ${lines.size} lines, ${uncovered.size} not in the tree")
+            // Only text the tree does not explain matters here, and recognition is the costly part of
+            // OCR: text inside labelled nodes and the status bar is detected but not read.
+            val labelled = A11yScreenParser.labelledBounds(tree, width, height)
+            val lines = engine.recognize(context.screenshotJpeg, scale, labelled + PixelBounds(0, 0, width, statusBar))
+            val uncovered = HybridPerception.uncoveredLines(lines, labelled, statusBar)
+            Log.i(TAG, "OCR ${System.currentTimeMillis() - ocrStarted}ms: ${uncovered.size} lines not in the tree")
             if (uncovered.size < HybridPerception.MIN_UNCOVERED_LINES) return treeScreen
             Log.i(TAG, "Painted content on a native screen (${uncovered.take(4).joinToString { it.text }}); merging a vision parse")
             val vision = parseVision(context, coordinates)?.let { OcrTextRefiner.refine(it, lines) } ?: return treeScreen

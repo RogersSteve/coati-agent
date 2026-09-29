@@ -3,7 +3,12 @@
 #include "ppocrv5.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
+
+#include <sys/system_properties.h>
 
 #include <android/log.h>
 
@@ -11,6 +16,7 @@
 
 #define LOG_TAG "CoatiOcr"
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
 namespace {
 
@@ -25,6 +31,26 @@ constexpr int kStride = 32;
 constexpr int kRecHeight = 48;
 constexpr int kRecMinWidth = 16;
 constexpr int kRecMaxWidth = 2048;
+// Horizontal batching: total width of one recognition pass and the blank gap between crops.
+constexpr int kBatchMaxWidth = 2048;
+constexpr int kBatchGap = 32;
+
+// Batching is on unless the debug property debug.coati.ocr_batch is "0" (for A/B measurements).
+bool batching_enabled()
+{
+    char value[PROP_VALUE_MAX] = {0};
+    return __system_property_get("debug.coati.ocr_batch", value) <= 0 || std::strcmp(value, "0") != 0;
+}
+
+double ms_since(std::chrono::steady_clock::time_point start)
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
+
+int rec_width(int roiw, int roih)
+{
+    return std::clamp((int)std::lround((float)kRecHeight * roiw / roih), kRecMinWidth, kRecMaxWidth);
+}
 
 void configure_gpu(ncnn::Net& net)
 {
@@ -234,7 +260,7 @@ int PPOCRv5::recognize(const unsigned char* rgba, int width, int height, int str
 {
     const int roiw = box.x1 - box.x0;
     const int roih = box.y1 - box.y0;
-    const int target_w = std::clamp((int)std::lround((float)kRecHeight * roiw / roih), kRecMinWidth, kRecMaxWidth);
+    const int target_w = rec_width(roiw, roih);
 
     ncnn::Mat in = ncnn::Mat::from_pixels_roi_resize(rgba, ncnn::Mat::PIXEL_RGBA2BGR, width, height, stride,
                                                      box.x0, box.y0, roiw, roih, target_w, kRecHeight);
@@ -248,13 +274,26 @@ int PPOCRv5::recognize(const unsigned char* rgba, int width, int height, int str
     if (ex.extract("out0", probs) != 0)
         return -1;
 
+    float prob = 0.f;
+    const std::string text = decode(probs, 0, probs.h, prob);
+    out.text = text;
+    out.prob = prob;
+    out.x0 = box.x0;
+    out.y0 = box.y0;
+    out.x1 = box.x1;
+    out.y1 = box.y1;
+    return 0;
+}
+
+std::string PPOCRv5::decode(const ncnn::Mat& probs, int step_begin, int step_end, float& prob) const
+{
     // probs: steps (h) x classes (w), softmax. CTC greedy decode: class 0 is blank, class i is
     // dict[i - 1], classes past the dictionary are the space; repeats collapse unless separated.
     std::string text;
     float conf_sum = 0.f;
     int emitted = 0;
     int last = 0;
-    for (int t = 0; t < probs.h; t++)
+    for (int t = step_begin; t < step_end; t++)
     {
         const float* p = probs.row(t);
         int best = 0;
@@ -282,30 +321,134 @@ int PPOCRv5::recognize(const unsigned char* rgba, int width, int height, int str
     }
     while (!text.empty() && text.back() == ' ')
         text.pop_back();
+    prob = emitted > 0 ? conf_sum / emitted : 0.f;
+    return text;
+}
 
-    out.text = text;
-    out.prob = emitted > 0 ? conf_sum / emitted : 0.f;
-    out.x0 = box.x0;
-    out.y0 = box.y0;
-    out.x1 = box.x1;
-    out.y1 = box.y1;
+int PPOCRv5::recognize_batch(const unsigned char* rgba, int width, int height, int stride,
+                             const std::vector<Box>& boxes, std::vector<OcrText>& out)
+{
+    std::vector<int> widths;
+    int total = 0;
+    for (const Box& box : boxes)
+    {
+        widths.push_back(rec_width(box.x1 - box.x0, box.y1 - box.y0));
+        total += widths.back() + kBatchGap;
+    }
+    // Blank canvas: zero after normalization, i.e. mid grey, so gaps read as nothing.
+    ncnn::Mat canvas(total, kRecHeight, 3);
+    canvas.fill(0.f);
+    const float mean_vals[3] = {127.5f, 127.5f, 127.5f};
+    const float norm_vals[3] = {1 / 127.5f, 1 / 127.5f, 1 / 127.5f};
+    std::vector<int> offsets;
+    int x = kBatchGap / 2;
+    for (size_t i = 0; i < boxes.size(); i++)
+    {
+        const Box& box = boxes[i];
+        ncnn::Mat crop = ncnn::Mat::from_pixels_roi_resize(rgba, ncnn::Mat::PIXEL_RGBA2BGR, width, height, stride,
+                                                           box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0,
+                                                           widths[i], kRecHeight);
+        crop.substract_mean_normalize(mean_vals, norm_vals);
+        for (int q = 0; q < 3; q++)
+        {
+            for (int row = 0; row < kRecHeight; row++)
+                std::memcpy(canvas.channel(q).row(row) + x, crop.channel(q).row(row), widths[i] * sizeof(float));
+        }
+        offsets.push_back(x);
+        x += widths[i] + kBatchGap;
+    }
+
+    ncnn::Extractor ex = rec_.create_extractor();
+    ex.input("in0", canvas);
+    ncnn::Mat probs;
+    if (ex.extract("out0", probs) != 0)
+        return -1;
+    const float steps_per_px = (float)probs.h / (float)total;
+    for (size_t i = 0; i < boxes.size(); i++)
+    {
+        const int begin = std::max(0, (int)std::floor(offsets[i] * steps_per_px));
+        const int end = std::min(probs.h, (int)std::ceil((offsets[i] + widths[i]) * steps_per_px));
+        OcrText line;
+        line.text = decode(probs, begin, end, line.prob);
+        line.x0 = boxes[i].x0;
+        line.y0 = boxes[i].y0;
+        line.x1 = boxes[i].x1;
+        line.y1 = boxes[i].y1;
+        out.push_back(line);
+    }
     return 0;
 }
 
 int PPOCRv5::detect_and_recognize(const unsigned char* rgba, int width, int height, int stride,
-                                  std::vector<OcrText>& results)
+                                  const std::vector<int>& skip, std::vector<OcrText>& results)
 {
-    std::vector<Box> boxes;
-    if (detect(rgba, width, height, stride, boxes) != 0)
+    const auto started = std::chrono::steady_clock::now();
+    std::vector<Box> detected;
+    if (detect(rgba, width, height, stride, detected) != 0)
         return -1;
-    // Sequential: each extractor submits to the GPU queue; the reference parallelizes on CPU cores.
-    for (const Box& box : boxes)
+    const double det_ms = ms_since(started);
+    std::vector<Box> boxes;
+    for (const Box& box : detected)
     {
-        OcrText line;
-        if (recognize(rgba, width, height, stride, box, line) != 0)
-            return -1;
+        const int cx = (box.x0 + box.x1) / 2;
+        const int cy = (box.y0 + box.y1) / 2;
+        bool skipped = false;
+        for (size_t i = 0; i + 3 < skip.size() && !skipped; i += 4)
+            skipped = cx >= skip[i] && cx < skip[i + 2] && cy >= skip[i + 1] && cy < skip[i + 3];
+        if (!skipped)
+            boxes.push_back(box);
+    }
+    const auto rec_started = std::chrono::steady_clock::now();
+    const bool batched = batching_enabled();
+    int passes = 0;
+    std::vector<OcrText> lines;
+    if (batched)
+    {
+        // Similar widths share a pass; each pass stays within kBatchMaxWidth.
+        std::vector<Box> sorted = boxes;
+        std::sort(sorted.begin(), sorted.end(), [](const Box& a, const Box& b) {
+            return rec_width(a.x1 - a.x0, a.y1 - a.y0) < rec_width(b.x1 - b.x0, b.y1 - b.y0);
+        });
+        std::vector<Box> batch;
+        int used = 0;
+        for (const Box& box : sorted)
+        {
+            const int w = rec_width(box.x1 - box.x0, box.y1 - box.y0) + kBatchGap;
+            if (!batch.empty() && used + w > kBatchMaxWidth)
+            {
+                if (recognize_batch(rgba, width, height, stride, batch, lines) != 0)
+                    return -1;
+                passes++;
+                batch.clear();
+                used = 0;
+            }
+            batch.push_back(box);
+            used += w;
+        }
+        if (!batch.empty())
+        {
+            if (recognize_batch(rgba, width, height, stride, batch, lines) != 0)
+                return -1;
+            passes++;
+        }
+    }
+    else
+    {
+        for (const Box& box : boxes)
+        {
+            OcrText line;
+            if (recognize(rgba, width, height, stride, box, line) != 0)
+                return -1;
+            lines.push_back(line);
+            passes++;
+        }
+    }
+    for (const OcrText& line : lines)
+    {
         if (!line.text.empty())
             results.push_back(line);
     }
+    LOGD("det %.0fms (%zu boxes, %zu to read), rec %.0fms (%d passes, batched=%d)", det_ms, detected.size(),
+         boxes.size(), ms_since(rec_started), passes, batched ? 1 : 0);
     return 0;
 }

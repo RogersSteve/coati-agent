@@ -26,6 +26,11 @@ import bot.coati.agent.AgentLoop
 import bot.coati.agent.JevStepExecutor
 import bot.coati.jev.JevClient
 import bot.coati.jev.JevDecisionEngine
+import bot.coati.perception.OcrEngine
+import bot.coati.perception.OcrEngines
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import bot.coati.data.ConfigStore
 import bot.coati.experience.AppIdentityResolver
 import bot.coati.experience.AppManualRenderer
@@ -58,6 +63,7 @@ class CoatiService : Service() {
     private var telephonyManager: TelephonyManager? = null
     private var callStateCallback: Any? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main)
+    private var ocrEngine: Deferred<OcrEngine?>? = null
     private val homePackages: Set<String> by lazy(::resolveHomePackages)
     private var overlayHiddenForSettings = false
     private val screenOffReceiver = object : BroadcastReceiver() {
@@ -170,6 +176,15 @@ class CoatiService : Service() {
         setupAgent(stateManager, a11y)
     }
 
+    /**
+     * The GPU OCR engine, loaded once in the background (model load and pipeline compilation take
+     * several seconds) and warmed up. Null inside the Deferred when the device has no usable GPU.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun ocrEngine(): Deferred<OcrEngine?> = ocrEngine ?: serviceScope.async(Dispatchers.Default) {
+        OcrEngines.create(this@CoatiService)?.also { it.warmUp() }
+    }.also { ocrEngine = it }
+
     private fun setupAgent(stateManager: StateManager, a11y: CoatiAccessibilityService) {
         // Load reasoning config (with fallback to old single config)
         val reasoningConfig = configStore.getReasoningConfig() ?: configStore.getActiveProviderConfig()
@@ -216,11 +231,13 @@ class CoatiService : Service() {
         manualRuntime = newManualRuntime
         // With a JEV key, the fast path takes each step first; without one, Reasoning decides every step.
         val jevConfig = configStore.getJevConfig()
+        val ocr = if (jevConfig != null) ocrEngine() else null
         val fastExecutor = jevConfig?.let {
             JevStepExecutor(
                 overlay, modelRouter, actionEngine, a11y,
                 JevDecisionEngine(JevClient(client, it.apiKey, it.endpoint, it.model)),
                 newManualRuntime,
+                ocrProvider = { ocr?.takeIf { d -> d.isCompleted }?.getCompleted() },
             )
         }
         val loop = AgentLoop(
@@ -416,6 +433,11 @@ class CoatiService : Service() {
         CoatiAccessibilityService.instance?.onEmergencyStop = null
         agentLoop?.stop()
         agentLoop = null
+        ocrEngine?.let { engine ->
+            ocrEngine = null
+            engine.cancel()
+            if (engine.isCompleted && !engine.isCancelled) runCatching { engine.getCompleted()?.close() }
+        }
         manualRuntime?.close()
         manualRuntime = null
         overlayManager?.hide()
