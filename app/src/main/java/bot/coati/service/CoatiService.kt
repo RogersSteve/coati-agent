@@ -247,6 +247,7 @@ class CoatiService : Service() {
             safetyModeProvider = { configStore.getSafetyMode() },
             fastExecutor = fastExecutor,
             verifyEnabledProvider = { configStore.isVerifyEnabled() },
+            treeWithheldProvider = { configStore.isTreeWithheld() },
         )
         agentLoop = loop
 

@@ -39,6 +39,20 @@ Modes (comma-separated, alternated within each round): `classic` (per-step Reaso
 VerifyLoop), `baseline` (per-step Reasoning without post-action verification or completion audit,
 the ablation baseline), `jev` (routed execution with GPU OCR) and `jevnoocr` (routed, no OCR).
 
+Robustness runs set `BENCH_PERTURB` to apply one perturbation to every run (`perturb.py`), and
+record it as `perturbation`:
+
+| Value | Perturbation |
+|---|---|
+| `dialog@N` | a "Special offer" dialog from `test-apps/interrupter` covers the app when Coati starts step N |
+| `dialog@NxK` | the same dialog, closed only by the K-th dismissal (large K: it cannot be dismissed) |
+| `notree` | Coati perceives screens without the accessibility tree, as on custom-drawn interfaces |
+| `display` | font scale 1.3 and dark mode during the run, restored afterwards |
+
+The dialog needs the Interrupter installed:
+`./gradlew :test-apps:interrupter:assembleDebug` and
+`adb install -r test-apps/interrupter/build/outputs/apk/debug/interrupter-debug.apk`.
+
 Results are written per run as `<task>_<mode>_r<rep>.json` (status, verified outcome, steps,
 wall time), `.log` (Coati logcat) and `.jpg` (final screen). Existing results are skipped, so an
 interrupted benchmark resumes. Unresponsive devices are rebooted (emulators cold-restarted) and

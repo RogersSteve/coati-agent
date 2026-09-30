@@ -38,6 +38,8 @@ internal data class TaskResult(
     val escalations: Int,
     /** False for ablation runs with verification switched off. */
     val verify: Boolean,
+    /** True for perturbation runs that hid the accessibility tree from perception. */
+    val treeWithheld: Boolean,
     val usage: JSONObject?,
 ) {
     /**
@@ -62,5 +64,6 @@ internal data class TaskResult(
         .put("fast_steps", fastSteps)
         .put("escalations", escalations)
         .put("verify", verify)
+        .put("tree_withheld", treeWithheld)
         .put("usage", usage ?: JSONObject.NULL)
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:allowBackup="false"
+        android:label="Offers"
+        android:supportsRtl="true">
+        <!-- Started from adb only; a floating dialog over whatever app is in front. -->
+        <activity
+            android:name=".PopupActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar" />
+    </application>
+</manifest>
