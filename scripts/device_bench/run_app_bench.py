@@ -51,7 +51,12 @@ def shell_quote(value):
 
 
 def broadcast(action, *extras):
-    return dev.sh("shell", "am", "broadcast", "-a", action, "-n", RECEIVER, *extras)
+    # Every extra is quoted: an unquoted empty value (jev_key "" in classic mode) vanished from the
+    # joined command line, am rejected the broadcast, and Coati silently kept the previous mode.
+    out = dev.sh("shell", "am", "broadcast", "-a", action, "-n", RECEIVER, *map(shell_quote, extras))
+    if "Broadcast completed" not in out:
+        raise RuntimeError(f"broadcast {action} failed: {out.strip()[:200]}")
+    return out
 
 
 def clear_task_state():
@@ -122,7 +127,7 @@ def start_task(pkg, task):
     time.sleep(7)
     dev.sh("logcat", "-c")
     clear_task_state()
-    broadcast("bot.coati.debug.RUN_TASK", "--es", "task", shell_quote(task))
+    broadcast("bot.coati.debug.RUN_TASK", "--es", "task", task)
     time.sleep(2)
     return "started=true" in dev.sh("logcat", "-d", "-s", "CoatiDebugAgent")
 
