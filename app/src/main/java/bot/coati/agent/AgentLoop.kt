@@ -88,12 +88,20 @@ class AgentLoop(
     private var replanHint: String? = null
     private var lastStepFeedback: String? = null
     private var taskCompletionAuditRejects = 0
+    private var runOptions = TaskRunOptions()
+    private val maxSteps: Int get() = runOptions.maxSteps
+    private var doneClaims = 0
+    private var lastAuditDecision: CompletionAuditDecision? = null
+    private var fastSteps = 0
+    private var escalations = 0
+    private var routedTask = false
 
     @Volatile
     var emergencyStop = false
 
-    fun start(task: String) {
+    fun start(task: String, options: TaskRunOptions = TaskRunOptions()) {
         stop()
+        runOptions = options
         val taskSafetyMode = safetyModeProvider()
         conversationHistory.clear()
         screenshotCache.clear()
@@ -107,10 +115,16 @@ class AgentLoop(
         replanHint = null
         lastStepFeedback = null
         taskCompletionAuditRejects = 0
+        doneClaims = 0
+        lastAuditDecision = null
+        fastSteps = 0
+        escalations = 0
         ModelUsageMeter.beginTask()
         manualRuntime?.startTask(task)
         fastExecutor?.startTask(task)
-        Log.i(TAG, "Starting agent loop for task: $task (confirmationMode=$taskSafetyMode)")
+        // Captured now: stopping the task clears the executor before a stopped task's result is written.
+        routedTask = fastExecutor?.activeForTask == true
+        Log.i(TAG, "Starting agent loop for task: $task (confirmationMode=$taskSafetyMode, runId=${options.runId}, maxSteps=${options.maxSteps})")
 
         overlayManager.enterFrameExecuting(task)
 
@@ -134,10 +148,10 @@ class AgentLoop(
                         taskName = task,
                         reason = e.message ?: "Unknown error",
                         stepsCompleted = stepCount,
-                        totalSteps = MAX_STEPS,
+                        totalSteps = maxSteps,
                     )
                     if (retry) {
-                        start(task)
+                        start(task, runOptions)
                     } else {
                         overlayManager.collapse()
                     }
@@ -178,9 +192,9 @@ class AgentLoop(
         // screen. A compact Fast verifier may fail or be truncated without breaking this path.
         var pendingManualTransition: PendingManualTransition? = null
 
-        while (stepCount < MAX_STEPS && !emergencyStop && currentJob?.isActive == true) {
+        while (stepCount < maxSteps && !emergencyStop && currentJob?.isActive == true) {
             stepCount++
-            Log.i(TAG, "── Step $stepCount/$MAX_STEPS ──")
+            Log.i(TAG, "── Step $stepCount/$maxSteps ──")
 
             // a. REORIENT: if resumed from pause
             if (resumedFromPause && stepCount == 1) {
@@ -196,7 +210,7 @@ class AgentLoop(
             // b. OBSERVE
             // Reuse the verify screenshot from the previous step when available, to avoid
             // two rapid takeScreenshot() calls hitting the system rate limit (BUG-12).
-            overlayManager.updateProgress(task, "Capturing screen...", "", stepCount, MAX_STEPS)
+            overlayManager.updateProgress(task, "Capturing screen...", "", stepCount, maxSteps)
             // On the first step, wait for the keyboard/clipboard panel to fully dismiss after
             // the user pressed Execute (keyboard hide animation takes ~300ms).
             if (stepCount == 1) delay(500)
@@ -242,13 +256,14 @@ class AgentLoop(
             // c2. FAST PATH: JEV decides when configured; Reasoning takes the step on escalation.
             val fast = fastExecutor?.takeIf { it.activeForTask }
             if (fast != null) {
-                overlayManager.updateProgress(task, "Deciding...", "", stepCount, MAX_STEPS)
+                overlayManager.updateProgress(task, "Deciding...", "", stepCount, maxSteps)
                 val outcome = fast.step(stepCount, task, screenContext, uiTree) { pkg, actionName, label, level ->
                     val fastSafety = RuleEngine.assessSafety(pkg, actionName, label, level)
                     confirmIfNeeded(task, safetyMode, onSecurityDialog, fastSafety.level, fastSafety.reason, label)
                 }
                 when (outcome) {
                     FastStep.Acted -> {
+                        fastSteps++
                         recordStepProgress(screenContext.appPackage)
                         continue
                     }
@@ -258,12 +273,15 @@ class AgentLoop(
                         return
                     }
                     is FastStep.DoneClaimed -> {
+                        doneClaims++
                         val audit = auditCompletion(task, screenContext.screenshotJpeg)
-                        if (classifyTaskCompletionAudit(audit) != CompletionAuditDecision.REJECT) {
+                        lastAuditDecision = classifyTaskCompletionAudit(audit)
+                        if (lastAuditDecision != CompletionAuditDecision.REJECT) {
                             acceptCompletion(task, outcome.summary.ifBlank { "Task complete" })
                             return
                         }
                         fast.doneRejected()
+                        escalations++
                         val auditReason = audit?.category ?: "completion evidence unavailable"
                         if (++taskCompletionAuditRejects >= MAX_TASK_COMPLETION_AUDIT_REJECTS) {
                             failTask(task, "Task completion could not be verified after $taskCompletionAuditRejects attempts: $auditReason")
@@ -279,6 +297,7 @@ class AgentLoop(
                             "save if its values were wrong)."
                     }
                     is FastStep.Escalate -> {
+                        escalations++
                         replanHint = "A fast executor handed this step to you: ${outcome.reason}. " +
                             "Its recent actions:\n${fast.recentHistory()}\nChoose one action that makes progress."
                     }
@@ -294,7 +313,7 @@ class AgentLoop(
             )
 
             // e. THINK: Reasoning model with timeout + exception handling
-            overlayManager.updateProgress(task, "Analyzing...", "", stepCount, MAX_STEPS)
+            overlayManager.updateProgress(task, "Analyzing...", "", stepCount, maxSteps)
             Log.i(TAG, "Calling reasoning model")
 
             val taskDescriptionWithContext = buildTaskDescription(
@@ -371,7 +390,7 @@ class AgentLoop(
             // pass through the full-screen overlay to the target app. Without this, the overlay
             // consumes the gesture and the target app never receives it (same fix as AgentRunner).
             val actionName = response.statusUpdate.ifBlank { response.action }
-            overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, stepCount, MAX_STEPS)
+            overlayManager.updateProgress(task, "Executing: $actionName", response.reasoning, stepCount, maxSteps)
             val actionResult = try {
                 overlayManager.withGesturePassthrough {
                     // Check after safety confirmation and overlay settling, immediately before execution.
@@ -427,10 +446,10 @@ class AgentLoop(
                             taskName = task,
                             reason = reason,
                             stepsCompleted = stepCount,
-                            totalSteps = MAX_STEPS,
+                            totalSteps = maxSteps,
                         )
                         if (retry) {
-                            start(task)
+                            start(task, runOptions)
                             return
                         } else {
                             overlayManager.collapse()
@@ -463,6 +482,7 @@ class AgentLoop(
             // and the VERIFY step captures a fresh screenshot (stored as carryOverContext), so
             // the next step the model sees the result and can issue screenshot + isTaskComplete=true.
             if (response.isTaskComplete && response.action.lowercase() == "screenshot") {
+                doneClaims++
                 // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not
                 // hold a finished task for the gateway's full limit, so a slow attempt is retried.
                 var audit: QuickCheckResult? = null
@@ -488,6 +508,7 @@ class AgentLoop(
                     break
                 }
                 val auditDecision = classifyTaskCompletionAudit(audit)
+                lastAuditDecision = auditDecision
                 Log.i(
                     TAG,
                     "Task completion audit: decision=$auditDecision, valid=${audit?.isValid}, " +
@@ -546,10 +567,10 @@ class AgentLoop(
                         taskName = task,
                         reason = reason,
                         stepsCompleted = stepCount,
-                        totalSteps = MAX_STEPS,
+                        totalSteps = maxSteps,
                     )
                     if (retry) {
-                        start(task)
+                        start(task, runOptions)
                     } else {
                         overlayManager.collapse()
                         overlayManager.resetBallState()
@@ -667,9 +688,9 @@ class AgentLoop(
                                 taskName = task,
                                 reason = "Action repeatedly ineffective: ${verifyResult.reason}",
                                 stepsCompleted = stepCount,
-                                totalSteps = MAX_STEPS,
+                                totalSteps = maxSteps,
                             )
-                            if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
+                            if (retry) { start(task, runOptions); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
                         }
                         replanHint = if (isTextInputAction(response.action)) {
                             buildTextInputReplanHint(
@@ -700,9 +721,9 @@ class AgentLoop(
                                 taskName = task,
                                 reason = "Action repeatedly drifted: ${verifyResult.reason}",
                                 stepsCompleted = stepCount,
-                                totalSteps = MAX_STEPS,
+                                totalSteps = maxSteps,
                             )
-                            if (retry) { start(task); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
+                            if (retry) { start(task, runOptions); return } else { overlayManager.collapse(); overlayManager.resetBallState(); return }
                         }
                         replanHint = if (isTextInputAction(response.action)) {
                             buildTextInputReplanHint(
@@ -732,7 +753,7 @@ class AgentLoop(
             // j. UPDATE: write step to task.json
             currentTask = currentTask?.copy(
                 currentStep = stepCount,
-                totalSteps = MAX_STEPS,
+                totalSteps = maxSteps,
                 lastUpdated = currentTimestamp(),
                 targetPackage = screenContext.appPackage,
             )
@@ -770,17 +791,17 @@ class AgentLoop(
             return
         }
 
-        if (stepCount >= MAX_STEPS) {
-            Log.w(TAG, "Step limit reached ($MAX_STEPS)")
+        if (stepCount >= maxSteps) {
+            Log.w(TAG, "Step limit reached ($maxSteps)")
             updateTaskStatus("failed", "Step limit reached")
             val retry = overlayManager.awaitTaskFailed(
                 taskName = task,
-                reason = "Step limit reached ($MAX_STEPS steps)",
+                reason = "Step limit reached ($maxSteps steps)",
                 stepsCompleted = stepCount,
-                totalSteps = MAX_STEPS,
+                totalSteps = maxSteps,
             )
             if (retry) {
-                start(task)
+                start(task, runOptions)
             } else {
                 overlayManager.collapse()
                 overlayManager.resetBallState()
@@ -873,7 +894,10 @@ class AgentLoop(
 
     private suspend fun updateTaskStatus(status: String, error: String? = null) {
         if (status in TERMINAL_STATUSES) {
-            ModelUsageMeter.finishTask()?.let { Log.i(USAGE_TAG, "Task usage status=$status $it") }
+            ModelUsageMeter.finishTask()?.let { usage ->
+                Log.i(USAGE_TAG, "Task usage status=$status $usage")
+                recordTaskResult(status, error, usage)
+            }
         }
         val task = currentTask ?: return
         val errors = if (error != null) task.errors + error else task.errors
@@ -883,6 +907,33 @@ class AgentLoop(
             errors = errors,
         )
         writeTaskState(currentTask)
+    }
+
+    /** Writes files/task_result.json for benchmark harnesses; see [TaskResult]. */
+    private suspend fun recordTaskResult(status: String, error: String?, usage: org.json.JSONObject) {
+        val result = TaskResult(
+            runId = runOptions.runId,
+            goal = currentTask?.goal.orEmpty(),
+            status = status,
+            reason = error ?: currentTask?.errors?.lastOrNull(),
+            route = if (routedTask) "routed" else "per_step",
+            steps = stepCount,
+            maxSteps = maxSteps,
+            durationMs = System.currentTimeMillis() - taskStartTime,
+            doneClaims = doneClaims,
+            auditRejects = taskCompletionAuditRejects,
+            finalAudit = lastAuditDecision,
+            fastSteps = fastSteps,
+            escalations = escalations,
+            usage = usage,
+        ).toJson().toString()
+        Log.i(RESULT_TAG, "Task result $result")
+        if (stateManager == null) return
+        try {
+            withContext(NonCancellable + Dispatchers.IO) { stateManager.writeJson(TASK_RESULT_FILE, result) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to write task result: ${e.message}")
+        }
     }
 
     private fun currentTimestamp(): String {
@@ -962,7 +1013,7 @@ class AgentLoop(
     private suspend fun awaitUserAnswersSecurityDialog(task: String): Boolean {
         Log.i(TAG, "System dialog in front: waiting for the user to answer it")
         // Hidden by the system while the dialog shows; visible again once it is answered.
-        overlayManager.updateProgress(task, "Waiting for you to answer the system dialog", "", stepCount, MAX_STEPS)
+        overlayManager.updateProgress(task, "Waiting for you to answer the system dialog", "", stepCount, maxSteps)
         val answered = withTimeoutOrNull(SecurityDialogs.USER_RESPONSE_TIMEOUT_MS) {
             while (SecurityDialogs.isSecurityDialog(a11y.rootInActiveWindow?.packageName?.toString())) {
                 delay(SECURITY_DIALOG_POLL_MS)
@@ -1032,7 +1083,7 @@ class AgentLoop(
 
     /** Independent Fast-model check that the current screen proves the task is done. */
     private suspend fun auditCompletion(task: String, screenshot: ByteArray): QuickCheckResult? {
-        overlayManager.updateProgress(task, "Checking result...", "", stepCount, MAX_STEPS)
+        overlayManager.updateProgress(task, "Checking result...", "", stepCount, maxSteps)
         // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not hold a
         // finished task for the gateway's full limit, so a slow attempt is retried.
         var audit: QuickCheckResult? = null
@@ -1067,9 +1118,9 @@ class AgentLoop(
 
     private suspend fun failTask(task: String, reason: String) {
         updateTaskStatus("failed", reason)
-        val retry = overlayManager.awaitTaskFailed(taskName = task, reason = reason, stepsCompleted = stepCount, totalSteps = MAX_STEPS)
+        val retry = overlayManager.awaitTaskFailed(taskName = task, reason = reason, stepsCompleted = stepCount, totalSteps = maxSteps)
         if (retry) {
-            start(task)
+            start(task, runOptions)
         } else {
             overlayManager.collapse()
             overlayManager.resetBallState()
@@ -1079,7 +1130,7 @@ class AgentLoop(
     private suspend fun recordStepProgress(appPackage: String) {
         currentTask = currentTask?.copy(
             currentStep = stepCount,
-            totalSteps = MAX_STEPS,
+            totalSteps = maxSteps,
             lastUpdated = currentTimestamp(),
             targetPackage = appPackage,
         )
@@ -1131,6 +1182,8 @@ class AgentLoop(
     companion object {
         private const val TAG = "CoatiLoop"
         private const val USAGE_TAG = "CoatiUsage"
+        private const val RESULT_TAG = "CoatiResult"
+        const val TASK_RESULT_FILE = "task_result"
         private val TERMINAL_STATUSES = setOf("completed", "failed", "cancelled", "paused")
         private const val SECURITY_DIALOG_POLL_MS = 1_000L
         private const val CAPTURE_ATTEMPTS = 3

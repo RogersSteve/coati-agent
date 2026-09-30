@@ -24,6 +24,7 @@ import bot.coati.R
 import bot.coati.action.ActionEngine
 import bot.coati.agent.AgentLoop
 import bot.coati.agent.JevStepExecutor
+import bot.coati.agent.TaskRunOptions
 import bot.coati.jev.JevClient
 import bot.coati.jev.JevDecisionEngine
 import bot.coati.perception.OcrEngine
@@ -565,11 +566,16 @@ class CoatiService : Service() {
             return true
         }
 
-        /** Starts a task exactly as the overlay's Execute button does. Returns false when not ready. */
-        fun executeTask(task: String): Boolean {
-            val overlay = instance?.overlayManager ?: return false
-            val execute = overlay.onExecuteTask ?: return false
-            execute(task)
+        /**
+         * Starts a task as the overlay's Execute button does, with a benchmark's [options] (run id,
+         * step budget). Returns false when not ready.
+         */
+        fun executeTask(task: String, options: TaskRunOptions = TaskRunOptions()): Boolean {
+            val service = instance ?: return false
+            // The Execute button's callback is set once the runtime is ready; the loop comes with it.
+            if (service.overlayManager?.onExecuteTask == null) return false
+            val loop = service.agentLoop ?: return false
+            loop.start(task, options)
             return true
         }
     }
