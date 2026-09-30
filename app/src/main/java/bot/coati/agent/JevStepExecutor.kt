@@ -553,6 +553,7 @@ class JevStepExecutor(
         val beforeTree = previousTree
         // Page learning evidence for THIS step's screen, admitted by the manual layer's own guards.
         val record: (ManualPageObservation) -> Unit = {
+            Log.i(TAG, "Manual observation for step $stepNumber: page=${it.pageName}")
             manualRuntime?.recordObservedCurrentPage(
                 packageName = context.appPackage,
                 tree = tree,
@@ -687,7 +688,7 @@ class JevStepExecutor(
         private const val TAG = "CoatiJev"
         private const val MAX_CONSECUTIVE_BAD = 3
         private const val PROGRESS_WINDOW = 6
-        private const val OBSERVATION_WAIT_MS = 12_000L
+        private const val OBSERVATION_WAIT_MS = 20_000L
         /** Successful board runs explored at most 5 steps in a row (one deep search: 14); every timeout 7-27. */
         private const val MAX_EXPLORE_STREAK = 6
         private const val MAX_CONSECUTIVE_RETRIES = 4

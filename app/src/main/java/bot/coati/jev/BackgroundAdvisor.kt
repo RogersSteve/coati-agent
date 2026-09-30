@@ -38,6 +38,7 @@ class BackgroundAdvisor(
 
     // Page observations for the app manual that run beside the guidance job (see observe()).
     private val observers = mutableListOf<Job>()
+    private val queued = ArrayDeque<suspend () -> Unit>()
 
     @Volatile
     private var pending: Guidance? = null
@@ -66,7 +67,9 @@ class BackgroundAdvisor(
      * pages faster than one guidance call, and pages skipped then were exactly the confident route
      * the task took (board: a manual with the pages the executor wandered through, but not
      * Settings -> Advanced -> Archive). Only the observation is kept: the guidance describes a page
-     * the executor has already left. Returns false when too many observations are in flight.
+     * the executor has already left. Beyond two in flight, pages wait in a short queue: the route's
+     * last pages come in quick succession right before the goal, and dropping them lost exactly the
+     * pages that lead to it. Returns false only when that queue is full too.
      */
     fun observe(
         step: Int,
@@ -77,9 +80,7 @@ class BackgroundAdvisor(
         learningInstruction: String,
         onObservation: (ManualPageObservation) -> Unit,
     ): Boolean {
-        observers.removeAll { !it.isActive }
-        if (observers.size >= MAX_OBSERVERS) return false
-        observers += scope.launch {
+        val work: suspend () -> Unit = {
             try {
                 val result = gateway.generateStructuredText(
                     StructuredTextRequest(
@@ -97,7 +98,24 @@ class BackgroundAdvisor(
                 Log.w(TAG, "Background page observation failed: ${e.message}")
             }
         }
+        observers.removeAll { !it.isActive }
+        if (observers.size < MAX_OBSERVERS) {
+            startObserver(work)
+        } else {
+            if (queued.size >= MAX_QUEUED_OBSERVATIONS) return false
+            queued.addLast(work)
+        }
         return true
+    }
+
+    private fun startObserver(work: suspend () -> Unit) {
+        observers += scope.launch {
+            try {
+                work()
+            } finally {
+                queued.removeFirstOrNull()?.let(::startObserver)
+            }
+        }
     }
 
     /**
@@ -106,9 +124,19 @@ class BackgroundAdvisor(
      * often observed by it, and its answer used to land after the manual update had been taken.
      */
     suspend fun awaitObservations(timeoutMs: Long) {
-        val running = observers.filter { it.isActive } + listOfNotNull(job?.takeIf { it.isActive && jobObserves })
-        if (running.isEmpty()) return
-        withTimeoutOrNull(timeoutMs) { running.forEach { it.join() } }
+        withTimeoutOrNull(timeoutMs) {
+            // Queued pages start as running ones finish, so wait until nothing is left to start.
+            while (true) {
+                val running = observers.filter { it.isActive } + listOfNotNull(job?.takeIf { it.isActive && jobObserves })
+                if (running.isEmpty()) {
+                    // Nothing in flight: start the next queued page or stop waiting.
+                    startObserver(queued.removeFirstOrNull() ?: break)
+                    continue
+                }
+                running.forEach { it.join() }
+            }
+        }
+        queued.clear()
     }
 
     /** Non-blocking: the latest finished guidance, consumed once. */
@@ -160,6 +188,7 @@ class BackgroundAdvisor(
         private const val TAG = "CoatiAdvisor"
         private const val MAX_OUTPUT_TOKENS = 8192
         private const val MAX_OBSERVERS = 2
+        private const val MAX_QUEUED_OBSERVATIONS = 6
 
         private val SYSTEM_PROMPT = """
             You guide a fast executor that operates an Android phone step by step. You run in the
