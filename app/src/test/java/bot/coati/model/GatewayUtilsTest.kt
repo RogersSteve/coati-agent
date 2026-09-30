@@ -155,4 +155,25 @@ class GatewayUtilsTest {
         assertTrue(result.isValid)
         assertEquals("实验档案", result.manualObservation!!.pageName)
     }
+
+    @Test
+    fun `completing response carries the answer as text whatever its JSON type`() {
+        fun answerOf(value: String) = GatewayUtils.parseModelResponse(
+            """{"action":"screenshot","isTaskComplete":true,"answer":$value,"statusUpdate":"done"}""",
+        ).answer
+        assertEquals("3", answerOf("3"))
+        assertEquals("Buy milk", answerOf("\" Buy milk \""))
+        assertEquals("Mon, Tue", answerOf("[\"Mon\",\"Tue\"]"))
+        assertNull(answerOf("null"))
+        assertNull(answerOf("\"  \""))
+    }
+
+    @Test
+    fun `completion audit reads the task answer from the final screen`() {
+        val result = GatewayUtils.parseQuickCheckResponse(
+            """{"answer":true,"category":"shown","confidence":0.9,"taskAnswer":42}""",
+        )
+        assertEquals("42", result.taskAnswer)
+        assertNull(GatewayUtils.parseQuickCheckResponse("""{"answer":true,"confidence":0.9}""").taskAnswer)
+    }
 }

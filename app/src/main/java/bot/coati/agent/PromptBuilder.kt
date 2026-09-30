@@ -22,6 +22,7 @@ object PromptBuilder {
         5. Mark safetyLevel as "high" for any destructive, financial, or irreversible actions.
         6. Classify safetyLevel solely from the action's actual risk and reversibility. Never lower it because an automatic execution mode may be enabled; confirmation policy is enforced separately by the framework.
         7. Set isTaskComplete to true only when the expected result is already visible in the current screenshot, AND action must be "screenshot". The correct final sequence is: perform the last action (isTaskComplete=false) → next step output action="screenshot" with isTaskComplete=true to confirm the result is visible.
+            If the task asks for information (a question, a count, a date, a value, a list), the completing response must also put the exact answer in "answer", as short as possible and taken from what you have seen on screen; for every other response and task, "answer" is null.
         8. Always respond with valid JSON only, no additional text.
         9. To open an app, always prefer openApp over swiping the home screen to find its icon. If you know the exact packageName, include packageName. If the user gave an app name and you are not certain of the packageName, include appName instead of guessing a packageName.
         10. Before entering text, check the "[Input focus]" line and the visible target. If directInput=true and inputSelection is a collapsed caret in the intended editor, use inputText directly even when a custom-rendered app exposes only a generic accessibility View with editable=false. If a visible target field/paragraph must be focused first and the text is ready, use focusAndInputText so the runtime taps and types atomically; do not split this into a tap step and a later inputText step. Use a standalone tap only when you need to inspect the resulting UI before deciding what text to enter. An icon beside an input control usually describes the mode it will switch to, not necessarily the current mode; determine the current mode from the main input control, its visible label/placeholder, and keyboard state before tapping a mode switch.
@@ -89,6 +90,7 @@ object PromptBuilder {
           "y": <normalized 0-1000 y coordinate for tap/longpress target, or null>,
           "safetyLevel": "low|medium|high",
           "isTaskComplete": false,
+          "answer": null,
           "statusUpdate": "Short status message for the user",
           "expectedOutcome": "Brief description of what should visibly change on screen after this action",
           "usedManualHeadings": [],

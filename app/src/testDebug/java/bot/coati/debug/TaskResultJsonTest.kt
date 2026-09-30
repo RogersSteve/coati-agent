@@ -27,6 +27,7 @@ class TaskResultJsonTest {
         escalations = 1,
         verify = true,
         treeWithheld = false,
+        answer = "3",
         usage = JSONObject().put("critical", JSONObject().put("calls", 7)),
     )
 
@@ -43,6 +44,7 @@ class TaskResultJsonTest {
         assertFalse(json.getBoolean("tree_withheld"))
         assertEquals(7, json.getJSONObject("usage").getJSONObject("critical").getInt("calls"))
         assertTrue(json.isNull("reason"))
+        assertEquals("3", json.getString("answer"))
     }
 
     @Test

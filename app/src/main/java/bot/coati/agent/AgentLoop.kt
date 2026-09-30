@@ -97,6 +97,7 @@ class AgentLoop(
     private var routedTask = false
     private var verifyEnabled = true
     private var treeWithheld = false
+    private var finalAnswer: String? = null
 
     @Volatile
     var emergencyStop = false
@@ -123,6 +124,7 @@ class AgentLoop(
         lastStepFeedback = null
         taskCompletionAuditRejects = 0
         doneClaims = 0
+        finalAnswer = null
         lastAuditDecision = null
         fastSteps = 0
         escalations = 0
@@ -286,7 +288,8 @@ class AgentLoop(
                         val decision = classifyTaskCompletionAudit(audit)
                         lastAuditDecision = decision.takeIf { verifyEnabled }
                         if (decision != CompletionAuditDecision.REJECT) {
-                            acceptCompletion(task, outcome.summary.ifBlank { "Task complete" })
+                            finalAnswer = audit?.taskAnswer
+                            acceptCompletion(task, finalAnswer ?: outcome.summary.ifBlank { "Task complete" })
                             return
                         }
                         fast.doneRejected()
@@ -535,6 +538,7 @@ class AgentLoop(
                     }
                     val elapsed = System.currentTimeMillis() - taskStartTime
                     Log.i(TAG, "Task complete at step $stepCount in ${elapsed}ms")
+                    finalAnswer = response.answer ?: audit?.taskAnswer
                     updateTaskStatus("completed")
                     // Freeze and enqueue an immutable update request before waiting for the
                     // result dialog. Enqueue is non-blocking and cannot change task outcome.
@@ -553,7 +557,7 @@ class AgentLoop(
                     manualRuntime?.completeTask()
                     overlayManager.awaitTaskComplete(
                         taskName = task,
-                        summary = response.statusUpdate,
+                        summary = finalAnswer ?: response.statusUpdate,
                         steps = stepCount,
                         durationMs = elapsed,
                     )
@@ -943,6 +947,7 @@ class AgentLoop(
             escalations = escalations,
             verify = verifyEnabled,
             treeWithheld = treeWithheld,
+            answer = finalAnswer,
             usage = usage,
         )
         try {
@@ -1230,6 +1235,7 @@ class AgentLoop(
                 If the task specifies a title and body, require a genuinely distinct rendered title region/style and the body in its body region. Text merely appearing as the first line of the body does not count as a title. A still-visible empty title placeholder means failure.
                 If the task specifies multiple lines, require the exact visible line structure; collapsed, missing, duplicated, or misplaced text means failure.
                 Use category to name the missing or incorrect requirement briefly.
+                If the task asks for information (a question, a count, a date, a value, a list), also return "taskAnswer": the exact answer as this screenshot shows it, as short as possible, or null when the screenshot does not show it. For other tasks return "taskAnswer": null.
             """.trimIndent()
         }
 
