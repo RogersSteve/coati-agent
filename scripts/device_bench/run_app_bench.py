@@ -10,6 +10,7 @@ benchmark resumes where it stopped.
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -83,11 +84,28 @@ def prepare_device():
     dev.sh("shell", "settings", "put", "secure", "accessibility_enabled", "1")
 
 
+_installed_apk = None
+
+
 def install_mode_apk(mode):
+    """Installs the mode's build unless this benchmark already installed the same file. A failed
+    install stops the benchmark: adb reports it only in its output (for example
+    INSTALL_FAILED_INSUFFICIENT_STORAGE on a full emulator), and runs would silently use the old build."""
+    global _installed_apk
     apk = os.environ.get(f"BENCH_APK_{mode.upper()}")
-    if apk:
-        print(f"--- installing {apk} for mode {mode}", flush=True)
-        dev.sh("install", "-r", apk, timeout=180)
+    if not apk:
+        return
+    stat = os.stat(apk)
+    key = (os.path.abspath(apk), stat.st_size, stat.st_mtime)
+    if key == _installed_apk:
+        return
+    print(f"--- installing {apk} for mode {mode}", flush=True)
+    # adb prints the failure reason on stderr, which dev.sh drops.
+    r = subprocess.run([dev.ADB, "install", "-r", apk], capture_output=True, timeout=180)
+    out = (r.stdout + r.stderr).decode("utf-8", "replace")
+    if "Success" not in out:
+        raise RuntimeError(f"installing {apk} failed: {out.strip()[-200:]}")
+    _installed_apk = key
 
 
 def configure(mode):
