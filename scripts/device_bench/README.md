@@ -40,6 +40,20 @@ wall time), `.log` (Coati logcat) and `.jpg` (final screen). Existing results ar
 interrupted benchmark resumes. Unresponsive devices are rebooted (emulators cold-restarted) and
 runs that failed only because screenshots broke are retried.
 
+## App-manual learning
+
+```sh
+python run_learning_bench.py <out_dir> classic 2   # 2 sequences from an empty manual
+```
+
+Each sequence clears Coati's app manuals, switches app knowledge to LEARNING and runs L1, L1, L1,
+L3 on the Manual Lab (a cold run, two warm repeats, then a task sharing part of the route). After
+every run it waits for the manual update and saves `<mode>_s<n>_<k>_<task>.json` (status, steps,
+wall time, update result, manual size, described pages, route words found) and the manual itself
+as `.md`. Compare cold with warm runs to see whether the learned manual helps. It leaves app
+knowledge in LEARNING; switch it back before other benchmarks
+(`am broadcast -a bot.coati.debug.SET_MANUAL_MODE -n bot.coati/.debug.DebugManualReceiver --es mode OFF`).
+
 ## Tasks
 
 Defined in `tasks.py`; most have an automatic check against the app's UI or saved state.
