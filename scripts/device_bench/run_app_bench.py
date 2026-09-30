@@ -19,7 +19,7 @@ from tasks import SETUP, TASKS
 
 RECEIVER = "bot.coati/.debug.DebugAgentReceiver"
 RUN_TIMEOUT_S = 600
-LOG_TAGS = ["CoatiLoop", "CoatiScreen", "CoatiModel", "CoatiA11y", "CoatiAction", "CoatiDebugAgent"]
+LOG_TAGS = ["CoatiLoop", "CoatiScreen", "CoatiModel", "CoatiA11y", "CoatiAction", "CoatiDebugAgent", "CoatiUsage"]
 API_KEY = os.environ["RELAY_KEY"]
 ENDPOINT = os.environ["RELAY_ENDPOINT"].rstrip("/")
 PROVIDER = os.environ.get("LLM_PROVIDER", "openai_compatible")
@@ -132,6 +132,12 @@ def start_task(pkg, task):
     return "started=true" in dev.sh("logcat", "-d", "-s", "CoatiDebugAgent")
 
 
+def task_usage(log):
+    """The task's model usage summary that Coati logs when the task ends, or None."""
+    m = re.search(r"Task usage status=\w+ (\{.*\})\s*$", log, re.MULTILINE)
+    return json.loads(m.group(1)) if m else None
+
+
 def run_one(tid, mode, rep, out_dir, attempt=1):
     global _runs_since_restart
     pkg, task, check, tags = TASKS[tid]
@@ -182,7 +188,9 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
            # Where the decisions came from: fast JEV steps vs Reasoning steps, and hand-overs.
            "jev_steps": len(re.findall(r"CoatiJev: Step \d+ \[", log)),
            "reasoning_calls": log.count("Calling reasoning model"),
-           "escalations": log.count("Escalating to the Reasoning model")}
+           "escalations": log.count("Escalating to the Reasoning model"),
+           # Model calls and tokens per purpose, critical path vs background (see ModelUsageMeter).
+           "usage": task_usage(log)}
     (out_dir / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
     (out_dir / f"{name}.log").write_text(log, encoding="utf-8")
     print(f"=== {name}: status={status} verified={verified} steps={steps} wall={wall:.0f}s", flush=True)

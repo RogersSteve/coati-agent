@@ -1,7 +1,9 @@
 package bot.coati.model
 
 import android.util.Log
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.json.JSONException
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -58,7 +60,23 @@ class ResilientModelGateway(
 
     override suspend fun testConnection(): Result<String> = delegate.testConnection()
 
+    /** One logical call for [ModelUsageMeter], under the caller's purpose or the operation's default. */
     private suspend fun <T> withRetry(
+        operation: String,
+        retryMalformed: Boolean,
+        call: suspend () -> Result<T>,
+    ): Result<T> {
+        val purpose = currentCoroutineContext()[ModelCallPurpose] ?: ModelCallPurpose.forOperation(operation)
+        val started = System.nanoTime()
+        var ok = false
+        try {
+            return withContext(purpose) { retrying(operation, retryMalformed, call) }.also { ok = it.isSuccess }
+        } finally {
+            ModelUsageMeter.recordCall(purpose, ok, (System.nanoTime() - started) / 1_000_000)
+        }
+    }
+
+    private suspend fun <T> retrying(
         operation: String,
         retryMalformed: Boolean,
         call: suspend () -> Result<T>,

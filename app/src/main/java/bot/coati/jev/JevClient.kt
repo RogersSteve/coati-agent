@@ -3,7 +3,9 @@ package bot.coati.jev
 import android.util.Log
 import bot.coati.model.ApiHttpException
 import bot.coati.model.HttpResponseBody
-import bot.coati.model.awaitResponseBody
+import bot.coati.model.ModelCallPurpose
+import bot.coati.model.ModelUsageMeter
+import bot.coati.model.awaitModelResponseBody
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -90,8 +92,15 @@ class JevClient(
         .readTimeout(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .build()
 
-    suspend fun choose(state: JSONObject, questions: Map<String, JevChoiceQuestion>): Result<JevResponse> =
-        withContext(Dispatchers.IO) {
+    suspend fun choose(state: JSONObject, questions: Map<String, JevChoiceQuestion>): Result<JevResponse> {
+        val started = System.nanoTime()
+        val result = attemptChoose(state, questions)
+        ModelUsageMeter.recordCall(ModelCallPurpose.SELECTOR, result.isSuccess, (System.nanoTime() - started) / 1_000_000)
+        return result
+    }
+
+    private suspend fun attemptChoose(state: JSONObject, questions: Map<String, JevChoiceQuestion>): Result<JevResponse> =
+        withContext(Dispatchers.IO + ModelCallPurpose.SELECTOR) {
             val payload = JevProtocol.request(model, state, questions).toString()
             var lastError: Exception = IllegalStateException("jev_not_attempted")
             for (attempt in 0..MAX_RETRIES) {
@@ -164,7 +173,7 @@ class JevClient(
             .header("Authorization", "Bearer $apiKey")
             .post(payload.toRequestBody(JSON_MEDIA_TYPE))
             .build()
-        return client.newCall(request).awaitResponseBody()
+        return client.newCall(request).awaitModelResponseBody()
     }
 
     suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
