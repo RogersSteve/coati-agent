@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 import adbdev as dev
+from perturb import Perturbation
 from tasks import SETUP, TASKS
 
 RECEIVER = "bot.coati/.debug.DebugAgentReceiver"
@@ -45,6 +46,9 @@ MODES = {
     "jevnoocr": ["--es", "jev_key", JEV_KEY, "--ez", "ocr", "false", "--ez", "verify", "true"],
 }
 LOG_TAGS.append("CoatiJev")
+LOG_TAGS.append("CoatiInterrupt")
+# Robustness runs: one perturbation for every run (see perturb.py), e.g. dialog@3, notree, display.
+PERTURB = Perturbation(os.environ.get("BENCH_PERTURB"))
 
 _runs_since_restart = 0
 
@@ -121,7 +125,7 @@ def configure(mode):
     broadcast("bot.coati.debug.CONFIGURE_AGENT",
               "--es", "provider", PROVIDER, "--es", "endpoint", ENDPOINT, "--es", "api_key", API_KEY,
               "--es", "reasoning_model", MODEL, "--es", "fast_model", FAST_MODEL, "--es", "safety", "TRUST",
-              *MODES[mode])
+              *MODES[mode], *PERTURB.configure_extras())
     # With permissions, models and onboarding in place, the launcher activity starts the service.
     dev.sh("shell", "am", "start", "-n", "bot.coati/.ui.main.MainActivity")
     time.sleep(6)
@@ -184,12 +188,14 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
     if ROTATION is not None:
         dev.lock_rotation(ROTATION)
 
+    PERTURB.before_task()
     t0 = time.perf_counter()
     if not start_task(pkg, task, name):
         print(f"!!! {name}: runtime not ready, restarting the service", flush=True)
         configure(mode)
         t0 = time.perf_counter()
         start_task(pkg, task, name)
+    PERTURB.task_started()
     status, state = "timeout", {}
     while time.perf_counter() - t0 < RUN_TIMEOUT_S:
         time.sleep(3)
@@ -199,6 +205,7 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
             status = state["status"]
             break
     wall = time.perf_counter() - t0
+    perturbation = PERTURB.finish()
     broadcast("bot.coati.debug.STOP_TASK")  # dismiss result dialogs / stop a timed-out run
     time.sleep(2)
     result = task_result(name)
@@ -224,7 +231,8 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
            # Model calls and tokens per purpose, critical path vs background (see ModelUsageMeter).
            "usage": task_usage(log),
            # Coati's own account of the run: completion claims, audit decision, budget (TaskResult).
-           "result": result}
+           "result": result,
+           "perturbation": perturbation}
     (out_dir / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
     (out_dir / f"{name}.log").write_text(log, encoding="utf-8")
     print(f"=== {name}: status={status} verified={verified} steps={steps} wall={wall:.0f}s", flush=True)

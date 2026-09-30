@@ -59,6 +59,12 @@ class AgentLoop(
      * post-action verification and no completion audit (the ablation baseline). Read once per task.
      */
     private val verifyEnabledProvider: () -> Boolean = { true },
+    /**
+     * Debug/benchmark perturbation. When true, the agent perceives every screen without the
+     * accessibility tree (no tree in prompts, the fast route parses pixels), as on custom-drawn
+     * interfaces. Actions still use the platform's input services. Read once per task.
+     */
+    private val treeWithheldProvider: () -> Boolean = { false },
 ) {
     private data class ActionRecord(
         val action: String,
@@ -101,6 +107,7 @@ class AgentLoop(
     private var escalations = 0
     private var routedTask = false
     private var verifyEnabled = true
+    private var treeWithheld = false
 
     @Volatile
     var emergencyStop = false
@@ -111,6 +118,8 @@ class AgentLoop(
         val taskSafetyMode = safetyModeProvider()
         verifyEnabled = verifyEnabledProvider()
         if (!verifyEnabled) Log.w(TAG, "Verification is off for this task (ablation baseline)")
+        treeWithheld = treeWithheldProvider()
+        if (treeWithheld) Log.w(TAG, "Accessibility tree withheld from perception for this task (perturbation)")
         conversationHistory.clear()
         screenshotCache.clear()
         actionHistory.clear()
@@ -225,9 +234,10 @@ class AgentLoop(
             // Hide overlay before capturing so the Coati UI doesn't appear in the screenshot
             // sent to the model (BUG-5). Same alpha/updateViewLayout pattern as gesture
             // passthrough; 50ms gives the compositor time to re-render without the overlay.
-            val screenContext: ScreenContext = carryOverContext.also { carryOverContext = null }
+            val screenContext: ScreenContext = (carryOverContext.also { carryOverContext = null }
                 ?: captureScreen()
-                ?: throw Exception("Failed to capture screen")
+                ?: throw Exception("Failed to capture screen"))
+                .let { if (treeWithheld) it.copy(uiTreeJson = "") else it }
 
             screenshotCache.add(screenContext.screenshotJpeg)
 
@@ -243,7 +253,7 @@ class AgentLoop(
                 continue
             }
 
-            val uiTree = a11y.getUiTree()
+            val uiTree = if (treeWithheld) null else a11y.getUiTree()
             val nodeCount = uiTree?.flatCount() ?: 0
             val textNodeCount = uiTree?.nodesWithText() ?: 0
             val screenSig = RuleEngine.buildScreenSignature(uiTree)
@@ -612,7 +622,7 @@ class AgentLoop(
                 } finally {
                     overlayManager.showAfterScreenshot()
                 } ?: throw Exception("Failed to capture verification screenshot")
-                val afterTree = a11y.getUiTree()
+                val afterTree = if (treeWithheld) null else a11y.getUiTree()
                 val afterScreenSig = RuleEngine.buildScreenSignature(afterTree)
                 pendingManualTransition = if (shouldAttachManualTransition(
                         beforePackage = screenContext.appPackage,
@@ -945,6 +955,7 @@ class AgentLoop(
             fastSteps = fastSteps,
             escalations = escalations,
             verify = verifyEnabled,
+            treeWithheld = treeWithheld,
             usage = usage,
         ).toJson().toString()
         Log.i(RESULT_TAG, "Task result $result")

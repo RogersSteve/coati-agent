@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 rootProject.name = "Coati"
 include(":app")
 include(":test-apps:living-manual-lab")
+include(":test-apps:interrupter")

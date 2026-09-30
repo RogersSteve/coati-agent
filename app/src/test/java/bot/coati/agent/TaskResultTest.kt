@@ -22,6 +22,7 @@ class TaskResultTest {
         fastSteps = 4,
         escalations = 1,
         verify = true,
+        treeWithheld = false,
         usage = JSONObject().put("critical", JSONObject().put("calls", 7)),
     )
 
