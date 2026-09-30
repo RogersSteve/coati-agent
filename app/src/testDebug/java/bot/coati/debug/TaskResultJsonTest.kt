@@ -1,12 +1,16 @@
-package bot.coati.agent
+package bot.coati.debug
 
+import bot.coati.agent.AgentLoop
+import bot.coati.agent.CompletionAuditDecision
+import bot.coati.agent.TaskResult
+import bot.coati.agent.TaskRunOptions
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class TaskResultTest {
+class TaskResultJsonTest {
     private fun result(status: String, finalAudit: CompletionAuditDecision? = CompletionAuditDecision.ACCEPT) = TaskResult(
         runId = "L3_jev_r0",
         goal = "turn on the switch",
@@ -35,6 +39,8 @@ class TaskResultTest {
         assertEquals(1, json.getInt("audit_rejects"))
         assertEquals("ACCEPT", json.getString("final_audit"))
         assertEquals(20, json.getInt("max_steps"))
+        assertTrue(json.getBoolean("verify"))
+        assertFalse(json.getBoolean("tree_withheld"))
         assertEquals(7, json.getJSONObject("usage").getJSONObject("critical").getInt("calls"))
         assertTrue(json.isNull("reason"))
     }

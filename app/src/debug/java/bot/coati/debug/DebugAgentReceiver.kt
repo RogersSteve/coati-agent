@@ -150,13 +150,15 @@ class DebugAgentReceiver : BroadcastReceiver() {
             else store.saveJevConfig(key, ConfigStore.DEFAULT_JEV_ENDPOINT, ConfigStore.DEFAULT_JEV_MODEL)
         }
         if (intent.hasExtra("ocr")) store.setOcrEnabled(intent.getBooleanExtra("ocr", true))
-        if (intent.hasExtra("verify")) store.setVerifyEnabled(intent.getBooleanExtra("verify", true))
-        if (intent.hasExtra("withhold_tree")) store.setTreeWithheld(intent.getBooleanExtra("withhold_tree", false))
+        if (intent.hasExtra("verify")) BenchmarkSettings.setVerifyEnabled(context, intent.getBooleanExtra("verify", true))
+        if (intent.hasExtra("withhold_tree")) {
+            BenchmarkSettings.setTreeWithheld(context, intent.getBooleanExtra("withhold_tree", false))
+        }
         intent.getStringExtra("safety")?.let { name ->
             runCatching { SafetyMode.valueOf(name.uppercase()) }.getOrNull()?.let(store::setSafetyMode)
         }
         if (CoatiService.isRunning()) CoatiService.reloadModelConfiguration(context)
-        Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}, jev=${store.getJevConfig() != null}, ocr=${store.isOcrEnabled()}, verify=${store.isVerifyEnabled()}, treeWithheld=${store.isTreeWithheld()}")
+        Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}, jev=${store.getJevConfig() != null}, ocr=${store.isOcrEnabled()}, verify=${BenchmarkSettings.verifyEnabled(context)}, treeWithheld=${BenchmarkSettings.treeWithheld(context)}")
     }
 
     /** Logs what the accessibility service can read right now: every window and the active tree's text. */

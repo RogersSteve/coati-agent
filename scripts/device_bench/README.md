@@ -11,7 +11,9 @@ End-to-end benchmark of the real Coati app on a device or emulator. It drives an
 - One connected device, or `ANDROID_SERIAL` set to choose one.
 - Coati debug build installed (`./gradlew :app:installDebug`). No manual setup is needed: the
   script grants the overlay permission, enables the accessibility service, configures the models
-  and marks onboarding complete through the debug receiver.
+  and marks onboarding complete through the debug receiver. Everything the benchmarks use (the
+  debug receivers, the ablation and perturbation switches, `files/task_result.json`) exists only
+  in debug builds; the release APK runs the same agent code without them.
 - Target apps: `Coati 手册实验室` (`test-apps/living-manual-lab`, v1 flavor:
   `./gradlew :test-apps:living-manual-lab:installV1Debug`) and optionally bilibili
   (`tv.danmaku.bili`, guest mode) and Flutter Gallery v2.9.2 (`io.flutter.demo.gallery`, APK from

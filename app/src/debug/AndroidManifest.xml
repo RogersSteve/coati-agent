@@ -3,6 +3,11 @@
     <!-- Requested (never used) by PermissionFixtureActivity to show a real runtime-permission dialog. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <application>
+        <!-- Installs the benchmark hooks (task results, ablation switches) at process start. -->
+        <provider
+            android:name="bot.coati.debug.BenchmarkHooksInstaller"
+            android:authorities="${applicationId}.benchmark-hooks"
+            android:exported="false" />
         <activity
             android:name="bot.coati.debug.PermissionFixtureActivity"
             android:exported="true"

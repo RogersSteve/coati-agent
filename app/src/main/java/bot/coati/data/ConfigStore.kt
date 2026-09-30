@@ -148,26 +148,6 @@ class ConfigStore(context: Context) {
         prefs.edit().putBoolean(KEY_OCR_ENABLED, enabled).apply()
     }
 
-    /**
-     * Debug/benchmark switch for ablations: when off, the Reasoning route skips post-action
-     * verification and the completion audit (plain Observe-Think-Act). There is no user setting.
-     */
-    fun isVerifyEnabled(): Boolean = prefs.getBoolean(KEY_VERIFY_ENABLED, true)
-
-    fun setVerifyEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_VERIFY_ENABLED, enabled).apply()
-    }
-
-    /**
-     * Debug/benchmark perturbation: the agent perceives screens without the accessibility tree, as on
-     * custom-drawn interfaces. There is no user setting.
-     */
-    fun isTreeWithheld(): Boolean = prefs.getBoolean(KEY_TREE_WITHHELD, false)
-
-    fun setTreeWithheld(withheld: Boolean) {
-        prefs.edit().putBoolean(KEY_TREE_WITHHELD, withheld).apply()
-    }
-
     fun clearJevConfig() {
         prefs.edit().remove(KEY_JEV_API_KEY).apply()
         Log.i(TAG, "JEV config cleared")
@@ -253,8 +233,6 @@ class ConfigStore(context: Context) {
         private const val KEY_JEV_ENDPOINT = "jev_endpoint"
         private const val KEY_JEV_MODEL = "jev_model"
         private const val KEY_OCR_ENABLED = "ocr_enabled"
-        private const val KEY_VERIFY_ENABLED = "verify_enabled"
-        private const val KEY_TREE_WITHHELD = "tree_withheld"
         const val DEFAULT_JEV_ENDPOINT = "https://api.typesafe.ai"
         const val DEFAULT_JEV_MODEL = "jev-1.13.0"
 
