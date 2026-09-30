@@ -12,6 +12,8 @@ data class ModelResponse(
     val expectedOutcome: String = "",
     val usedManualHeadings: List<String> = emptyList(),
     val manualObservation: ManualPageObservation? = null,
+    /** The answer when the task asks for information; set on the completing response only. */
+    val answer: String? = null,
 )
 
 /**
@@ -43,6 +45,8 @@ data class QuickCheckResult(
     val confidence: Float = 1.0f,
     val isValid: Boolean = true,
     val manualObservation: ManualPageObservation? = null,
+    /** The completion audit's reading of the task's answer from the final screen, for information tasks. */
+    val taskAnswer: String? = null,
 )
 
 data class Message(

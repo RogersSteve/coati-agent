@@ -1,6 +1,7 @@
 package bot.coati.model
 
 import bot.coati.agent.PromptBuilder
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -94,6 +95,7 @@ object GatewayUtils {
             expectedOutcome = json.optString("expectedOutcome", ""),
             usedManualHeadings = usedManualHeadings,
             manualObservation = manualObservation,
+            answer = json.answerText("answer"),
         )
     }
 
@@ -103,6 +105,19 @@ object GatewayUtils {
         require(value is Number && value.toDouble().isFinite() &&
             value.toDouble() == value.toInt().toDouble() && value.toInt() in 0..1000) { "invalid_normalized_coordinate $key=$value" }
         return value.toInt()
+    }
+
+    /** An answer as text: models return counts as numbers and lists as arrays; blank or null gives null. */
+    internal fun JSONObject.answerText(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        val text = when (val value = get(key)) {
+            is String -> value
+            is Number, is Boolean -> value.toString()
+            is JSONArray -> (0 until value.length()).map { value.opt(it)?.toString().orEmpty() }
+                .filter(String::isNotBlank).joinToString(", ")
+            else -> return null
+        }
+        return text.trim().takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
     }
 
     private fun JSONObject.optionalString(key: String): String? {
@@ -162,6 +177,7 @@ object GatewayUtils {
                 confidence = confidence.toFloat(),
                 isValid = valid,
                 manualObservation = parseManualObservation(json),
+                taskAnswer = json.answerText("taskAnswer"),
             )
         } catch (_: Exception) {
             // Fallback: try to detect yes/true in text

@@ -40,6 +40,8 @@ internal data class TaskResult(
     val verify: Boolean,
     /** True for perturbation runs that hid the accessibility tree from perception. */
     val treeWithheld: Boolean,
+    /** The answer the agent gave for an information task, or null. */
+    val answer: String?,
     /** Model usage from [bot.coati.model.ModelUsageMeter.finishTask]. */
     val usage: JSONObject,
 ) {

@@ -80,6 +80,7 @@ internal fun TaskResult.toJson(): JSONObject = JSONObject()
     .put("escalations", escalations)
     .put("verify", verify)
     .put("tree_withheld", treeWithheld)
+    .put("answer", answer ?: JSONObject.NULL)
     .put("usage", usage)
 
 /**
