@@ -184,14 +184,17 @@ internal class ManualTraceCollector {
             is ManualObservationAdmission.Ignored -> return ManualObservationRecordResult.Ignored(admission.reason)
         }
         val trace = traces.getOrPut(identity.appKey) { MutableTrace(identity) }
-        if (trace.observations.size >= AppManualPolicy.MAX_OBSERVATIONS_PER_APP) {
-            return ManualObservationRecordResult.Ignored(ManualObservationIgnoreReason.OBSERVATION_LIMIT)
-        }
         val duplicate = trace.observations.any {
             it.status == observation.status && it.pageName == observation.pageName &&
                 it.visualSignature == observation.visualSignature && it.terminal == observation.terminal
         }
-        if (!duplicate) trace.observations += observation
+        if (!duplicate) {
+            // The route that finally worked comes last in a task; a task that explored first used to
+            // fill the budget with pages it only passed through and drop that route (board: a manual
+            // without Settings -> Advanced -> Archive). Keep the latest pages instead.
+            if (trace.observations.size >= AppManualPolicy.MAX_OBSERVATIONS_PER_APP) trace.observations.removeAt(0)
+            trace.observations += observation
+        }
         return ManualObservationRecordResult.Accepted(observation.status, duplicate)
     }
 

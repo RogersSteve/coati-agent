@@ -30,6 +30,20 @@ class ManualLearningEvidenceTest {
     }
 
     @Test
+    fun `a full trace keeps the latest pages, where the route that worked is`() {
+        val collector = ManualTraceCollector()
+        val total = AppManualPolicy.MAX_OBSERVATIONS_PER_APP + 3
+        for (i in 1..total) {
+            val raw = observation("NEW_OR_CHANGED").copy(
+                pageName = "页面$i", visualSignature = "顶部标题 页面$i", navigationFacts = listOf("首页 → 页面$i"),
+            )
+            assertTrue(collector.recordCompletedPage(testIdentity(), raw, null, emptySet()) is ManualObservationRecordResult.Accepted)
+        }
+        val saved = collector.buildRequest()!!.traces.single().observations.map { it.pageName }
+        assertEquals((4..total).map { "页面$it" }, saved)
+    }
+
+    @Test
     fun `actual input cannot manufacture an embedded placeholder page identity`() {
         for (action in listOf(AgentAction.InputText("榜单"), AgentAction.FocusAndInputText(10, 10, "榜单"))) {
             val collector = ManualTraceCollector()
