@@ -36,6 +36,8 @@ internal data class TaskResult(
     val finalAudit: CompletionAuditDecision?,
     val fastSteps: Int,
     val escalations: Int,
+    /** False for ablation runs with verification switched off. */
+    val verify: Boolean,
     val usage: JSONObject?,
 ) {
     /**
@@ -59,5 +61,6 @@ internal data class TaskResult(
         .put("duration_ms", durationMs)
         .put("fast_steps", fastSteps)
         .put("escalations", escalations)
+        .put("verify", verify)
         .put("usage", usage ?: JSONObject.NULL)
 }

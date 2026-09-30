@@ -35,6 +35,10 @@ python run_app_bench.py <out_dir> W1,W2,O1 classic 1   # a subset
 python summarize.py <out_dir> [manual_verdicts.json]
 ```
 
+Modes (comma-separated, alternated within each round): `classic` (per-step Reasoning with
+VerifyLoop), `baseline` (per-step Reasoning without post-action verification or completion audit,
+the ablation baseline), `jev` (routed execution with GPU OCR) and `jevnoocr` (routed, no OCR).
+
 Results are written per run as `<task>_<mode>_r<rep>.json` (status, verified outcome, steps,
 wall time), `.log` (Coati logcat) and `.jpg` (final screen). Existing results are skipped, so an
 interrupted benchmark resumes. Unresponsive devices are rebooted (emulators cold-restarted) and

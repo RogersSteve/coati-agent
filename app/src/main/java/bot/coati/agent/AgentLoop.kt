@@ -54,6 +54,11 @@ class AgentLoop(
      * Reasoning step below when it is unsure or stuck; when absent every step uses Reasoning.
      */
     private val fastExecutor: JevStepExecutor? = null,
+    /**
+     * Debug/benchmark switch. When false, the Reasoning route runs plain Observe-Think-Act: no
+     * post-action verification and no completion audit (the ablation baseline). Read once per task.
+     */
+    private val verifyEnabledProvider: () -> Boolean = { true },
 ) {
     private data class ActionRecord(
         val action: String,
@@ -95,6 +100,7 @@ class AgentLoop(
     private var fastSteps = 0
     private var escalations = 0
     private var routedTask = false
+    private var verifyEnabled = true
 
     @Volatile
     var emergencyStop = false
@@ -103,6 +109,8 @@ class AgentLoop(
         stop()
         runOptions = options
         val taskSafetyMode = safetyModeProvider()
+        verifyEnabled = verifyEnabledProvider()
+        if (!verifyEnabled) Log.w(TAG, "Verification is off for this task (ablation baseline)")
         conversationHistory.clear()
         screenshotCache.clear()
         actionHistory.clear()
@@ -275,8 +283,9 @@ class AgentLoop(
                     is FastStep.DoneClaimed -> {
                         doneClaims++
                         val audit = auditCompletion(task, screenContext.screenshotJpeg)
-                        lastAuditDecision = classifyTaskCompletionAudit(audit)
-                        if (lastAuditDecision != CompletionAuditDecision.REJECT) {
+                        val decision = classifyTaskCompletionAudit(audit)
+                        lastAuditDecision = decision.takeIf { verifyEnabled }
+                        if (decision != CompletionAuditDecision.REJECT) {
                             acceptCompletion(task, outcome.summary.ifBlank { "Task complete" })
                             return
                         }
@@ -486,7 +495,8 @@ class AgentLoop(
                 // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not
                 // hold a finished task for the gateway's full limit, so a slow attempt is retried.
                 var audit: QuickCheckResult? = null
-                for (attempt in 1..AUDIT_ATTEMPTS) {
+                if (!verifyEnabled) Log.i(TAG, "Verification off: accepting the completion claim without an audit")
+                for (attempt in 1..(if (verifyEnabled) AUDIT_ATTEMPTS else 0)) {
                     val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
                         withContext(ModelCallPurpose.COMPLETION_AUDIT) {
                             modelRouter.fast.quickCheck(
@@ -508,7 +518,7 @@ class AgentLoop(
                     break
                 }
                 val auditDecision = classifyTaskCompletionAudit(audit)
-                lastAuditDecision = auditDecision
+                lastAuditDecision = auditDecision.takeIf { verifyEnabled }
                 Log.i(
                     TAG,
                     "Task completion audit: decision=$auditDecision, valid=${audit?.isValid}, " +
@@ -584,7 +594,16 @@ class AgentLoop(
 
             // i. VERIFY: action verification is compact and independent of manual learning.
 
-            verifyLoop@ while (true) {
+            if (!verifyEnabled) {
+                // Ablation baseline: no post-action check. Let the screen settle, then observe afresh.
+                delay(randomDelay())
+                exceptionHandler.recordSuccess()
+                replanHint = null
+                lastStepFeedback = null
+                pendingManualTransition = null
+                actionHistory.add(ActionRecord(response.action, response.statusUpdate, screenSig, VerifyOutcome.UNKNOWN))
+            }
+            verifyLoop@ while (verifyEnabled) {
                 delay(randomDelay())
                 overlayManager.hideForScreenshot()
                 delay(50)
@@ -925,6 +944,7 @@ class AgentLoop(
             finalAudit = lastAuditDecision,
             fastSteps = fastSteps,
             escalations = escalations,
+            verify = verifyEnabled,
             usage = usage,
         ).toJson().toString()
         Log.i(RESULT_TAG, "Task result $result")
@@ -1083,6 +1103,7 @@ class AgentLoop(
 
     /** Independent Fast-model check that the current screen proves the task is done. */
     private suspend fun auditCompletion(task: String, screenshot: ByteArray): QuickCheckResult? {
+        if (!verifyEnabled) return null
         overlayManager.updateProgress(task, "Checking result...", "", stepCount, maxSteps)
         // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not hold a
         // finished task for the gateway's full limit, so a slow attempt is retried.

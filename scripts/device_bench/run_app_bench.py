@@ -35,11 +35,14 @@ JEV_KEY = os.environ.get("JEV_KEY", "")
 # Extra CONFIGURE_AGENT extras per mode. An empty jev_key removes the key: Reasoning decides every
 # step, i.e. the classic flow. BENCH_APK_<MODE> (e.g. BENCH_APK_CLASSIC) installs that Coati build
 # before the mode runs, so a mode can use a build of another branch such as main.
+# Configuration persists on the device, so every mode sets verify explicitly.
 MODES = {
-    "classic": ["--es", "jev_key", ""],
-    "jev": ["--es", "jev_key", JEV_KEY, "--ez", "ocr", "true"],
+    "classic": ["--es", "jev_key", "", "--ez", "verify", "true"],
+    # Ablation baseline: per-step Reasoning without post-action verification or completion audit.
+    "baseline": ["--es", "jev_key", "", "--ez", "verify", "false"],
+    "jev": ["--es", "jev_key", JEV_KEY, "--ez", "ocr", "true", "--ez", "verify", "true"],
     # The same fast path without GPU OCR, to measure what OCR adds.
-    "jevnoocr": ["--es", "jev_key", JEV_KEY, "--ez", "ocr", "false"],
+    "jevnoocr": ["--es", "jev_key", JEV_KEY, "--ez", "ocr", "false", "--ez", "verify", "true"],
 }
 LOG_TAGS.append("CoatiJev")
 

@@ -48,7 +48,7 @@ import java.util.Locale
  *
  * adb shell am broadcast -a bot.coati.debug.CONFIGURE_AGENT -n bot.coati/.debug.DebugAgentReceiver \
  *   --es provider openai_compatible --es endpoint https://relay.example --es api_key KEY \
- *   --es reasoning_model m1 --es fast_model m2 --es safety TRUST --es jev_key KEY
+ *   --es reasoning_model m1 --es fast_model m2 --es safety TRUST --es jev_key KEY [--ez verify false]
  * (an empty jev_key removes it, so every step uses the Reasoning model)
  * adb shell am broadcast -a bot.coati.debug.RUN_TASK -n bot.coati/.debug.DebugAgentReceiver --es task "..." \
  *   [--es run_id ID] [--ei max_steps N]
@@ -150,11 +150,12 @@ class DebugAgentReceiver : BroadcastReceiver() {
             else store.saveJevConfig(key, ConfigStore.DEFAULT_JEV_ENDPOINT, ConfigStore.DEFAULT_JEV_MODEL)
         }
         if (intent.hasExtra("ocr")) store.setOcrEnabled(intent.getBooleanExtra("ocr", true))
+        if (intent.hasExtra("verify")) store.setVerifyEnabled(intent.getBooleanExtra("verify", true))
         intent.getStringExtra("safety")?.let { name ->
             runCatching { SafetyMode.valueOf(name.uppercase()) }.getOrNull()?.let(store::setSafetyMode)
         }
         if (CoatiService.isRunning()) CoatiService.reloadModelConfiguration(context)
-        Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}, jev=${store.getJevConfig() != null}, ocr=${store.isOcrEnabled()}")
+        Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}, jev=${store.getJevConfig() != null}, ocr=${store.isOcrEnabled()}, verify=${store.isVerifyEnabled()}")
     }
 
     /** Logs what the accessibility service can read right now: every window and the active tree's text. */
