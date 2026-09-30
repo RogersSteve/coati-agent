@@ -40,6 +40,12 @@ wall time), `.log` (Coati logcat) and `.jpg` (final screen). Existing results ar
 interrupted benchmark resumes. Unresponsive devices are rebooted (emulators cold-restarted) and
 runs that failed only because screenshots broke are retried.
 
+`usage` in each record is the model usage Coati logs when the task ends (`CoatiUsage`): logical
+calls, HTTP requests and input/output/thinking tokens per purpose (`reasoning`, `verify`,
+`completion_audit`, `vision_parse`, `precommit_gate`, `selector`, ...), summed into `critical`
+(calls a step waits for) and `background` (`advisor`, `manual_curation`). `outside_task` holds
+calls that finished after the previous task ended, such as a late manual update.
+
 ## App-manual learning
 
 ```sh

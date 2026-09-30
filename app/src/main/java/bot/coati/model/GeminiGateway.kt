@@ -35,7 +35,7 @@ class GeminiGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
             Log.d(TAG, "Response status: ${response.code}, body length: ${body.length}")
 
@@ -108,7 +108,7 @@ class GeminiGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
 
             if (!response.isSuccessful) {
@@ -190,7 +190,7 @@ class GeminiGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
 
             if (!response.isSuccessful) {
@@ -243,7 +243,7 @@ class GeminiGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
 
             if (!response.isSuccessful) {
@@ -295,7 +295,7 @@ class GeminiGateway(
                     .url("$endpoint/v1beta/models/$modelName:generateContent?key=$apiKey")
                     .post(body(lowLatency).toRequestBody(JSON_MEDIA_TYPE))
                     .build(),
-            ).awaitResponseBody()
+            ).awaitModelResponseBody()
             var response = send(request.lowLatency)
             // Models without thinking levels reject the hint; it is optional.
             if (request.lowLatency && response.code == 400) response = send(false)
@@ -324,7 +324,7 @@ class GeminiGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
 
             if (!response.isSuccessful) {

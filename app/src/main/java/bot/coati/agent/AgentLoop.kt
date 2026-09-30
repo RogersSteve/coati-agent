@@ -11,8 +11,10 @@ import bot.coati.action.toLogSummary
 import bot.coati.data.SafetyMode
 import bot.coati.experience.AppManualRuntime
 import bot.coati.model.Message
+import bot.coati.model.ModelCallPurpose
 import bot.coati.model.MODEL_REQUEST_TIMEOUT_MS
 import bot.coati.model.ModelResponse
+import bot.coati.model.ModelUsageMeter
 import bot.coati.model.ModelRouter
 import bot.coati.model.QuickCheckResult
 import bot.coati.model.ScreenContext
@@ -105,6 +107,7 @@ class AgentLoop(
         replanHint = null
         lastStepFeedback = null
         taskCompletionAuditRejects = 0
+        ModelUsageMeter.beginTask()
         manualRuntime?.startTask(task)
         fastExecutor?.startTask(task)
         Log.i(TAG, "Starting agent loop for task: $task (confirmationMode=$taskSafetyMode)")
@@ -465,15 +468,17 @@ class AgentLoop(
                 var audit: QuickCheckResult? = null
                 for (attempt in 1..AUDIT_ATTEMPTS) {
                     val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
-                        modelRouter.fast.quickCheck(
-                            // screenshot is a read-only completion action, so the current
-                            // overlay-free OBSERVE frame is the authoritative final state.
-                            screenshot = screenContext.screenshotJpeg,
-                            question = buildTaskCompletionAuditQuestion(task),
-                            // Page learning was already handled by the current Reasoning response.
-                            // Keep this independent audit compact and single-purpose.
-                            manualObservationInstruction = null,
-                        )
+                        withContext(ModelCallPurpose.COMPLETION_AUDIT) {
+                            modelRouter.fast.quickCheck(
+                                // screenshot is a read-only completion action, so the current
+                                // overlay-free OBSERVE frame is the authoritative final state.
+                                screenshot = screenContext.screenshotJpeg,
+                                question = buildTaskCompletionAuditQuestion(task),
+                                // Page learning was already handled by the current Reasoning response.
+                                // Keep this independent audit compact and single-purpose.
+                                manualObservationInstruction = null,
+                            )
+                        }
                     }
                     if (result == null) {
                         Log.w(TAG, "Task completion audit attempt $attempt timed out")
@@ -867,6 +872,9 @@ class AgentLoop(
     }
 
     private suspend fun updateTaskStatus(status: String, error: String? = null) {
+        if (status in TERMINAL_STATUSES) {
+            ModelUsageMeter.finishTask()?.let { Log.i(USAGE_TAG, "Task usage status=$status $it") }
+        }
         val task = currentTask ?: return
         val errors = if (error != null) task.errors + error else task.errors
         currentTask = task.copy(
@@ -1030,7 +1038,9 @@ class AgentLoop(
         var audit: QuickCheckResult? = null
         for (attempt in 1..AUDIT_ATTEMPTS) {
             val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
-                modelRouter.fast.quickCheck(screenshot, buildTaskCompletionAuditQuestion(task), null)
+                withContext(ModelCallPurpose.COMPLETION_AUDIT) {
+                    modelRouter.fast.quickCheck(screenshot, buildTaskCompletionAuditQuestion(task), null)
+                }
             }
             if (result == null) {
                 Log.w(TAG, "Task completion audit attempt $attempt timed out")
@@ -1120,6 +1130,8 @@ class AgentLoop(
 
     companion object {
         private const val TAG = "CoatiLoop"
+        private const val USAGE_TAG = "CoatiUsage"
+        private val TERMINAL_STATUSES = setOf("completed", "failed", "cancelled", "paused")
         private const val SECURITY_DIALOG_POLL_MS = 1_000L
         private const val CAPTURE_ATTEMPTS = 3
         private const val CAPTURE_RETRY_DELAY_MS = 1_000L

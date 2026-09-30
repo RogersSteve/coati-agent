@@ -2,7 +2,9 @@ package bot.coati.agent
 
 import bot.coati.model.CloudModelGateway
 import bot.coati.model.Message
+import bot.coati.model.ModelCallPurpose
 import bot.coati.state.StateManager
+import kotlinx.coroutines.withContext
 
 class Autocompact(private val compactInterval: Int = 15) {
 
@@ -36,7 +38,9 @@ class Autocompact(private val compactInterval: Int = 15) {
             $historyText
         """.trimIndent()
 
-        val summary = reasoningGateway.summarizeText(summarizationPrompt).getOrNull() ?: return
+        val summary = withContext(ModelCallPurpose.AUTOCOMPACT) {
+            reasoningGateway.summarizeText(summarizationPrompt)
+        }.getOrNull() ?: return
 
         val lastEntries = conversationHistory.takeLast(3)
         conversationHistory.clear()

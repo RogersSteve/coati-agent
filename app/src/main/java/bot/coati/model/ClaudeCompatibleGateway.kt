@@ -38,7 +38,7 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
             Log.d(TAG, "Response status: ${response.code}, body length: ${body.length}")
 
@@ -105,7 +105,7 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
 
             if (!response.isSuccessful) {
@@ -183,7 +183,7 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
 
             if (!response.isSuccessful) {
@@ -227,7 +227,7 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
 
             if (!response.isSuccessful) {
@@ -276,7 +276,7 @@ class ClaudeCompatibleGateway(
                 .addHeader("content-type", "application/json")
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
-            client.newCall(httpRequest).awaitResponseBody().let { response ->
+            client.newCall(httpRequest).awaitModelResponseBody().let { response ->
                 val body = response.body
                 if (!response.isSuccessful) return Result.failure(ApiHttpException(response.code))
                 Result.success(StructuredTextResponseParser.claude(body))
@@ -308,7 +308,7 @@ class ClaudeCompatibleGateway(
                 .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            val response = client.newCall(request).awaitResponseBody()
+            val response = client.newCall(request).awaitModelResponseBody()
             val body = response.body
 
             if (!response.isSuccessful) {

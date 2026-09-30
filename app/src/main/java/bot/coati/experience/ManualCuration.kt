@@ -2,6 +2,7 @@ package bot.coati.experience
 
 import android.util.Log
 import bot.coati.model.CloudModelGateway
+import bot.coati.model.ModelCallPurpose
 import bot.coati.model.StructuredTextFinishReason
 import bot.coati.model.StructuredTextRequest
 import bot.coati.model.StructuredPayloadException
@@ -379,7 +380,7 @@ class ManualUpdateCoordinator internal constructor(
 
     private data class QueuedUpdate(val request: ManualLearningRequest, val mode: ManualMode)
 
-    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher + ModelCallPurpose.MANUAL_CURATION)
     private val queue = Channel<QueuedUpdate>(capacity = 2)
     private val processor = ManualUpdateProcessor(repository, gateway, updateTimeoutMs)
 

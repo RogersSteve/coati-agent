@@ -3,8 +3,10 @@ package bot.coati.jev
 import android.util.Log
 import bot.coati.model.CloudModelGateway
 import bot.coati.model.GatewayUtils
+import bot.coati.model.ModelCallPurpose
 import bot.coati.model.StructuredTextRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
@@ -23,16 +25,18 @@ class PreCommitCheck(private val gateway: CloudModelGateway) {
     /** Null when the check could not run; the caller then proceeds as before. */
     suspend fun check(task: String, actionLabel: String, screenshotJpeg: ByteArray): Verdict? = try {
         withTimeoutOrNull(TIMEOUT_MS) {
-            gateway.generateStructuredText(
-                StructuredTextRequest(
-                    systemPrompt = SYSTEM_PROMPT,
-                    userPrompt = userPrompt(task, actionLabel),
-                    temperature = 0.0,
-                    maxOutputTokens = MAX_OUTPUT_TOKENS,
-                    imageJpeg = screenshotJpeg,
-                    lowLatency = true,
-                ),
-            )
+            withContext(ModelCallPurpose.PRECOMMIT_GATE) {
+                gateway.generateStructuredText(
+                    StructuredTextRequest(
+                        systemPrompt = SYSTEM_PROMPT,
+                        userPrompt = userPrompt(task, actionLabel),
+                        temperature = 0.0,
+                        maxOutputTokens = MAX_OUTPUT_TOKENS,
+                        imageJpeg = screenshotJpeg,
+                        lowLatency = true,
+                    ),
+                )
+            }
         }?.getOrNull()?.let { parse(it.text) }
     } catch (e: CancellationException) {
         throw e

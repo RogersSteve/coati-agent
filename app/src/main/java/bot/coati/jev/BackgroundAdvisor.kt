@@ -5,6 +5,7 @@ import bot.coati.agent.PromptBuilder
 import bot.coati.model.CloudModelGateway
 import bot.coati.model.GatewayUtils
 import bot.coati.model.ManualPageObservation
+import bot.coati.model.ModelCallPurpose
 import bot.coati.model.StructuredTextRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -109,7 +110,7 @@ class BackgroundAdvisor(
     }
 
     private fun startObserver(work: suspend () -> Unit) {
-        observers += scope.launch {
+        observers += scope.launch(ModelCallPurpose.ADVISOR) {
             try {
                 work()
             } finally {
@@ -162,7 +163,7 @@ class BackgroundAdvisor(
     ) {
         job?.cancel()
         jobObserves = onObservation != null
-        job = scope.launch {
+        job = scope.launch(ModelCallPurpose.ADVISOR) {
             try {
                 val result = gateway.generateStructuredText(
                     StructuredTextRequest(

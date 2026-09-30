@@ -3,9 +3,11 @@ package bot.coati.perception
 import bot.coati.coordinates.PixelBounds
 import bot.coati.model.CloudModelGateway
 import bot.coati.model.GatewayUtils
+import bot.coati.model.ModelCallPurpose
 import bot.coati.model.StructuredTextFinishReason
 import bot.coati.model.StructuredTextRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -35,16 +37,18 @@ class VisionScreenParser(private val gateway: CloudModelGateway) {
                 // A parse normally takes 3-10 s; a stalled connection must not hold the step for
                 // the gateway's 300 s limit (board: one parse hung 306 s after a proxy error).
                 val result = withTimeoutOrNull(ATTEMPT_TIMEOUT_MS) {
-                    gateway.generateStructuredText(
-                        StructuredTextRequest(
-                            systemPrompt = SYSTEM_PROMPT,
-                            userPrompt = userPrompt(imageWidth, imageHeight),
-                            temperature = 0.0,
-                            maxOutputTokens = MAX_OUTPUT_TOKENS,
-                            imageJpeg = screenshotJpeg,
-                            lowLatency = true,
-                        ),
-                    )
+                    withContext(ModelCallPurpose.VISION_PARSE) {
+                        gateway.generateStructuredText(
+                            StructuredTextRequest(
+                                systemPrompt = SYSTEM_PROMPT,
+                                userPrompt = userPrompt(imageWidth, imageHeight),
+                                temperature = 0.0,
+                                maxOutputTokens = MAX_OUTPUT_TOKENS,
+                                imageJpeg = screenshotJpeg,
+                                lowLatency = true,
+                            ),
+                        )
+                    }
                 }?.getOrThrow()
                 if (result == null) {
                     lastError = IllegalStateException("vision_parse_timeout")
