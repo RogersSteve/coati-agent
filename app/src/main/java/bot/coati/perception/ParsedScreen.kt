@@ -64,7 +64,18 @@ data class ParsedScreen(
             return a.intersect(b).size.toDouble() / union >= SAME_PAGE_JACCARD
         }
 
+        /**
+         * A stricter [samePage] for "is this a page worth describing again": sibling native pages
+         * share their top bar and bottom navigation and differ in a few labels, which 0.6 calls one
+         * page (board: Settings, Advanced settings and Archive were never observed for the manual).
+         */
+        fun nearlySamePage(a: Set<String>, b: Set<String>): Boolean {
+            if (a.isEmpty() || b.isEmpty()) return false
+            return a.intersect(b).size.toDouble() / (a + b).size >= NEARLY_SAME_PAGE_JACCARD
+        }
+
         private const val SAME_PAGE_JACCARD = 0.6
+        private const val NEARLY_SAME_PAGE_JACCARD = 0.9
     }
 }
 
