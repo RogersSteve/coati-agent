@@ -54,17 +54,6 @@ class AgentLoop(
      * Reasoning step below when it is unsure or stuck; when absent every step uses Reasoning.
      */
     private val fastExecutor: JevStepExecutor? = null,
-    /**
-     * Debug/benchmark switch. When false, the Reasoning route runs plain Observe-Think-Act: no
-     * post-action verification and no completion audit (the ablation baseline). Read once per task.
-     */
-    private val verifyEnabledProvider: () -> Boolean = { true },
-    /**
-     * Debug/benchmark perturbation. When true, the agent perceives every screen without the
-     * accessibility tree (no tree in prompts, the fast route parses pixels), as on custom-drawn
-     * interfaces. Actions still use the platform's input services. Read once per task.
-     */
-    private val treeWithheldProvider: () -> Boolean = { false },
 ) {
     private data class ActionRecord(
         val action: String,
@@ -116,9 +105,10 @@ class AgentLoop(
         stop()
         runOptions = options
         val taskSafetyMode = safetyModeProvider()
-        verifyEnabled = verifyEnabledProvider()
+        // Evaluation switches; the user-facing app always runs with the defaults (see TaskHooks).
+        verifyEnabled = TaskHooks.installed.verifyEnabled()
         if (!verifyEnabled) Log.w(TAG, "Verification is off for this task (ablation baseline)")
-        treeWithheld = treeWithheldProvider()
+        treeWithheld = TaskHooks.installed.treeWithheld()
         if (treeWithheld) Log.w(TAG, "Accessibility tree withheld from perception for this task (perturbation)")
         conversationHistory.clear()
         screenshotCache.clear()
@@ -923,10 +913,7 @@ class AgentLoop(
 
     private suspend fun updateTaskStatus(status: String, error: String? = null) {
         if (status in TERMINAL_STATUSES) {
-            ModelUsageMeter.finishTask()?.let { usage ->
-                Log.i(USAGE_TAG, "Task usage status=$status $usage")
-                recordTaskResult(status, error, usage)
-            }
+            ModelUsageMeter.finishTask()?.let { usage -> reportTaskResult(status, error, usage) }
         }
         val task = currentTask ?: return
         val errors = if (error != null) task.errors + error else task.errors
@@ -938,8 +925,8 @@ class AgentLoop(
         writeTaskState(currentTask)
     }
 
-    /** Writes files/task_result.json for benchmark harnesses; see [TaskResult]. */
-    private suspend fun recordTaskResult(status: String, error: String?, usage: org.json.JSONObject) {
+    /** Hands the task's result to [TaskHooks]; the user-facing app records nothing. */
+    private suspend fun reportTaskResult(status: String, error: String?, usage: org.json.JSONObject) {
         val result = TaskResult(
             runId = runOptions.runId,
             goal = currentTask?.goal.orEmpty(),
@@ -957,13 +944,11 @@ class AgentLoop(
             verify = verifyEnabled,
             treeWithheld = treeWithheld,
             usage = usage,
-        ).toJson().toString()
-        Log.i(RESULT_TAG, "Task result $result")
-        if (stateManager == null) return
+        )
         try {
-            withContext(NonCancellable + Dispatchers.IO) { stateManager.writeJson(TASK_RESULT_FILE, result) }
+            withContext(NonCancellable + Dispatchers.IO) { TaskHooks.installed.onTaskFinished(result) }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to write task result: ${e.message}")
+            Log.w(TAG, "Task result hook failed: ${e.message}")
         }
     }
 
@@ -1213,9 +1198,6 @@ class AgentLoop(
 
     companion object {
         private const val TAG = "CoatiLoop"
-        private const val USAGE_TAG = "CoatiUsage"
-        private const val RESULT_TAG = "CoatiResult"
-        const val TASK_RESULT_FILE = "task_result"
         private val TERMINAL_STATUSES = setOf("completed", "failed", "cancelled", "paused")
         private const val SECURITY_DIALOG_POLL_MS = 1_000L
         private const val CAPTURE_ATTEMPTS = 3

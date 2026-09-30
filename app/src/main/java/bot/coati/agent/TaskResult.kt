@@ -3,8 +3,8 @@ package bot.coati.agent
 import org.json.JSONObject
 
 /**
- * Per-run settings a benchmark harness passes with a task: [runId] is echoed in the result so the
- * harness can match it, and [maxSteps] is the task's step budget (AndroidWorld's per-task limit).
+ * Per-run settings a caller passes with a task: [runId] identifies the run in its result, and
+ * [maxSteps] is the task's step budget (a benchmark's per-task limit).
  */
 data class TaskRunOptions(
     val runId: String? = null,
@@ -19,7 +19,7 @@ data class TaskRunOptions(
     }
 }
 
-/** How a task ended, as written to files/task_result.json when it reaches a final status. */
+/** How a task ended, handed to [TaskHooks.onTaskFinished] when it first reaches a final status. */
 internal data class TaskResult(
     val runId: String?,
     val goal: String,
@@ -32,7 +32,7 @@ internal data class TaskResult(
     /** Completion claims by the agent, including ones the audit rejected. */
     val doneClaims: Int,
     val auditRejects: Int,
-    /** Decision of the last completion audit (ACCEPT, REJECT, UNAVAILABLE), or null without a claim. */
+    /** Decision of the last completion audit (ACCEPT, REJECT, UNAVAILABLE), or null without an audit. */
     val finalAudit: CompletionAuditDecision?,
     val fastSteps: Int,
     val escalations: Int,
@@ -40,30 +40,12 @@ internal data class TaskResult(
     val verify: Boolean,
     /** True for perturbation runs that hid the accessibility tree from perception. */
     val treeWithheld: Boolean,
-    val usage: JSONObject?,
+    /** Model usage from [bot.coati.model.ModelUsageMeter.finishTask]. */
+    val usage: JSONObject,
 ) {
     /**
      * Whether the agent told the user the task is done. A benchmark counts a false completion when
      * this is true and its evaluator judges the task failed.
      */
     val declaredDone: Boolean get() = status == "completed"
-
-    fun toJson(): JSONObject = JSONObject()
-        .put("run_id", runId ?: JSONObject.NULL)
-        .put("goal", goal)
-        .put("status", status)
-        .put("reason", reason ?: JSONObject.NULL)
-        .put("declared_done", declaredDone)
-        .put("done_claims", doneClaims)
-        .put("audit_rejects", auditRejects)
-        .put("final_audit", finalAudit?.name ?: JSONObject.NULL)
-        .put("route", route)
-        .put("steps", steps)
-        .put("max_steps", maxSteps)
-        .put("duration_ms", durationMs)
-        .put("fast_steps", fastSteps)
-        .put("escalations", escalations)
-        .put("verify", verify)
-        .put("tree_withheld", treeWithheld)
-        .put("usage", usage ?: JSONObject.NULL)
 }
