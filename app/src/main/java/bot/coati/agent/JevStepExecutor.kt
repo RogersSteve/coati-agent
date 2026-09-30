@@ -570,7 +570,7 @@ class JevStepExecutor(
             return
         }
         lastAdvisedPage = here
-        advisor.advise(stepNumber, task, context.screenshotJpeg, subgoals, history.toList(), learning, record)
+        advisor.advise(stepNumber, task, context.screenshotJpeg, subgoals, history.toList(), learning, record.takeIf { learning != null })
     }
 
     /** Lets page observations still in flight reach the app manual before the task completes. */

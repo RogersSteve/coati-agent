@@ -34,6 +34,7 @@ class BackgroundAdvisor(
     private val scope: CoroutineScope,
 ) {
     private var job: Job? = null
+    private var jobObserves = false
 
     // Page observations for the app manual that run beside the guidance job (see observe()).
     private val observers = mutableListOf<Job>()
@@ -99,9 +100,13 @@ class BackgroundAdvisor(
         return true
     }
 
-    /** Waits (bounded) for page observations still in flight, so the manual update includes them. */
+    /**
+     * Waits (bounded) for page observations still in flight, so the manual update includes them. The
+     * guidance job counts too while it carries one: the last pages of a task (the goal itself) are
+     * often observed by it, and its answer used to land after the manual update had been taken.
+     */
     suspend fun awaitObservations(timeoutMs: Long) {
-        val running = observers.filter { it.isActive }
+        val running = observers.filter { it.isActive } + listOfNotNull(job?.takeIf { it.isActive && jobObserves })
         if (running.isEmpty()) return
         withTimeoutOrNull(timeoutMs) { running.forEach { it.join() } }
     }
@@ -128,6 +133,7 @@ class BackgroundAdvisor(
         onObservation: ((ManualPageObservation) -> Unit)? = null,
     ) {
         job?.cancel()
+        jobObserves = onObservation != null
         job = scope.launch {
             try {
                 val result = gateway.generateStructuredText(
