@@ -1035,6 +1035,8 @@ class AgentLoop(
     private suspend fun acceptCompletion(task: String, summary: String) {
         val elapsed = System.currentTimeMillis() - taskStartTime
         Log.i(TAG, "Task complete at step $stepCount in ${elapsed}ms")
+        // Fast-path page observations for the app manual may still be in flight (bounded wait).
+        fastExecutor?.finishObservations()
         updateTaskStatus("completed")
         manualRuntime?.completeTask()
         overlayManager.awaitTaskComplete(taskName = task, summary = summary, steps = stepCount, durationMs = elapsed)

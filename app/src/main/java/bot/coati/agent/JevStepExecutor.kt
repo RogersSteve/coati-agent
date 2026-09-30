@@ -28,6 +28,7 @@ import bot.coati.jev.PreviousStep
 import bot.coati.jev.StepOutcome
 import bot.coati.jev.StepRecord
 import bot.coati.jev.StepVerifier
+import bot.coati.model.ManualPageObservation
 import bot.coati.model.ModelRouter
 import bot.coati.model.ScreenContext
 import bot.coati.perception.A11yScreenParser
@@ -546,14 +547,12 @@ class JevStepExecutor(
     ) {
         val advised = lastAdvisedPage
         if (advised != null && ParsedScreen.samePage(advised, here)) return
-        if (advisor.busy) return
-        lastAdvisedPage = here
         val learning = manualRuntime?.learningObservationInstruction(context.appPackage, tree, manual)
         val headings = manual?.headingPaths.orEmpty()
         val precedingAction = previousAction
         val beforeTree = previousTree
-        advisor.advise(stepNumber, task, context.screenshotJpeg, subgoals, history.toList(), learning) {
-            // Page learning evidence for THIS step's screen, admitted by the manual layer's own guards.
+        // Page learning evidence for THIS step's screen, admitted by the manual layer's own guards.
+        val record: (ManualPageObservation) -> Unit = {
             manualRuntime?.recordObservedCurrentPage(
                 packageName = context.appPackage,
                 tree = tree,
@@ -563,6 +562,20 @@ class JevStepExecutor(
                 beforeTree = beforeTree,
             )
         }
+        if (advisor.busy) {
+            // Guidance can wait for a later page; the manual needs this one, so observe it beside.
+            if (learning != null && advisor.observe(stepNumber, task, context.screenshotJpeg, subgoals, history.toList(), learning, record)) {
+                lastAdvisedPage = here
+            }
+            return
+        }
+        lastAdvisedPage = here
+        advisor.advise(stepNumber, task, context.screenshotJpeg, subgoals, history.toList(), learning, record)
+    }
+
+    /** Lets page observations still in flight reach the app manual before the task completes. */
+    suspend fun finishObservations() {
+        advisor.awaitObservations(OBSERVATION_WAIT_MS)
     }
 
     private fun escalate(reason: String): FastStep {
@@ -674,6 +687,7 @@ class JevStepExecutor(
         private const val TAG = "CoatiJev"
         private const val MAX_CONSECUTIVE_BAD = 3
         private const val PROGRESS_WINDOW = 6
+        private const val OBSERVATION_WAIT_MS = 12_000L
         /** Successful board runs explored at most 5 steps in a row (one deep search: 14); every timeout 7-27. */
         private const val MAX_EXPLORE_STREAK = 6
         private const val MAX_CONSECUTIVE_RETRIES = 4

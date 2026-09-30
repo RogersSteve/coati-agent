@@ -35,6 +35,9 @@ class BackgroundAdvisor(
 ) {
     private var job: Job? = null
 
+    // Page observations for the app manual that run beside the guidance job (see observe()).
+    private val observers = mutableListOf<Job>()
+
     @Volatile
     private var pending: Guidance? = null
 
@@ -55,6 +58,52 @@ class BackgroundAdvisor(
     ) {
         if (busy) return
         launch(step, screenshot, advisePrompt(task, subgoals, history, learningInstruction), onObservation)
+    }
+
+    /**
+     * Records a page for the app manual while the guidance job is busy. The executor moves through
+     * pages faster than one guidance call, and pages skipped then were exactly the confident route
+     * the task took (board: a manual with the pages the executor wandered through, but not
+     * Settings -> Advanced -> Archive). Only the observation is kept: the guidance describes a page
+     * the executor has already left. Returns false when too many observations are in flight.
+     */
+    fun observe(
+        step: Int,
+        task: String,
+        screenshot: ByteArray,
+        subgoals: List<String>,
+        history: List<StepRecord>,
+        learningInstruction: String,
+        onObservation: (ManualPageObservation) -> Unit,
+    ): Boolean {
+        observers.removeAll { !it.isActive }
+        if (observers.size >= MAX_OBSERVERS) return false
+        observers += scope.launch {
+            try {
+                val result = gateway.generateStructuredText(
+                    StructuredTextRequest(
+                        systemPrompt = SYSTEM_PROMPT,
+                        userPrompt = advisePrompt(task, subgoals, history, learningInstruction),
+                        temperature = 0.1,
+                        maxOutputTokens = MAX_OUTPUT_TOKENS,
+                        imageJpeg = screenshot,
+                    ),
+                ).getOrThrow()
+                parse(result.text, step).manualObservation?.let(onObservation)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Background page observation failed: ${e.message}")
+            }
+        }
+        return true
+    }
+
+    /** Waits (bounded) for page observations still in flight, so the manual update includes them. */
+    suspend fun awaitObservations(timeoutMs: Long) {
+        val running = observers.filter { it.isActive }
+        if (running.isEmpty()) return
+        withTimeoutOrNull(timeoutMs) { running.forEach { it.join() } }
     }
 
     /** Non-blocking: the latest finished guidance, consumed once. */
@@ -104,6 +153,7 @@ class BackgroundAdvisor(
     companion object {
         private const val TAG = "CoatiAdvisor"
         private const val MAX_OUTPUT_TOKENS = 8192
+        private const val MAX_OBSERVERS = 2
 
         private val SYSTEM_PROMPT = """
             You guide a fast executor that operates an Android phone step by step. You run in the
