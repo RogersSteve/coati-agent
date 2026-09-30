@@ -10,6 +10,8 @@ import android.view.accessibility.AccessibilityWindowInfo
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import bot.coati.agent.AgentLoop
+import bot.coati.agent.TaskRunOptions
 import bot.coati.data.ConfigStore
 import bot.coati.data.SafetyMode
 import android.graphics.BitmapFactory
@@ -48,7 +50,9 @@ import java.util.Locale
  *   --es provider openai_compatible --es endpoint https://relay.example --es api_key KEY \
  *   --es reasoning_model m1 --es fast_model m2 --es safety TRUST --es jev_key KEY
  * (an empty jev_key removes it, so every step uses the Reasoning model)
- * adb shell am broadcast -a bot.coati.debug.RUN_TASK -n bot.coati/.debug.DebugAgentReceiver --es task "..."
+ * adb shell am broadcast -a bot.coati.debug.RUN_TASK -n bot.coati/.debug.DebugAgentReceiver --es task "..." \
+ *   [--es run_id ID] [--ei max_steps N]
+ * (when the task ends, files/task_result.json holds its result; see bot.coati.agent.TaskResult)
  * adb shell am broadcast -a bot.coati.debug.STOP_TASK -n bot.coati/.debug.DebugAgentReceiver
  * adb shell am broadcast -a bot.coati.debug.DUMP_TREE -n bot.coati/.debug.DebugAgentReceiver
  * adb push shot.jpg /sdcard/Android/data/bot.coati/files/ocr_bench/
@@ -62,8 +66,17 @@ class DebugAgentReceiver : BroadcastReceiver() {
             ACTION_CONFIGURE -> configure(context, intent)
             ACTION_RUN_TASK -> {
                 val task = intent.getStringExtra("task")?.takeIf { it.isNotBlank() } ?: return
-                val started = CoatiService.executeTask(task)
-                Log.i(TAG, "Debug task started=$started task=$task")
+                val options = runCatching {
+                    TaskRunOptions(
+                        runId = intent.getStringExtra("run_id"),
+                        maxSteps = intent.getIntExtra("max_steps", AgentLoop.MAX_STEPS),
+                    )
+                }.getOrElse {
+                    Log.w(TAG, "Debug task rejected: ${it.message}")
+                    return
+                }
+                val started = CoatiService.executeTask(task, options)
+                Log.i(TAG, "Debug task started=$started runId=${options.runId} maxSteps=${options.maxSteps} task=$task")
             }
             ACTION_STOP_TASK -> Log.i(TAG, "Debug task stopped=${CoatiService.stopTask()}")
             ACTION_DUMP_TREE -> dumpTree()
