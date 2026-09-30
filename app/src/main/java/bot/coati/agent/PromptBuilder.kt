@@ -207,7 +207,7 @@ object PromptBuilder {
         {"answer": true, "category": "reason", "confidence": 0.9${if (manualObservationInstruction != null) ", \"manualObservation\": { ... }" else ""}}
     """.trimIndent()
 
-    private fun manualObservationSchema(): String = """
+    internal fun manualObservationSchema(): String = """
         manualObservation schema:
         {"status":"MATCHED|NEW_OR_CHANGED|UNKNOWN","pageName":"short stable page name or null","matchedHeadingPath":"exact shown 页面详情/... path or null","visualSignature":"short stable identifying layout or null","reusableFacts":["up to 4 stable facts"],"navigationFacts":["up to 3 stable navigation facts"],"popupOrRecoveryFact":"one stable fact or null"}
         Status is about coverage by the supplied app manual, never whether the action or task target matched. MATCHED requires copying an exact supplied 页面详情/... path into matchedHeadingPath; otherwise use NEW_OR_CHANGED or UNKNOWN.

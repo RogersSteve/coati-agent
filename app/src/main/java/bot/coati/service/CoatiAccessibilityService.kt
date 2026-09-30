@@ -856,6 +856,10 @@ class CoatiAccessibilityService : AccessibilityService() {
             viewIdResourceName = node.viewIdResourceName,
             actions = node.actionList.mapNotNull(::actionName).distinct(),
             children = children,
+            isLongClickable = node.isLongClickable,
+            isChecked = node.isChecked,
+            isSelected = node.isSelected,
+            isVisibleToUser = node.isVisibleToUser,
         )
     }
 

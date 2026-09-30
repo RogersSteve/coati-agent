@@ -274,24 +274,33 @@ class GeminiGateway(
                 })
                 .put(JSONObject().apply {
                     put("role", "user")
-                    put("parts", JSONArray().put(JSONObject().apply { put("text", request.userPrompt) }))
+                    val parts = JSONArray()
+                    request.imageJpeg?.let { image ->
+                        parts.put(JSONObject().put("inline_data", JSONObject()
+                            .put("mime_type", "image/jpeg")
+                            .put("data", Base64.encodeToString(image, Base64.NO_WRAP))))
+                    }
+                    put("parts", parts.put(JSONObject().apply { put("text", request.promptText) }))
                 })
-            val requestBody = JSONObject().apply {
+            fun body(lowLatency: Boolean) = JSONObject().apply {
                 put("contents", contents)
                 put("generationConfig", JSONObject().apply {
                     put("temperature", request.temperature)
                     put("maxOutputTokens", withThinking(request.maxOutputTokens))
+                    if (lowLatency) put("thinkingConfig", JSONObject().put("thinkingLevel", "low"))
                 })
             }.toString()
-            val httpRequest = Request.Builder()
-                .url("$endpoint/v1beta/models/$modelName:generateContent?key=$apiKey")
-                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-            client.newCall(httpRequest).awaitResponseBody().let { response ->
-                val body = response.body
-                if (!response.isSuccessful) return Result.failure(ApiHttpException(response.code))
-                Result.success(StructuredTextResponseParser.gemini(body))
-            }
+            suspend fun send(lowLatency: Boolean) = client.newCall(
+                Request.Builder()
+                    .url("$endpoint/v1beta/models/$modelName:generateContent?key=$apiKey")
+                    .post(body(lowLatency).toRequestBody(JSON_MEDIA_TYPE))
+                    .build(),
+            ).awaitResponseBody()
+            var response = send(request.lowLatency)
+            // Models without thinking levels reject the hint; it is optional.
+            if (request.lowLatency && response.code == 400) response = send(false)
+            if (!response.isSuccessful) return Result.failure(ApiHttpException(response.code))
+            Result.success(StructuredTextResponseParser.gemini(response.body))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

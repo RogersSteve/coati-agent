@@ -260,6 +260,16 @@ class OpenAiCompatibleGateway(
 
     override suspend fun generateStructuredText(request: StructuredTextRequest): Result<StructuredTextResult> {
         return try {
+            val userContent: Any = request.imageJpeg?.let { image ->
+                JSONArray()
+                    .put(JSONObject().apply {
+                        put("type", "image_url")
+                        put("image_url", JSONObject().put(
+                            "url", "data:image/jpeg;base64,${Base64.encodeToString(image, Base64.NO_WRAP)}",
+                        ))
+                    })
+                    .put(JSONObject().put("type", "text").put("text", request.promptText))
+            } ?: request.promptText
             val messages = JSONArray()
                 .put(JSONObject().apply {
                     put("role", "system")
@@ -267,24 +277,27 @@ class OpenAiCompatibleGateway(
                 })
                 .put(JSONObject().apply {
                     put("role", "user")
-                    put("content", request.userPrompt)
+                    put("content", userContent)
                 })
-            val requestBody = JSONObject().apply {
+            fun body(lowLatency: Boolean) = JSONObject().apply {
                 put("model", modelName)
                 put("messages", messages)
                 put("temperature", request.temperature)
                 put("max_tokens", request.maxOutputTokens)
+                if (lowLatency) put("reasoning_effort", "low")
             }.toString()
-            val httpRequest = Request.Builder()
-                .url("$endpoint/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-            client.newCall(httpRequest).awaitResponseBody().let { response ->
-                val body = response.body
-                if (!response.isSuccessful) return Result.failure(ApiHttpException(response.code))
-                Result.success(StructuredTextResponseParser.openAi(body))
-            }
+            suspend fun send(lowLatency: Boolean) = client.newCall(
+                Request.Builder()
+                    .url("$endpoint/v1/chat/completions")
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .post(body(lowLatency).toRequestBody(JSON_MEDIA_TYPE))
+                    .build(),
+            ).awaitResponseBody()
+            var response = send(request.lowLatency)
+            // Non-reasoning models may reject reasoning_effort; the hint is optional.
+            if (request.lowLatency && response.code == 400) response = send(false)
+            if (!response.isSuccessful) return Result.failure(ApiHttpException(response.code))
+            Result.success(StructuredTextResponseParser.openAi(response.body))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

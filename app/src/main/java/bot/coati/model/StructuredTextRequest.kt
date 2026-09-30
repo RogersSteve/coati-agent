@@ -2,12 +2,29 @@ package bot.coati.model
 
 import org.json.JSONObject
 
-data class StructuredTextRequest(
+class StructuredTextRequest(
     val systemPrompt: String,
     val userPrompt: String,
     val temperature: Double = 0.1,
     val maxOutputTokens: Int,
-)
+    /** Optional JPEG attached to the user turn. */
+    val imageJpeg: ByteArray? = null,
+    /** Ask for minimal model-side thinking; providers that reject the hint are retried without it. */
+    val lowLatency: Boolean = false,
+) {
+    /**
+     * The user prompt as sent. With an image attached, it names the image by content hash: some
+     * relays cache responses by request text alone, and an identical prompt over a different
+     * screenshot then returns the answer for another image (observed on the board).
+     */
+    val promptText: String
+        get() = imageJpeg?.let { "$userPrompt\n[image ${imageId(it)}]" } ?: userPrompt
+
+    companion object {
+        internal fun imageId(jpeg: ByteArray): String =
+            java.security.MessageDigest.getInstance("SHA-256").digest(jpeg).take(8).joinToString("") { "%02x".format(it) }
+    }
+}
 
 enum class StructuredTextFinishReason {
     COMPLETE,

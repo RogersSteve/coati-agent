@@ -250,9 +250,17 @@ class ClaudeCompatibleGateway(
 
     override suspend fun generateStructuredText(request: StructuredTextRequest): Result<StructuredTextResult> {
         return try {
+            val userContent: Any = request.imageJpeg?.let { image ->
+                JSONArray()
+                    .put(JSONObject().put("type", "image").put("source", JSONObject()
+                        .put("type", "base64")
+                        .put("media_type", "image/jpeg")
+                        .put("data", Base64.encodeToString(image, Base64.NO_WRAP))))
+                    .put(JSONObject().put("type", "text").put("text", request.promptText))
+            } ?: request.promptText
             val messages = JSONArray().put(JSONObject().apply {
                 put("role", "user")
-                put("content", request.userPrompt)
+                put("content", userContent)
             })
             val requestBody = JSONObject().apply {
                 put("model", modelName)

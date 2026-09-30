@@ -14,7 +14,9 @@ End-to-end benchmark of the real Coati app on a device or emulator. It drives an
   and marks onboarding complete through the debug receiver.
 - Target apps: `Coati 手册实验室` (`test-apps/living-manual-lab`, v1 flavor:
   `./gradlew :test-apps:living-manual-lab:installV1Debug`) and optionally bilibili
-  (`tv.danmaku.bili`, guest mode).
+  (`tv.danmaku.bili`, guest mode) and Flutter Gallery v2.9.2 (`io.flutter.demo.gallery`, APK from
+  the [release page](https://github.com/flutter-team-archive/gallery/releases/tag/v2.9.2); the
+  script pins it to English).
 
 | Variable | Meaning |
 |---|---|
@@ -64,6 +66,9 @@ Defined in `tasks.py`; most have an automatic check against the app's UI or save
 | W1 | Canvas Workbench | no accessibility tree: painted tabs, swatches, toggle |
 | W2 | Canvas Workbench | no tree, plus a text field that has no accessibility node (IME only) |
 | O1 | Mixed Order | native list and fields around painted controls; the keyboard reflows the page |
+| P1 | Manual Lab | runtime-permission dialog in front of the app (answered by the agent in TRUST) |
+| G1 | Flutter Gallery | Flutter semantics tree, sign-in text input, multi-page shopping flow |
+| G2 | Flutter Gallery | Flutter settings panel, option behind another control |
 | B1-B3 | bilibili | real app; checked by hand from the final screenshot |
 
 Canvas Workbench and Mixed Order store their outcome in the lab app's `manual_lab_state`

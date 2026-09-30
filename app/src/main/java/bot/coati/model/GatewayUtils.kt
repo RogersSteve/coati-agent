@@ -5,16 +5,16 @@ import org.json.JSONException
 import org.json.JSONObject
 
 /**
- * Output budget for the compact verify/quick-check JSON. Thinking models (Gemini 3.x, GPT-5.x)
- * spend part of max_tokens on hidden reasoning; the former 128/256 budgets truncated the JSON to
- * nothing, so completion audits came back "unavailable" and verification fell to UNKNOWN.
- */
-/**
  * The model's reply could not be read as an action: cut-off or non-JSON text, or values outside the
  * response schema (such as pixel instead of normalized coordinates). Asking again can succeed.
  */
 class MalformedModelResponseException(message: String, cause: Throwable) : IllegalArgumentException(message, cause)
 
+/**
+ * Output budget for the compact verify/quick-check JSON. Thinking models (Gemini 3.x, GPT-5.x)
+ * spend part of max_tokens on hidden reasoning; the former 128/256 budgets truncated the JSON to
+ * nothing, so completion audits came back "unavailable" and verification fell to UNKNOWN.
+ */
 internal fun compactJsonMaxTokens(withManualObservation: Boolean): Int = if (withManualObservation) 2048 else 1024
 
 object GatewayUtils {
@@ -174,7 +174,7 @@ object GatewayUtils {
         }
     }
 
-    private fun parseManualObservation(root: JSONObject): ManualPageObservation? =
+    internal fun parseManualObservation(root: JSONObject): ManualPageObservation? =
         root.optJSONObject("manualObservation")?.let { observation ->
             ManualPageObservation(
                 status = observation.optString("status", "UNKNOWN"),

@@ -7,11 +7,15 @@ mixed (both on one screen), input (soft keyboard text entry), dependent (a contr
 appears after another action), cross-page (navigation across several pages).
 """
 import re
+import time
 
 import adbdev as dev
 
 LAB = "bot.coati.fixture.manual"
 BILI = "tv.danmaku.bili"
+# Flutter Gallery v2.9.2 (github.com/flutter-team-archive/gallery releases): a Flutter app whose
+# accessibility tree is Flutter semantics (content descriptions, no view hierarchy).
+GALLERY = "io.flutter.demo.gallery"
 
 
 def texts():
@@ -40,6 +44,33 @@ def lab_pref_set(name):
     return set(re.findall(r"<string>(.*?)</string>", m.group(1))) if m else set()
 
 
+def descs():
+    return [n["desc"] for n in dev.ui_nodes()]
+
+
+def gallery_cart_has(*items):
+    shown = descs()
+    return all(any(d.startswith(f"{item}\nQuantity") for d in shown) for item in items)
+
+
+def gallery_theme_is(theme):
+    shown = descs()
+    if not any(d.startswith("Theme\n") for d in shown):
+        # The agent may have closed the settings panel; reopen it to read the state.
+        settings = next((n for n in dev.ui_nodes() if n["desc"] == "Settings"), None)
+        if settings:
+            x1, y1, x2, y2 = settings["bounds"]
+            dev.sh("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+            time.sleep(2)
+            shown = descs()
+    return f"Theme\n{theme}" in shown
+
+
+# Per-app setup after its data is cleared. Gallery follows the system language, so pin English.
+SETUP = {
+    GALLERY: lambda: dev.sh("shell", "cmd", "locale", "set-app-locales", GALLERY, "--locales", "en-US"),
+}
+
 TASKS = {
     # Native pages of the Manual Lab (Chinese UI labels are quoted as they appear on screen).
     "L1": (LAB, "In the Coati 手册实验室 (Manual Lab) app, open the 「实验档案」 page",
@@ -63,6 +94,16 @@ TASKS = {
                 "delivery note, then submit the order",
            lambda: lab_pref("order_submitted") == "emergency|3|true|Alex Chen|Leave at the door",
            ["mixed", "input"]),
+    # A system permission dialog in front of the app (the benchmark runs in TRUST mode, where the
+    # agent may answer it; other modes hand it to the user).
+    "P1": (LAB, "In the Coati 手册实验室 (Manual Lab) app, open Import Contacts and import my contacts",
+           lambda: lab_pref("contacts_permission") == "granted", ["native", "system-dialog", "cross-app"]),
+    # Flutter Gallery.
+    "G1": (GALLERY, "In the Flutter Gallery app, open Shrine, sign in with username alex and password secret1, "
+                    "add the Gatsby hat and the Blue stone mug to the cart, then open the cart",
+           lambda: gallery_cart_has("Gatsby hat", "Blue stone mug"), ["flutter", "input", "cross-page"]),
+    "G2": (GALLERY, "In the Flutter Gallery app, open Settings and set the Theme to Dark",
+           lambda: gallery_theme_is("Dark"), ["flutter", "dependent"]),
     # bilibili in guest mode: a real app with dialogs, feeds and partial trees.
     "B1": (BILI, "In the bilibili app, search for minecraft and open the first video in the search results",
            None, ["mixed", "input"]),

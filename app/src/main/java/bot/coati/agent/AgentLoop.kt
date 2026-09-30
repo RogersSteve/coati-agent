@@ -47,6 +47,11 @@ class AgentLoop(
     private val stateManager: StateManager? = null,
     private val manualRuntime: AppManualRuntime? = null,
     private val safetyModeProvider: () -> SafetyMode = { SafetyMode.STANDARD },
+    /**
+     * Optional JEV fast path. When present it takes each step first and escalates to the
+     * Reasoning step below when it is unsure or stuck; when absent every step uses Reasoning.
+     */
+    private val fastExecutor: JevStepExecutor? = null,
 ) {
     private data class ActionRecord(
         val action: String,
@@ -101,6 +106,7 @@ class AgentLoop(
         lastStepFeedback = null
         taskCompletionAuditRejects = 0
         manualRuntime?.startTask(task)
+        fastExecutor?.startTask(task)
         Log.i(TAG, "Starting agent loop for task: $task (confirmationMode=$taskSafetyMode)")
 
         overlayManager.enterFrameExecuting(task)
@@ -141,6 +147,7 @@ class AgentLoop(
         currentJob?.cancel()
         currentJob = null
         manualRuntime?.discardTask()
+        fastExecutor?.finishTask()
         overlayManager.resetBallState()
         Log.i(TAG, "Agent loop stopped")
     }
@@ -229,6 +236,52 @@ class AgentLoop(
             val quality = RuleEngine.assessQuality(nodeCount, textNodeCount)
             Log.i(TAG, "UI quality=$quality, nodes=$nodeCount, textNodes=$textNodeCount")
 
+            // c2. FAST PATH: JEV decides when configured; Reasoning takes the step on escalation.
+            val fast = fastExecutor?.takeIf { it.activeForTask }
+            if (fast != null) {
+                overlayManager.updateProgress(task, "Deciding...", "", stepCount, MAX_STEPS)
+                val outcome = fast.step(stepCount, task, screenContext, uiTree) { pkg, actionName, label, level ->
+                    val fastSafety = RuleEngine.assessSafety(pkg, actionName, label, level)
+                    confirmIfNeeded(task, safetyMode, onSecurityDialog, fastSafety.level, fastSafety.reason, label)
+                }
+                when (outcome) {
+                    FastStep.Acted -> {
+                        recordStepProgress(screenContext.appPackage)
+                        continue
+                    }
+                    FastStep.Retry -> continue
+                    FastStep.Declined -> {
+                        cancelByUser()
+                        return
+                    }
+                    is FastStep.DoneClaimed -> {
+                        val audit = auditCompletion(task, screenContext.screenshotJpeg)
+                        if (classifyTaskCompletionAudit(audit) != CompletionAuditDecision.REJECT) {
+                            acceptCompletion(task, outcome.summary.ifBlank { "Task complete" })
+                            return
+                        }
+                        fast.doneRejected()
+                        val auditReason = audit?.category ?: "completion evidence unavailable"
+                        if (++taskCompletionAuditRejects >= MAX_TASK_COMPLETION_AUDIT_REJECTS) {
+                            failTask(task, "Task completion could not be verified after $taskCompletionAuditRejects attempts: $auditReason")
+                            return
+                        }
+                        // JEV cannot read the audit's reason (a wrong count, an unsaved value): the
+                        // Reasoning model takes this step to fix exactly what the audit found.
+                        lastStepFeedback = "Task completion audit REJECTED: $auditReason. " +
+                            "The current screen does not yet prove every explicit user requirement."
+                        replanHint = "A fast executor claimed the task was done but the audit rejected it. " +
+                            "Its recent actions:\n${fast.recentHistory()}\nRe-check the original task against " +
+                            "the current screenshot and fix only the missing or wrong result (redo a submit or " +
+                            "save if its values were wrong)."
+                    }
+                    is FastStep.Escalate -> {
+                        replanHint = "A fast executor handed this step to you: ${outcome.reason}. " +
+                            "Its recent actions:\n${fast.recentHistory()}\nChoose one action that makes progress."
+                    }
+                }
+            }
+
             // d. CONTEXT: bounded advisory manual. OFF/SHADOW return no prompt content.
             val renderedManual = manualRuntime?.promptFor(screenContext.appPackage, screenContext.uiTreeJson)
             val learningObservationInstruction = manualRuntime?.learningObservationInstruction(
@@ -301,32 +354,10 @@ class AgentLoop(
                 actionContext = response.statusUpdate,
                 modelSafetyLevel = response.safetyLevel,
             )
-            // Over a system dialog Android hides our overlay, so a confirmation could never be seen;
-            // reaching this point there means the user chose TRUST and pre-authorized the answer.
-            if (onSecurityDialog) {
-                Log.i(TAG, "Answering system dialog without confirmation (${safety.level}/$safetyMode)")
-            } else if (RuleEngine.shouldConfirm(safety.level, safetyMode)) {
-                Log.i(TAG, "Safety confirmation needed (${safety.level}/$safetyMode): ${safety.reason}")
-                val confirmed = overlayManager.requestConfirmation(
-                    title = when (safetyMode) {
-                        SafetyMode.TRUST -> "High-Risk Action"
-                        SafetyMode.STANDARD -> "Risk Confirmation"
-                        SafetyMode.CAUTIOUS -> "Review Next Action"
-                    },
-                    detail = "${response.action}: ${response.reasoning}",
-                )
-                if (!confirmed) {
-                    Log.i(TAG, "User cancelled action")
-                    updateTaskStatus("cancelled")
-                    overlayManager.collapse()
-                    overlayManager.resetBallState()
-                    return
-                }
-                overlayManager.enterFrameExecuting(task)
-                // Dialog dismissal + overlay layout change are async WMS operations.
-                // Without this delay the subsequent gesture dispatches before FLAG_NOT_TOUCHABLE
-                // takes effect and gets consumed by the overlay instead of the target app.
-                delay(300)
+            if (!confirmIfNeeded(task, safetyMode, onSecurityDialog, safety.level, safety.reason,
+                    "${response.action}: ${response.reasoning}")) {
+                cancelByUser()
+                return
             }
 
             // Save before-context for verification
@@ -684,6 +715,15 @@ class AgentLoop(
                 }
             }
 
+            fastExecutor?.recordReasoningStep(
+                response.statusUpdate.ifBlank { response.action },
+                when (actionHistory.lastOrNull()?.outcome) {
+                    VerifyOutcome.SUCCESS, VerifyOutcome.UNEXPECTED -> true
+                    VerifyOutcome.FAILED, VerifyOutcome.DRIFTED -> false
+                    else -> null
+                },
+            )
+
             // j. UPDATE: write step to task.json
             currentTask = currentTask?.copy(
                 currentStep = stepCount,
@@ -937,6 +977,103 @@ class AgentLoop(
             throw IllegalStateException("Actions repeatedly could not be bound to the screen: ${e.message}")
         }
         return true
+    }
+
+    /**
+     * Asks the user to confirm an action at [level] when the safety mode requires it. Over a system
+     * dialog Android hides every overlay, so no confirmation could be seen; reaching an action there
+     * means the user chose TRUST and pre-authorized the answer. Returns false when declined.
+     */
+    private suspend fun confirmIfNeeded(
+        task: String,
+        safetyMode: SafetyMode,
+        onSecurityDialog: Boolean,
+        level: String,
+        reason: String?,
+        detail: String,
+    ): Boolean {
+        if (onSecurityDialog) {
+            Log.i(TAG, "Answering system dialog without confirmation ($level/$safetyMode)")
+            return true
+        }
+        if (!RuleEngine.shouldConfirm(level, safetyMode)) return true
+        Log.i(TAG, "Safety confirmation needed ($level/$safetyMode): $reason")
+        val confirmed = overlayManager.requestConfirmation(
+            title = when (safetyMode) {
+                SafetyMode.TRUST -> "High-Risk Action"
+                SafetyMode.STANDARD -> "Risk Confirmation"
+                SafetyMode.CAUTIOUS -> "Review Next Action"
+            },
+            detail = detail,
+        )
+        if (!confirmed) return false
+        overlayManager.enterFrameExecuting(task)
+        // Dialog dismissal + overlay layout change are async WMS operations.
+        // Without this delay the subsequent gesture dispatches before FLAG_NOT_TOUCHABLE
+        // takes effect and gets consumed by the overlay instead of the target app.
+        delay(300)
+        return true
+    }
+
+    private suspend fun cancelByUser() {
+        Log.i(TAG, "User cancelled action")
+        updateTaskStatus("cancelled")
+        overlayManager.collapse()
+        overlayManager.resetBallState()
+    }
+
+    /** Independent Fast-model check that the current screen proves the task is done. */
+    private suspend fun auditCompletion(task: String, screenshot: ByteArray): QuickCheckResult? {
+        overlayManager.updateProgress(task, "Checking result...", "", stepCount, MAX_STEPS)
+        // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not hold a
+        // finished task for the gateway's full limit, so a slow attempt is retried.
+        var audit: QuickCheckResult? = null
+        for (attempt in 1..AUDIT_ATTEMPTS) {
+            val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
+                modelRouter.fast.quickCheck(screenshot, buildTaskCompletionAuditQuestion(task), null)
+            }
+            if (result == null) {
+                Log.w(TAG, "Task completion audit attempt $attempt timed out")
+                continue
+            }
+            audit = result.getOrNull()
+            break
+        }
+        Log.i(TAG, "Task completion audit: decision=${classifyTaskCompletionAudit(audit)}, category=${audit?.category}")
+        return audit
+    }
+
+    private suspend fun acceptCompletion(task: String, summary: String) {
+        val elapsed = System.currentTimeMillis() - taskStartTime
+        Log.i(TAG, "Task complete at step $stepCount in ${elapsed}ms")
+        // Fast-path page observations for the app manual may still be in flight (bounded wait).
+        fastExecutor?.finishObservations()
+        updateTaskStatus("completed")
+        manualRuntime?.completeTask()
+        overlayManager.awaitTaskComplete(taskName = task, summary = summary, steps = stepCount, durationMs = elapsed)
+        overlayManager.collapse()
+        overlayManager.resetBallState()
+    }
+
+    private suspend fun failTask(task: String, reason: String) {
+        updateTaskStatus("failed", reason)
+        val retry = overlayManager.awaitTaskFailed(taskName = task, reason = reason, stepsCompleted = stepCount, totalSteps = MAX_STEPS)
+        if (retry) {
+            start(task)
+        } else {
+            overlayManager.collapse()
+            overlayManager.resetBallState()
+        }
+    }
+
+    private suspend fun recordStepProgress(appPackage: String) {
+        currentTask = currentTask?.copy(
+            currentStep = stepCount,
+            totalSteps = MAX_STEPS,
+            lastUpdated = currentTimestamp(),
+            targetPackage = appPackage,
+        )
+        writeTaskState(currentTask)
     }
 
     private fun isTextInputAction(action: String): Boolean {

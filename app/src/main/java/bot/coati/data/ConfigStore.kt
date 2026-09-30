@@ -18,6 +18,13 @@ data class ProviderConfig(
 
 enum class SafetyMode { CAUTIOUS, STANDARD, TRUST }
 
+/** Optional JEV fast executor. Without it, the Reasoning model decides every step. */
+data class JevConfig(
+    val apiKey: String,
+    val endpoint: String,
+    val model: String,
+)
+
 class ConfigStore(context: Context) {
 
     private val isDebuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -114,6 +121,38 @@ class ConfigStore(context: Context) {
         Log.i(TAG, "App manual mode set to $mode")
     }
 
+    // ─── JEV FAST EXECUTOR (optional) ───
+
+    fun saveJevConfig(apiKey: String, endpoint: String, model: String) {
+        prefs.edit()
+            .putString(KEY_JEV_API_KEY, apiKey)
+            .putString(KEY_JEV_ENDPOINT, endpoint)
+            .putString(KEY_JEV_MODEL, model)
+            .apply()
+        Log.i(TAG, "JEV config saved: model=$model")
+    }
+
+    fun getJevConfig(): JevConfig? {
+        val apiKey = prefs.getString(KEY_JEV_API_KEY, null)?.takeIf { it.isNotBlank() } ?: return null
+        return JevConfig(
+            apiKey = apiKey,
+            endpoint = prefs.getString(KEY_JEV_ENDPOINT, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_JEV_ENDPOINT,
+            model = prefs.getString(KEY_JEV_MODEL, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_JEV_MODEL,
+        )
+    }
+
+    /** Debug/benchmark switch: GPU OCR in the JEV fast path (on by default where a GPU exists). */
+    fun isOcrEnabled(): Boolean = prefs.getBoolean(KEY_OCR_ENABLED, true)
+
+    fun setOcrEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_OCR_ENABLED, enabled).apply()
+    }
+
+    fun clearJevConfig() {
+        prefs.edit().remove(KEY_JEV_API_KEY).apply()
+        Log.i(TAG, "JEV config cleared")
+    }
+
     // ─── ROLE-BASED CONFIG (Reasoning / Fast) ───
 
     fun saveRoleConfig(role: String, providerId: String, apiKey: String, endpoint: String, modelName: String) {
@@ -190,6 +229,12 @@ class ConfigStore(context: Context) {
         private const val KEY_FAST_SAME_AS_REASONING = "fast_same_as_reasoning"
         private const val KEY_SAFETY_MODE = "safety_mode"
         private const val KEY_MANUAL_MODE = "app_manual_mode"
+        private const val KEY_JEV_API_KEY = "jev_api_key"
+        private const val KEY_JEV_ENDPOINT = "jev_endpoint"
+        private const val KEY_JEV_MODEL = "jev_model"
+        private const val KEY_OCR_ENABLED = "ocr_enabled"
+        const val DEFAULT_JEV_ENDPOINT = "https://api.typesafe.ai"
+        const val DEFAULT_JEV_MODEL = "jev-1.13.0"
 
         const val ROLE_REASONING = "reasoning"
         const val ROLE_FAST = "fast"

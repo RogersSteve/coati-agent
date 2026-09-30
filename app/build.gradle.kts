@@ -9,6 +9,7 @@ plugins {
 android {
     namespace = "bot.coati"
     compileSdk = 35
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "bot.coati"
@@ -18,6 +19,20 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Native OCR (ncnn) is built for 64-bit ARM devices and the x86_64 benchmark emulator;
+        // 32-bit ABIs are rare at minSdk 30.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    // On-device OCR: PaddleOCR PP-OCRv5 on ncnn's Vulkan backend (see src/main/cpp).
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {
