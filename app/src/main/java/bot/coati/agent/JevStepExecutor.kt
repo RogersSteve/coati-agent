@@ -545,9 +545,12 @@ class JevStepExecutor(
         here: Set<String>,
         manual: RenderedAppManual?,
     ) {
-        val advised = lastAdvisedPage
-        if (advised != null && ParsedScreen.nearlySamePage(advised, here)) return
         val learning = manualRuntime?.learningObservationInstruction(context.appPackage, tree, manual)
+        // Learning describes every page, so sibling pages count separately; plain guidance keeps the
+        // looser page identity (more guidance calls slowed the audits and verifies beside them).
+        val advised = lastAdvisedPage
+        val samePage = if (learning != null) ParsedScreen::nearlySamePage else ParsedScreen::samePage
+        if (advised != null && samePage(advised, here)) return
         val headings = manual?.headingPaths.orEmpty()
         val precedingAction = previousAction
         val beforeTree = previousTree
