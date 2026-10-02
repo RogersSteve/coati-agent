@@ -48,6 +48,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import bot.coati.R
+import bot.coati.ui.settings.JevConfigurationContent
 import bot.coati.model.ApiFormat
 import bot.coati.model.ModelProviders
 import bot.coati.util.RegionDetector
@@ -338,6 +339,7 @@ private fun ApiKeyStep(
     val selectedTab by viewModel.selectedTab.collectAsState()
     val verified by viewModel.apiKeyVerified.collectAsState()
     val fastVerified by viewModel.fastApiKeyVerified.collectAsState()
+    val jev by viewModel.jevEditor.state.collectAsState()
 
     Column(
         modifier = Modifier
@@ -371,6 +373,8 @@ private fun ApiKeyStep(
                 onClick = { viewModel.selectTab(1) },
                 text = { Text(stringResource(R.string.tab_fast)) },
             )
+            Tab(selected = selectedTab == 2, onClick = { viewModel.selectTab(2) },
+                text = { Text(stringResource(R.string.tab_jev_optional)) })
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -378,6 +382,8 @@ private fun ApiKeyStep(
         when (selectedTab) {
             0 -> ReasoningModelConfig(viewModel)
             1 -> FastModelConfig(viewModel)
+            2 -> JevConfigurationContent(jev, viewModel.jevEditor::selectProvider, viewModel.jevEditor::updateKey,
+                viewModel.jevEditor::verifyAndApply, viewModel.jevEditor::remove)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -389,7 +395,10 @@ private fun ApiKeyStep(
                 onClick = { viewModel.selectTab(1) },
             )
             ModelReviewTarget.REASONING -> ModelReviewPrompt(
-                message = stringResource(R.string.onboarding_reasoning_review_required),
+                message = stringResource(
+                    if (fastVerified) R.string.onboarding_reasoning_review_required
+                    else R.string.onboarding_both_models_required,
+                ),
                 buttonLabel = stringResource(R.string.onboarding_review_reasoning),
                 onClick = { viewModel.selectTab(0) },
             )
@@ -398,14 +407,21 @@ private fun ApiKeyStep(
 
         // Both roles are used at runtime, so both must be explicitly verified.
         if (verified && fastVerified) {
-            Button(
-                onClick = onNext,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text(stringResource(R.string.next))
+            if (jev.dirty || jev.verifying) {
+                OutlinedButton(onClick = { viewModel.jevEditor.discardDraft(); onNext() },
+                    modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(if (jev.configured) R.string.jev_discard_continue else R.string.jev_skip_continue))
+                }
+            } else {
+                Button(
+                    onClick = onNext,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text(stringResource(if (jev.configured) R.string.next else R.string.onboarding_next_without_jev))
+                }
             }
         }
     }
@@ -475,6 +491,11 @@ private fun QuickStartStep(onFinish: () -> Unit) {
             number = "4",
             title = stringResource(R.string.onboarding_quick_start_stop_title),
             description = stringResource(R.string.onboarding_quick_start_stop_description),
+        )
+        QuickStartItem(
+            number = "5",
+            title = stringResource(R.string.settings_jev_title),
+            description = stringResource(R.string.onboarding_jev_description),
         )
         Spacer(modifier = Modifier.height(32.dp))
         Button(

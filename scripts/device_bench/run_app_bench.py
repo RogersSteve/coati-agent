@@ -33,6 +33,8 @@ EMULATOR_AVD = os.environ.get("EMULATOR_AVD", "Medium_Phone_API_36.0")
 EMULATOR_RESTART_EVERY = 10
 
 JEV_KEY = os.environ.get("JEV_KEY", "")
+JEV_ENDPOINT = os.environ.get("JEV_ENDPOINT", "https://api.typesafe.ai").rstrip("/")
+JEV_MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
 # Extra CONFIGURE_AGENT extras per mode. An empty jev_key removes the key: Reasoning decides every
 # step, i.e. the classic flow. BENCH_APK_<MODE> (e.g. BENCH_APK_CLASSIC) installs that Coati build
 # before the mode runs, so a mode can use a build of another branch such as main.
@@ -125,7 +127,8 @@ def configure(mode):
     broadcast("bot.coati.debug.CONFIGURE_AGENT",
               "--es", "provider", PROVIDER, "--es", "endpoint", ENDPOINT, "--es", "api_key", API_KEY,
               "--es", "reasoning_model", MODEL, "--es", "fast_model", FAST_MODEL, "--es", "safety", "TRUST",
-              *MODES[mode], *PERTURB.configure_extras())
+              *MODES[mode], "--es", "jev_endpoint", JEV_ENDPOINT, "--es", "jev_model", JEV_MODEL,
+              *PERTURB.configure_extras())
     # With permissions, models and onboarding in place, the launcher activity starts the service.
     dev.sh("shell", "am", "start", "-n", "bot.coati/.ui.main.MainActivity")
     time.sleep(6)

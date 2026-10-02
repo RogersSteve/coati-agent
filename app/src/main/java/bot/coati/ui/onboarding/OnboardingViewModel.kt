@@ -14,6 +14,7 @@ import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
 import bot.coati.model.userFacingConnectionError
 import bot.coati.util.RegionDetector
+import bot.coati.ui.settings.JevConfigurationController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -71,7 +72,9 @@ class OnboardingViewModel @Inject constructor(
     private var verifyJob: Job? = null
     private var fastVerifyJob: Job? = null
 
-    // Tab selection (0 = Reasoning, 1 = Fast)
+    val jevEditor = JevConfigurationController(application, configStore, okHttpClient, viewModelScope)
+
+    // Tab selection (0 = Reasoning, 1 = Fast, 2 = optional Jev)
     private val _selectedTab = MutableStateFlow(0)
     val selectedTab: StateFlow<Int> = _selectedTab
 

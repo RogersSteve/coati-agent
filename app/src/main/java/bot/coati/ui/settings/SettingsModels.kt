@@ -37,6 +37,9 @@ data class ModelEditorState(
 )
 
 data class JevEditorState(
+    val providerId: String = "typesafe",
+    val configured: Boolean = false,
+    val dirty: Boolean = false,
     val apiKeyInput: String = "",
     val maskedApiKey: String = "",
     val hasSavedKey: Boolean = false,

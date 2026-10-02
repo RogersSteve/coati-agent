@@ -147,7 +147,11 @@ class DebugAgentReceiver : BroadcastReceiver() {
         }
         intent.getStringExtra("jev_key")?.let { key ->
             if (key.isBlank()) store.clearJevConfig()
-            else store.saveJevConfig(key, ConfigStore.DEFAULT_JEV_ENDPOINT, ConfigStore.DEFAULT_JEV_MODEL)
+            else store.saveJevConfig(
+                key,
+                intent.getStringExtra("jev_endpoint")?.takeIf { it.isNotBlank() } ?: ConfigStore.DEFAULT_JEV_ENDPOINT,
+                intent.getStringExtra("jev_model")?.takeIf { it.isNotBlank() } ?: ConfigStore.DEFAULT_JEV_MODEL,
+            )
         }
         if (intent.hasExtra("ocr")) store.setOcrEnabled(intent.getBooleanExtra("ocr", true))
         if (intent.hasExtra("verify")) BenchmarkSettings.setVerifyEnabled(context, intent.getBooleanExtra("verify", true))

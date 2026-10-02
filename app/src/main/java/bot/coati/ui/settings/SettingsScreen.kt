@@ -51,6 +51,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import bot.coati.R
+import bot.coati.jev.JevProviders
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
 import bot.coati.model.ModelProviders
@@ -138,11 +139,6 @@ fun SettingsScreen(
                 SectionTitle(stringResource(R.string.settings_ai_models))
                 Spacer(Modifier.height(8.dp))
                 ModelSettingsCard(state = state, viewModel = viewModel)
-            }
-            item {
-                SectionTitle(stringResource(R.string.settings_jev_section))
-                Spacer(Modifier.height(8.dp))
-                JevCard(state = state.jev, viewModel = viewModel)
             }
             item {
                 SectionTitle(stringResource(R.string.settings_safety_support))
@@ -586,182 +582,219 @@ private fun ModelSettingsCard(
                         )
                     },
                 )
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 },
+                    text = { Text(stringResource(R.string.tab_jev_optional)) })
             }
             Spacer(Modifier.height(16.dp))
-            Text(
-                text = if (role == ModelRole.REASONING) {
-                    stringResource(R.string.settings_reasoning_description)
-                } else {
-                    stringResource(R.string.settings_fast_description)
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (selectedTab == 2) {
+                JevConfigurationContent(state.jev, viewModel::selectJevProvider, viewModel::updateJevApiKey,
+                    viewModel::verifyAndApplyJev, viewModel::removeJevKey)
+            } else {
+                Text(
+                    text = if (role == ModelRole.REASONING) {
+                        stringResource(R.string.settings_reasoning_description)
+                    } else {
+                        stringResource(R.string.settings_fast_description)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
-            if (role == ModelRole.FAST) {
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.settings_reuse_reasoning_title), style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            stringResource(R.string.settings_reuse_reasoning_description),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (role == ModelRole.FAST) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.settings_reuse_reasoning_title), style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                stringResource(R.string.settings_reuse_reasoning_description),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = state.fastSameAsReasoning,
+                            onCheckedChange = viewModel::setFastSameAsReasoning,
+                            enabled = !state.reasoning.verifying && !state.fast.verifying,
                         )
                     }
-                    Switch(
-                        checked = state.fastSameAsReasoning,
-                        onCheckedChange = viewModel::setFastSameAsReasoning,
-                        enabled = !state.reasoning.verifying && !state.fast.verifying,
+                }
+
+                Spacer(Modifier.height(14.dp))
+                if (!(role == ModelRole.FAST && state.fastSameAsReasoning)) {
+                    ProviderPicker(
+                        selectedProviderId = editor.providerId,
+                        onSelected = { viewModel.selectProvider(role, it) },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                val providerId = editor.providerId
+                val provider = ModelProviders.findById(providerId)
+
+                if (!(role == ModelRole.FAST && state.fastSameAsReasoning) && provider?.isCustom == true) {
+                    OutlinedTextField(
+                        value = editor.endpoint,
+                        onValueChange = { viewModel.updateEndpoint(role, it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.settings_api_endpoint)) },
+                        supportingText = {
+                            Text(
+                                stringResource(
+                                    if (selectedRoleMissing && editor.endpoint.isBlank()) R.string.settings_api_endpoint_required
+                                    else R.string.settings_api_endpoint_hint,
+                                ),
+                            )
+                        },
+                        isError = selectedRoleMissing && editor.endpoint.isBlank(),
+                        singleLine = true,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                ModelPicker(
+                    providerId = providerId,
+                    modelName = editor.modelName,
+                    onSelected = { viewModel.updateModelName(role, it) },
+                )
+
+                if (!(role == ModelRole.FAST && state.fastSameAsReasoning)) {
+                    Spacer(Modifier.height(12.dp))
+                    ApiKeyField(
+                        value = editor.apiKeyInput,
+                        maskedKey = editor.maskedApiKey,
+                        hasSavedKey = editor.hasSavedKey,
+                        isError = selectedRoleMissing && !editor.hasSavedKey && editor.apiKeyInput.isBlank(),
+                        onValueChange = { viewModel.updateApiKey(role, it) },
                     )
                 }
-            }
 
-            Spacer(Modifier.height(14.dp))
-            if (!(role == ModelRole.FAST && state.fastSameAsReasoning)) {
-                ProviderPicker(
-                    selectedProviderId = editor.providerId,
-                    onSelected = { viewModel.selectProvider(role, it) },
-                )
-                Spacer(Modifier.height(12.dp))
-            }
+                editor.errorMessage?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+                editor.successMessage?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+                }
 
-            val providerId = editor.providerId
-            val provider = ModelProviders.findById(providerId)
-
-            if (!(role == ModelRole.FAST && state.fastSameAsReasoning) && provider?.isCustom == true) {
-                OutlinedTextField(
-                    value = editor.endpoint,
-                    onValueChange = { viewModel.updateEndpoint(role, it) },
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = { viewModel.verifyAndApply(role) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.settings_api_endpoint)) },
-                    supportingText = {
-                        Text(
-                            stringResource(
-                                if (selectedRoleMissing && editor.endpoint.isBlank()) R.string.settings_api_endpoint_required
-                                else R.string.settings_api_endpoint_hint,
-                            ),
+                    enabled = !editor.verifying,
+                ) {
+                    if (editor.verifying) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
                         )
-                    },
-                    isError = selectedRoleMissing && editor.endpoint.isBlank(),
-                    singleLine = true,
-                )
-                Spacer(Modifier.height(12.dp))
-            }
-
-            ModelPicker(
-                providerId = providerId,
-                modelName = editor.modelName,
-                onSelected = { viewModel.updateModelName(role, it) },
-            )
-
-            if (!(role == ModelRole.FAST && state.fastSameAsReasoning)) {
-                Spacer(Modifier.height(12.dp))
-                ApiKeyField(
-                    value = editor.apiKeyInput,
-                    maskedKey = editor.maskedApiKey,
-                    hasSavedKey = editor.hasSavedKey,
-                    isError = selectedRoleMissing && !editor.hasSavedKey && editor.apiKeyInput.isBlank(),
-                    onValueChange = { viewModel.updateApiKey(role, it) },
-                )
-            }
-
-            editor.errorMessage?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-            }
-            editor.successMessage?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
-            }
-
-            Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = { viewModel.verifyAndApply(role) },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !editor.verifying,
-            ) {
-                if (editor.verifying) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.height(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Text(stringResource(R.string.settings_verify_apply))
+                    } else {
+                        Text(stringResource(R.string.settings_verify_apply))
+                    }
                 }
+                Text(
+                    text = stringResource(R.string.settings_verification_disclosure),
+                    modifier = Modifier.padding(top = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text(
-                text = stringResource(R.string.settings_verification_disclosure),
-                modifier = Modifier.padding(top = 10.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
 
 @Composable
-private fun JevCard(
+internal fun JevConfigurationContent(
     state: JevEditorState,
-    viewModel: SettingsViewModel,
+    onProvider: (String) -> Unit,
+    onKey: (String) -> Unit,
+    onVerify: () -> Unit,
+    onRemove: () -> Unit,
 ) {
-    Card(shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text(stringResource(R.string.settings_jev_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text(
-                stringResource(R.string.settings_jev_description),
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ApiKeyField(
-                value = state.apiKeyInput,
-                maskedKey = state.maskedApiKey,
-                hasSavedKey = state.hasSavedKey,
-                isError = false,
-                onValueChange = viewModel::updateJevApiKey,
-                label = stringResource(R.string.settings_jev_api_key),
-            )
-            state.errorMessage?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+    Column {
+        Text(stringResource(R.string.settings_jev_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        Text(
+            stringResource(R.string.settings_jev_description),
+            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        var providerExpanded by remember { mutableStateOf(false) }
+        var modelExpanded by remember { mutableStateOf(false) }
+        val provider = JevProviders.find(state.providerId)
+        Text(stringResource(R.string.settings_provider), style = MaterialTheme.typography.labelLarge)
+        Box {
+            OutlinedButton(onClick = { providerExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(provider.displayName)
             }
-            state.successMessage?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
-            }
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = viewModel::verifyAndApplyJev,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.verifying,
-            ) {
-                if (state.verifying) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.height(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Text(stringResource(R.string.settings_verify_apply))
+            DropdownMenu(expanded = providerExpanded, onDismissRequest = { providerExpanded = false }) {
+                JevProviders.all.forEach { option ->
+                    DropdownMenuItem(text = { Text(option.displayName) }, onClick = {
+                        onProvider(option.id)
+                        providerExpanded = false
+                    })
                 }
             }
-            if (state.hasSavedKey) {
-                TextButton(onClick = viewModel::removeJevKey, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.settings_jev_remove))
-                }
-            }
-            Text(
-                text = stringResource(R.string.settings_jev_disclosure),
-                modifier = Modifier.padding(top = 10.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
+        Spacer(Modifier.height(12.dp))
+        Text(stringResource(R.string.jev_model_label), style = MaterialTheme.typography.labelLarge)
+        Box {
+            OutlinedButton(onClick = { modelExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Jev 1.13")
+            }
+            DropdownMenu(expanded = modelExpanded, onDismissRequest = { modelExpanded = false }) {
+                DropdownMenuItem(text = { Text("Jev 1.13") }, onClick = { modelExpanded = false })
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (state.dirty) Text(stringResource(R.string.jev_unsaved), style = MaterialTheme.typography.bodyMedium)
+        ApiKeyField(
+            value = state.apiKeyInput,
+            maskedKey = state.maskedApiKey,
+            hasSavedKey = state.hasSavedKey,
+            isError = false,
+            onValueChange = onKey,
+            label = stringResource(R.string.settings_jev_api_key),
+        )
+        state.errorMessage?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
+        state.successMessage?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+        }
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = onVerify,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.verifying,
+        ) {
+            if (state.verifying) {
+                CircularProgressIndicator(
+                    modifier = Modifier.height(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            } else {
+                Text(stringResource(R.string.settings_verify_apply))
+            }
+        }
+        if (state.configured) {
+            TextButton(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.settings_jev_remove))
+            }
+        }
+        Text(
+            text = stringResource(R.string.settings_jev_disclosure),
+            modifier = Modifier.padding(top = 10.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

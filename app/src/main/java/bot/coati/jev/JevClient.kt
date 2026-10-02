@@ -181,7 +181,10 @@ class JevClient(
             val questions = mapOf(
                 "ping" to JevChoiceQuestion("Is the sky above clear on a sunny day?", mapOf("yes" to "yes", "no" to "no")),
             )
-            choose(JSONObject().put("weather", "sunny"), questions).map { "${it.model} ok" }
+            choose(JSONObject().put("weather", "sunny"), questions).map {
+                require(it.answers.containsKey("ping")) { "jev_missing_ping_answer" }
+                "${it.model} ok"
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

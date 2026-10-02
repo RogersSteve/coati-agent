@@ -28,6 +28,18 @@ End-to-end benchmark of the real Coati app on a device or emulator. It drives an
 | `LLM_MODEL` / `FAST_MODEL` | Optional Reasoning / Fast model names, default `gemini-3.8-flash` |
 | `BENCH_ROTATION` | Optional display rotation (0-3) pinned before every run, for boards that reset it on boot |
 | `EMULATOR_AVD` | Optional AVD used when an emulator has to be cold-restarted |
+| `JEV_KEY` | Optional Jev key; required for `jev` and `jevnoocr` |
+| `JEV_ENDPOINT` | Optional System One base URL; defaults to `https://api.typesafe.ai` |
+| `JEV_MODEL` | Optional Jev model ID; defaults to `jev-1.13.0` |
+
+For OpenRouter, set both `RELAY_ENDPOINT` and `JEV_ENDPOINT` to
+`https://openrouter.ai/api`, `LLM_PROVIDER` to `openai_compatible`,
+`LLM_MODEL` and `FAST_MODEL` to `google/gemini-3.8-flash`, and `JEV_MODEL` to
+`jev-1.13`. Supply the OpenRouter key privately through `RELAY_KEY` and `JEV_KEY`.
+The clients append `/v1/chat/completions` and `/v1/systemone` respectively;
+do not append `/v1` to these base URLs. These Jev values are passed through the
+debug-only `CONFIGURE_AGENT` extras `jev_endpoint` and `jev_model`. Omitting them
+retains the TypeSafe defaults; an empty `jev_key` still disables Jev.
 
 ## Run
 

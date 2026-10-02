@@ -33,7 +33,7 @@
     <string name="onboarding_region_detected">Detected: %1$s</string>
     <string name="onboarding_finish">Finish Setup</string>
     <string name="onboarding_quick_start_title">You are ready</string>
-    <string name="onboarding_quick_start_description">Four things to know before your first task.</string>
+    <string name="onboarding_quick_start_description">Five things to know before your first task.</string>
     <string name="onboarding_quick_start_task_title">Describe the result you want</string>
     <string name="onboarding_quick_start_task_description">Open the floating ball, enter a clear task, then tap Execute.</string>
     <string name="onboarding_quick_start_guides_title">App guides are optional</string>
@@ -74,6 +74,7 @@
     <string name="onboarding_fast_review_required">Reasoning is ready. Review and verify the Fast model before continuing; it is also used while running tasks.</string>
     <string name="onboarding_review_fast">Review Fast Model</string>
     <string name="onboarding_reasoning_review_required">Fast is ready. Configure and verify the Reasoning model before continuing; it plans and executes tasks.</string>
+    <string name="onboarding_both_models_required">Configure and verify both Reasoning and Fast before continuing. Start with Reasoning; Jev is optional.</string>
     <string name="onboarding_review_reasoning">Configure Reasoning Model</string>
 
     <!-- Settings -->
@@ -172,7 +173,14 @@
     <string name="settings_key_required">API key is required</string>
     <string name="settings_jev_section">Fast executor</string>
     <string name="settings_jev_title">JEV · Optional</string>
-    <string name="settings_jev_description">With a JEV API key, JEV picks and checks most steps in about a second while the Reasoning model plans in the background and takes over whenever JEV is unsure. Without a key, the Reasoning model decides every step.</string>
+    <string name="settings_jev_description">Jev is optional. It selects and checks candidate actions while the Reasoning model plans and takes over when needed. Without Jev, the Reasoning model decides each step.</string>
+    <string name="tab_jev_optional">Jev (optional)</string>
+    <string name="jev_model_label">Model</string>
+    <string name="jev_unsaved">Changes have not been verified or saved. Only saved configurations are used.</string>
+    <string name="jev_skip_continue">Skip Jev setup and continue</string>
+    <string name="onboarding_next_without_jev">Next (without Jev)</string>
+    <string name="jev_discard_continue">Discard Jev changes and continue</string>
+    <string name="onboarding_jev_description">Jev is an optional action selection and checking model. It requires a key for the selected provider, which receives screen descriptions as text. You can use Coati without Jev and configure it later in Settings.</string>
     <string name="settings_jev_api_key">JEV API key</string>
     <string name="settings_jev_remove">Remove JEV key</string>
     <string name="settings_jev_removed">JEV key removed; the Reasoning model decides every step</string>
