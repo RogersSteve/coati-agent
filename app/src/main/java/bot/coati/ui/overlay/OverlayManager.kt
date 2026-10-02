@@ -8,6 +8,8 @@ import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.widget.FrameLayout
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import androidx.compose.foundation.background
@@ -39,7 +41,7 @@ class OverlayManager(
     private val context: Context,
     private val windowManager: WindowManager,
 ) {
-    private var composeView: ComposeView? = null
+    private var composeView: View? = null
     private var idleOverlaySuppressed = false
     val overlayState = mutableStateOf<OverlayState>(OverlayState.CollapsedIdle)
     private val gestureGate = OverlayGestureGate()
@@ -201,9 +203,19 @@ class OverlayManager(
         windowManager.addView(scrim, scrimParams)
         scrimView = scrim
 
-        setupTouchListener(view)
-        windowManager.addView(view, layoutParams)
-        composeView = view
+        // Intercept collapsed-ball touches before Compose's child view handles them.
+        // Expanded panels keep normal Compose dispatch, including text fields and buttons.
+        val container = object : FrameLayout(context) {
+            override fun onInterceptTouchEvent(event: MotionEvent): Boolean =
+                overlayState.value is OverlayState.CollapsedIdle || gestureGate.blocksTaskControls
+        }.apply {
+            setViewTreeLifecycleOwner(lifecycleOwner)
+            setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+            addView(view, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        setupTouchListener(container)
+        windowManager.addView(container, layoutParams)
+        composeView = container
     }
 
     fun hide() {
@@ -554,6 +566,7 @@ class OverlayManager(
         var initialTouchX = 0f
         var initialTouchY = 0f
         var isDragging = false
+        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 
         view.setOnClickListener {
             if (overlayState.value is OverlayState.CollapsedIdle) onClick()
@@ -568,7 +581,7 @@ class OverlayManager(
             // Only handle drag/click on collapsed state
             if (overlayState.value !is OverlayState.CollapsedIdle) return@setOnTouchListener false
 
-            when (event.action) {
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = layoutParams.x
                     initialY = layoutParams.y
@@ -580,7 +593,7 @@ class OverlayManager(
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
-                    if (dx * dx + dy * dy > 100) {
+                    if (dx * dx + dy * dy > touchSlop * touchSlop) {
                         isDragging = true
                     }
                     if (isDragging) {
@@ -596,6 +609,10 @@ class OverlayManager(
                     } else {
                         view.performClick()
                     }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    isDragging = false
                     true
                 }
                 else -> false
