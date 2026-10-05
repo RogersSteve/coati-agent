@@ -4,9 +4,9 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import time
-import xml.etree.ElementTree as ET
 
 from PIL import Image
 
@@ -15,10 +15,42 @@ ADB = (os.environ.get("ADB") or shutil.which("adb")
 PNG_SIGNATURE = bytes([0x89, 0x50, 0x4E, 0x47])
 
 
+def adb_command(*args):
+    """Build a native ADB command with explicitly configured connection values."""
+    command = [ADB]
+    endpoint = os.environ.get("ADB_SERVER_SOCKET", "")
+    port = os.environ.get("ANDROID_ADB_SERVER_PORT", "")
+    if endpoint:
+        match = re.fullmatch(r"tcp:([^:]+):(\d+)", endpoint)
+        if not match or match.group(1) not in ("localhost", "127.0.0.1"):
+            raise RuntimeError("Bench ADB server must use an explicit local TCP endpoint")
+        host, endpoint_port = match.groups()
+        if port and port != endpoint_port:
+            raise RuntimeError("Conflicting private ADB server ports")
+        command += ["-H", host, "-P", endpoint_port]
+    elif port:
+        command += ["-H", "127.0.0.1", "-P", str(int(port))]
+    serial = os.environ.get("ANDROID_SERIAL")
+    if serial:
+        command += ["-s", serial]
+    return command + list(args)
+
+
+# Active only during the reviewed STOP path. Never receives argv or output.
+STOP_DIAGNOSTIC_OBSERVER = None
+
+
 def sh(*args, timeout=30, binary=False):
+    started = time.monotonic()
     try:
-        r = subprocess.run([ADB, *args], capture_output=True, timeout=timeout)
+        r = subprocess.run(adb_command(*args), capture_output=True, timeout=timeout)
+        if STOP_DIAGNOSTIC_OBSERVER is not None:
+            STOP_DIAGNOSTIC_OBSERVER("adb", rc=r.returncode, timeout=False,
+                                     elapsed_s=time.monotonic() - started)
     except subprocess.TimeoutExpired:
+        if STOP_DIAGNOSTIC_OBSERVER is not None:
+            STOP_DIAGNOSTIC_OBSERVER("adb", rc=None, timeout=True,
+                                     elapsed_s=time.monotonic() - started)
         # A hung device must not crash a multi-hour benchmark; callers treat empty output as failure.
         return b"" if binary else ""
     return r.stdout if binary else r.stdout.decode("utf-8", "replace")
@@ -47,19 +79,171 @@ def lock_rotation(rotation):
     sh("shell", "settings", "put", "system", "user_rotation", str(rotation))
 
 
+def _wait_for_emulator_ports(ports, diagnostic_path, timeout_s=120):
+    """Bounded native bind checks; TIME_WAIT is not permission to ignore conflicts.
+
+    Each successful IPv4/IPv6 probe stays open until the whole round finishes.
+    IPv6 may be unavailable locally; only explicit unsupported-family/protocol
+    or missing-loopback errors skip that family. All other errors fail closed.
+    Diagnostics contain only port, family, errno, elapsed time and outcomes.
+    """
+    import errno
+    from contextlib import ExitStack
+    started = time.monotonic()
+    deadline = started + timeout_s
+    probes = []
+    unsupported = {errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT}
+
+    def record(result):
+        with open(diagnostic_path, "w", encoding="utf-8") as file:
+            json.dump({"timeout_s": timeout_s, "elapsed_s": time.monotonic() - started,
+                       "result": result, "probes": probes}, file, indent=2)
+
+    while time.monotonic() < deadline:
+        occupied = False
+        with ExitStack() as stack:
+            for port in ports:
+                for family, address, label in ((socket.AF_INET, "127.0.0.1", "IPv4"),
+                                               (socket.AF_INET6, "::1", "IPv6")):
+                    row = {"port": port, "address_family": label,
+                           "elapsed_s": time.monotonic() - started, "errno": None}
+                    try:
+                        sock = stack.enter_context(socket.socket(family, socket.SOCK_STREAM))
+                        sock.bind((address, port))
+                        row["result"] = "available"
+                    except OSError as error:
+                        row["errno"] = error.errno
+                        if family == socket.AF_INET6 and error.errno in unsupported | {errno.EADDRNOTAVAIL}:
+                            row["result"] = "IPv6_unavailable"
+                        elif error.errno == errno.EADDRINUSE:
+                            row["result"] = "occupied"
+                            occupied = True
+                        else:
+                            row["result"] = "unexpected_error"
+                            probes.append(row)
+                            record("failed")
+                            raise RuntimeError("Emulator port probe failed; inspect " + diagnostic_path) from error
+                    probes.append(row)
+            if not occupied:
+                record("available")
+                return
+        record("waiting")
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(1, remaining))
+    record("timeout")
+    raise RuntimeError("Emulator ports remain occupied; refusing to launch; inspect " + diagnostic_path)
+
+
 def cold_restart_emulator(avd):
-    """Kill and relaunch an emulator (with its DLL directories on PATH), then wait for boot."""
-    emu_dir = os.path.join(os.environ["LOCALAPPDATA"], "Android", "Sdk", "emulator")
-    subprocess.run(["taskkill", "/F", "/IM", "qemu-system-x86_64.exe"], capture_output=True)
-    subprocess.run(["taskkill", "/F", "/IM", "emulator.exe"], capture_output=True)
-    time.sleep(5)
+    """Restart only the selected AVD, preserving private ADB and emulator ports.
+
+    Require ANDROID_SERIAL, an explicit local ADB server, EMULATOR_GRPC_PORT,
+    and EMULATOR (or ANDROID_HOME/ANDROID_SDK_ROOT). Optional
+    EMULATOR_EXTRA_ARGS is a JSON list of display/resource options.
+    """
+    serial = os.environ.get("ANDROID_SERIAL", "")
+    match = re.fullmatch(r"emulator-(\d+)", serial)
+    if not match or not (os.environ.get("ADB_SERVER_SOCKET") or
+                         os.environ.get("ANDROID_ADB_SERVER_PORT")):
+        raise RuntimeError("Restart requires an explicit serial and ADB server")
+    console = int(match.group(1))
+    grpc = int(os.environ.get("EMULATOR_GRPC_PORT", "0"))
+    if console % 2 or not 5554 <= console <= 5682 or not 1 <= grpc <= 65535:
+        raise RuntimeError("Invalid console or explicitly configured gRPC port")
+    if grpc in (console, console + 1):
+        raise RuntimeError("Emulator ports must be distinct")
+    suffix = ".exe" if os.name == "nt" else ""
+    sdk = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME")
+    executable = os.environ.get("EMULATOR") or (
+        os.path.join(sdk, "emulator", "emulator" + suffix) if sdk else "")
+    if not executable or not os.path.isfile(executable):
+        raise RuntimeError("Configured emulator executable is unavailable")
+    extra = json.loads(os.environ.get("EMULATOR_EXTRA_ARGS", "[]"))
+    if not isinstance(extra, list) or not all(isinstance(v, str) for v in extra):
+        raise RuntimeError("EMULATOR_EXTRA_ARGS must be a JSON string list")
+    allowed_flags = {"-no-window", "-no-audio", "-no-boot-anim"}
+    allowed_values = {"-gpu", "-memory", "-cores"}
+    i = 0
+    while i < len(extra):
+        option = extra[i]
+        if option in allowed_flags:
+            i += 1
+        elif option in allowed_values and i + 1 < len(extra) and not extra[i + 1].startswith("-"):
+            i += 2
+        else:
+            raise RuntimeError("Only display/resource emulator options are allowed")
+    # Validate the connection configuration and AVD before any shutdown.
+    command = adb_command("emu", "avd", "name")
+    server_port = int(command[command.index("-P") + 1])
+    if not 1 <= server_port <= 65535 or server_port in (console, console + 1, grpc):
+        raise RuntimeError("ADB server and emulator ports must be valid and distinct")
+    name = sh("emu", "avd", "name").splitlines()
+    if not name or name[0].strip() != avd:
+        raise RuntimeError("Selected emulator does not match the requested AVD")
+    response = subprocess.run(adb_command("emu", "kill"), capture_output=True, timeout=30)
+    if response.returncode or b"OK" not in response.stdout:
+        raise RuntimeError("Targeted emulator console shutdown failed")
+    ports = (console, console + 1, grpc)
+    import tempfile
+    avd_home = os.environ.get("ANDROID_AVD_HOME")
+    release_dir = os.path.join(os.path.dirname(os.path.abspath(avd_home)), "logs") if avd_home else tempfile.gettempdir()
+    os.makedirs(release_dir, exist_ok=True)
+    fd, release_log = tempfile.mkstemp(prefix=f"emulator-port-release-{console}-", suffix=".json", dir=release_dir)
+    os.close(fd)
+    _wait_for_emulator_ports(ports, release_log)
     env = dict(os.environ)
-    env["PATH"] = os.pathsep.join([emu_dir, os.path.join(emu_dir, "lib64"),
-                                   os.path.join(emu_dir, "lib64", "qt", "lib"), env["PATH"]])
-    subprocess.Popen([os.path.join(emu_dir, "emulator.exe"), "-avd", avd, "-no-boot-anim", "-no-snapshot-load"],
-                     cwd=emu_dir, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    wait_for_boot()
-    time.sleep(5)
+    # android-env may remove this parent variable; restore the validated port
+    # only for the emulator child, which uses it for native ADB registration.
+    env["ANDROID_ADB_SERVER_PORT"] = str(server_port)
+    emu_dir = os.path.dirname(executable)
+    if os.name == "nt":
+        env["PATH"] = os.pathsep.join([emu_dir, os.path.join(emu_dir, "lib64"),
+                                     os.path.join(emu_dir, "lib64", "qt", "lib"), env.get("PATH", "")])
+    command = [executable, "-avd", avd, "-port", str(console),
+               "-grpc", str(grpc), "-no-snapshot-load", "-no-snapshot-save", *extra]
+    # Emulator startup diagnostics contain no model configuration or environment.
+    import tempfile
+    for name in ("RELAY_KEY", "JEV_KEY"):
+        env.pop(name, None)  # The emulator child does not need model credentials.
+    avd_home = env.get("ANDROID_AVD_HOME")
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(avd_home)), "logs") if avd_home else tempfile.gettempdir()
+    os.makedirs(log_dir, exist_ok=True)
+    fd, log_path = tempfile.mkstemp(prefix=f"emulator-cold-{console}-", suffix=".log", dir=log_dir)
+    process = None
+
+    def diagnostic(stage, error_type=None):
+        with open(log_path+".json", "w", encoding="utf-8") as out:
+            json.dump({"stage": stage, "error_type": error_type, "command": command,
+                       "serial": serial, "adb_server_port": server_port, "avd": avd,
+                       "console_port": console, "device_adb_port": console+1, "grpc_port": grpc,
+                       "pid": process.pid if process is not None else None,
+                       "returncode": process.poll() if process is not None else None,
+                       "stdout_stderr_log": log_path, "port_release_diagnostics": release_log}, out, indent=2)
+
+    try:
+        with os.fdopen(fd, "wb") as log:
+            # A POSIX emulator must outlive the host invocation's process group.
+            # Keep Windows process creation behavior unchanged.
+            process = subprocess.Popen(command, cwd=emu_dir, env=env,
+                                       stdout=log, stderr=subprocess.STDOUT,
+                                       start_new_session=(os.name == "posix"))
+        diagnostic("spawned")
+        time.sleep(0.5)
+        if process.poll() is not None:
+            raise RuntimeError(f"Emulator exited during startup; inspect {log_path}")
+        wait_for_boot()
+        if process.poll() is not None:
+            raise RuntimeError(f"Emulator exited before boot verification; inspect {log_path}")
+        name = sh("emu", "avd", "name").splitlines()
+        if not name or name[0].strip() != avd or not healthy() or sh("shell", "getprop", "sys.boot_completed").strip() != "1":
+            raise RuntimeError(f"Restarted emulator identity/health check failed; inspect {log_path}")
+        diagnostic("boot_and_avd_health_verified")
+    except BaseException as error:
+        diagnostic("failed", type(error).__name__)
+        raise
+
+
 
 
 def reboot():
@@ -88,18 +272,11 @@ def size():
 
 
 def ui_nodes():
-    """Visible nodes: list of dicts with text/desc/cls/checked/bounds.
-
-    Read through Coati's own accessibility service (debug build): `uiautomator dump` suppresses
-    accessibility services while it runs, and afterwards Coati's screenshots failed with error 1
-    until its process restarted, so every task after a UI-checked one broke. uiautomator remains
-    the fallback when Coati is not running.
-    """
+    """Read nonempty nodes through Coati without disrupting other services."""
     nodes = coati_ui_nodes()
-    if nodes is not None:
-        return nodes
-    print("... Coati node dump unavailable; falling back to uiautomator", flush=True)
-    return uiautomator_nodes()
+    if not nodes:
+        raise RuntimeError("Coati node dump unavailable or empty; no UIAutomator fallback")
+    return nodes
 
 
 def coati_ui_nodes():
@@ -120,28 +297,8 @@ def coati_ui_nodes():
 
 
 def uiautomator_nodes():
-    out = sh("exec-out", "uiautomator", "dump", "/dev/tty", timeout=20)
-    xml = out[out.find("<?xml"): out.rfind(">") + 1] if "<?xml" in out else ""
-    if not xml:
-        return []
-    try:
-        root = ET.fromstring(xml)
-    except ET.ParseError:
-        return []
-    nodes = []
-    for n in root.iter("node"):
-        b = re.findall(r"\d+", n.get("bounds", ""))
-        if len(b) != 4:
-            continue
-        x1, y1, x2, y2 = map(int, b)
-        if x2 <= x1 or y2 <= y1:
-            continue
-        nodes.append({
-            "text": n.get("text", ""), "desc": n.get("content-desc", ""),
-            "cls": n.get("class", "").split(".")[-1], "checked": n.get("checked") == "true",
-            "bounds": (x1, y1, x2, y2),
-        })
-    return nodes
+    """Fail closed: UIAutomator may interrupt enabled accessibility services."""
+    raise RuntimeError("UIAutomator is disabled for isolated Coati benchmarks")
 
 
 def key(name):

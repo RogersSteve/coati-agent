@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import adbdev as dev
@@ -21,6 +22,8 @@ from tasks import SETUP, TASKS
 
 RECEIVER = "bot.coati/.debug.DebugAgentReceiver"
 RUN_TIMEOUT_S = 600
+# Disable host environment restarts/replays for a strictly single-attempt smoke run.
+ENV_RECOVERY_ENABLED = os.environ.get("BENCH_ENV_RECOVERY", "1") != "0"
 LOG_TAGS = ["CoatiLoop", "CoatiScreen", "CoatiModel", "CoatiA11y", "CoatiAction", "CoatiDebugAgent", "CoatiUsage"]
 API_KEY = os.environ["RELAY_KEY"]
 ENDPOINT = os.environ["RELAY_ENDPOINT"].rstrip("/")
@@ -85,12 +88,18 @@ def task_result(run_id):
 
 
 def prepare_device():
-    dev.sh("shell", "appops", "set", "bot.coati", "SYSTEM_ALERT_WINDOW", "allow")
+    """Check prior manual grants without replacing the enabled service list."""
+    services = dev.sh("shell", "settings", "get", "secure",
+                      "enabled_accessibility_services").strip().split(":")
+    if not any(service in services for service in (
+            "bot.coati/bot.coati.service.CoatiAccessibilityService",
+            "bot.coati/.service.CoatiAccessibilityService")):
+        raise RuntimeError("Enable Coati accessibility through Android settings first")
+    overlay = dev.sh("shell", "appops", "get", "bot.coati", "SYSTEM_ALERT_WINDOW")
+    if not re.search(r"SYSTEM_ALERT_WINDOW:\s*allow\b", overlay):
+        raise RuntimeError("Grant Coati overlay permission through Android settings first")
     if ROTATION is not None:
         dev.lock_rotation(ROTATION)
-    dev.sh("shell", "settings", "put", "secure", "enabled_accessibility_services",
-           "bot.coati/bot.coati.service.CoatiAccessibilityService")
-    dev.sh("shell", "settings", "put", "secure", "accessibility_enabled", "1")
 
 
 _installed_apk = None
@@ -110,20 +119,165 @@ def install_mode_apk(mode):
         return
     print(f"--- installing {apk} for mode {mode}", flush=True)
     # adb prints the failure reason on stderr, which dev.sh drops.
-    r = subprocess.run([dev.ADB, "install", "-r", apk], capture_output=True, timeout=180)
+    r = subprocess.run(dev.adb_command("install", "-r", apk), capture_output=True, timeout=180)
     out = (r.stdout + r.stderr).decode("utf-8", "replace")
     if "Success" not in out:
         raise RuntimeError(f"installing {apk} failed: {out.strip()[-200:]}")
     _installed_apk = key
 
 
+CONFIG_READY_TIMEOUT_S = 180
+TASK_STOP_TIMEOUT_S = 30
+
+
+CURSOR_TAG = "CoatiBenchCursor"
+
+
+def boot_identity():
+    value = dev.sh("shell", "cat", "/proc/sys/kernel/random/boot_id").strip()
+    if not re.fullmatch(r"[0-9a-f-]{36}", value):
+        raise RuntimeError("Device boot identity unavailable")
+    return value
+
+
+def configuration_log():
+    return dev.sh("logcat", "-b", "main", "-d", "-v", "epoch", "-s",
+                  "CoatiService:I", "CoatiDebugAgent:I", CURSOR_TAG + ":I", "*:S", timeout=30)
+
+
+def log_events_after(log, cursor):
+    # API33's monotonic formatter converts stored wall timestamps; actual
+    # samples still regress after AW sets the clock. Use main-buffer order.
+    if not isinstance(cursor, dict) or set(cursor) != {"boot_id", "marker"}:
+        raise RuntimeError("Explicit boot-scoped marker cursor required")
+    if boot_identity() != cursor["boot_id"]:
+        raise RuntimeError("Device rebooted; rebuild cursor and verify connection identity")
+    lines = log.splitlines()
+    pattern = re.compile(r"\b" + CURSOR_TAG + r"\s*:\s*" + re.escape(cursor["marker"]) + r"\s*$")
+    indices = [i for i,line in enumerate(lines) if pattern.search(line)]
+    if len(indices) != 1:
+        raise RuntimeError("Log boundary missing/trimmed/duplicated; refuse stale evidence")
+    return lines[indices[0]+1:]
+
+
+def configuration_cursor():
+    cursor = {"boot_id":boot_identity(), "marker":"bench_" + uuid.uuid4().hex}
+    dev.sh("shell", "log", "-p", "i", "-t", CURSOR_TAG, cursor["marker"])
+    log_events_after(configuration_log(), cursor)  # Verify marker write/read and boot.
+    return cursor
+
+
+def configuration_task_state():
+    # A missing file is distinct from an unreadable/malformed file; never clear
+    # state after a failed read or assume that a malformed task is inactive.
+    command = "if [ -f files/task.json ]; then cat files/task.json; else printf null; fi"
+    out = dev.sh("shell", "run-as", "bot.coati", "sh", "-c", shell_quote(command))
+    try:
+        state = json.loads(out)
+    except ValueError:
+        raise RuntimeError("Cannot read task state before configuration") from None
+    if state is not None and not isinstance(state, dict):
+        raise RuntimeError("Invalid task state before configuration")
+    return state
+
+
+class StopCursorFailure(RuntimeError): pass
+class StopBroadcastFailure(RuntimeError): pass
+class StopStateFailure(RuntimeError): pass
+class StopInactiveTimeout(RuntimeError): pass
+
+
+def stop_task_before_configuration():
+    started = time.monotonic()
+    stage = "cursor"
+    events = []
+    def record(kind, **fields):
+        # Closed fields: no argv/output/exception message/environment/task contents.
+        row = {"kind": kind, "stage": stage, "monotonic_s": time.monotonic(),
+               "since_start_s": time.monotonic() - started}
+        row.update({k: v for k, v in fields.items()
+                    if k in {"rc", "timeout", "elapsed_s", "ack", "status", "stable", "error"}})
+        events.append(row)
+    dev.STOP_DIAGNOSTIC_OBSERVER = record
+    try:
+        record("begin")
+        cursor = configuration_cursor()
+        stage = "broadcast"
+        broadcast("bot.coati.debug.STOP_TASK")
+        deadline = time.monotonic() + TASK_STOP_TIMEOUT_S
+        inactive = {"paused", "completed", "failed", "cancelled"}
+        previous = object()
+        while time.monotonic() < deadline:
+            stage = "ack"
+            fresh = log_events_after(configuration_log(), cursor)
+            acknowledged = any("Debug task stopped=" in event for event in fresh)
+            stage = "state"
+            state = configuration_task_state()
+            stopped = state is None or state.get("status") in inactive
+            stable = acknowledged and stopped and state == previous
+            status = "missing" if state is None else state.get("status")
+            record("observe", ack=acknowledged, stable=stable,
+                   status=status if status in inactive | {"executing"} else "unknown")
+            if stable:
+                record("passed")
+                return
+            previous = state if stopped else object()
+            time.sleep(0.5)
+        stage = "inactive_wait"
+        raise StopInactiveTimeout("STOP inactive deadline exceeded")
+    except Exception:
+        failures = {"cursor": StopCursorFailure, "ack": StopCursorFailure,
+                    "broadcast": StopBroadcastFailure, "state": StopStateFailure,
+                    "inactive_wait": StopInactiveTimeout}
+        error = failures[stage]
+        record("failed", error=error.__name__)
+        raise error("STOP diagnostic stage=" + stage) from None
+    finally:
+        dev.STOP_DIAGNOSTIC_OBSERVER = None
+        path = os.environ.get("COATI_STOP_DIAGNOSTICS_PATH")
+        if path:
+            try:
+                with open(path, "a", encoding="utf-8") as out:
+                    for row in events:
+                        out.write(json.dumps(row, sort_keys=True) + "\n")
+            except OSError:
+                # Diagnostics must not change STOP success or failure semantics.
+                pass
+
+
+def wait_for_configuration(mode, cursor):
+    deadline = time.monotonic() + CONFIG_READY_TIMEOUT_S
+    jev = "true" if mode.startswith("jev") else "false"
+    verify = "false" if mode == "baseline" else "true"
+    expected_jev = JEV_MODEL if mode.startswith("jev") else "off"
+    expected = (f"Agent initialized: reasoning={PROVIDER}/{MODEL}, "
+                f"fast={PROVIDER}/{FAST_MODEL}, jev={expected_jev},")
+    while time.monotonic() < deadline:
+        events = log_events_after(configuration_log(), cursor)
+        configured = None
+        for index, event in enumerate(events):
+            if ("Debug agent configured:" in event and f"jev={jev}," in event
+                    and f"verify={verify}," in event):
+                if mode in ("jev", "jevnoocr"):
+                    ocr = "true" if mode == "jev" else "false"
+                    if f"ocr={ocr}," not in event:
+                        continue
+                configured = index
+            if configured is not None and index > configured and expected in event:
+                prepare_device()  # Recheck prior UI grants after asynchronous reload.
+                return
+        time.sleep(0.5)
+    raise RuntimeError("No fresh matching runtime initialization after configuration")
+
+
 def configure(mode):
     if mode.startswith("jev") and not JEV_KEY:
         raise SystemExit("mode jev needs JEV_KEY")
     install_mode_apk(mode)
+    prepare_device()  # Never replace grants or force-stop the accessibility owner.
+    stop_task_before_configuration()
     clear_task_state()
-    dev.force_stop("bot.coati")
-    prepare_device()  # force-stop unbinds the accessibility service; re-enable it
+    cursor = configuration_cursor()
     broadcast("bot.coati.debug.CONFIGURE_AGENT",
               "--es", "provider", PROVIDER, "--es", "endpoint", ENDPOINT, "--es", "api_key", API_KEY,
               "--es", "reasoning_model", MODEL, "--es", "fast_model", FAST_MODEL, "--es", "safety", "TRUST",
@@ -131,7 +285,7 @@ def configure(mode):
               *PERTURB.configure_extras())
     # With permissions, models and onboarding in place, the launcher activity starts the service.
     dev.sh("shell", "am", "start", "-n", "bot.coati/.ui.main.MainActivity")
-    time.sleep(6)
+    wait_for_configuration(mode, cursor)
     dev.key("HOME")
 
 
@@ -146,6 +300,8 @@ def task_state():
 def recover_device(mode, reason):
     """Emulators whose capture broke need a cold restart. Physical devices are never rebooted by the
     benchmark (a reboot drops adb reverse tunnels and heats the device); restarting Coati is enough."""
+    if not ENV_RECOVERY_ENABLED:
+        raise RuntimeError("Environment recovery disabled: " + reason)
     if dev.is_emulator():
         print(f"!!! {reason}: cold-restarting the emulator", flush=True)
         dev.cold_restart_emulator(EMULATOR_AVD)
@@ -194,6 +350,8 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
     PERTURB.before_task()
     t0 = time.perf_counter()
     if not start_task(pkg, task, name):
+        if not ENV_RECOVERY_ENABLED:
+            raise RuntimeError("Task was not accepted; single-attempt run stopped")
         print(f"!!! {name}: runtime not ready, restarting the service", flush=True)
         configure(mode)
         t0 = time.perf_counter()
@@ -216,7 +374,8 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
     log = dev.sh("logcat", "-d", "-s", *LOG_TAGS, timeout=60)
     # Error 1 (internal) is the emulator's permanently broken capture; other codes such as 3
     # (rate limited) are transient and handled by Coati itself.
-    if status == "failed" and "Screenshot failed with error: 1" in log and attempt < 3:
+    if (ENV_RECOVERY_ENABLED and status == "failed"
+            and "Screenshot failed with error: 1" in log and attempt < 3):
         # An environment failure, not an agent result: recover the device and run again.
         recover_device(mode, f"{name}: screenshots broken")
         return run_one(tid, mode, rep, out_dir, attempt + 1)

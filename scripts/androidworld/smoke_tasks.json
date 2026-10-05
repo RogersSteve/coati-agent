@@ -1,0 +1,37 @@
+{
+  "selection_rule": "Fixed difficulty stratification4easy/3medium/3hard, including2 explicit information questions; selected before AW trials, not by observed scores",
+  "tasks": [
+    "SystemBrightnessMin",
+    "ContactsAddContact",
+    "NotesMeetingAttendeeCount",
+    "NotesTodoItemCount",
+    "FilesMoveFile",
+    "MarkorCreateNote",
+    "RecipeAddSingleRecipe",
+    "BrowserMultiply",
+    "MarkorCreateNoteAndSms",
+    "ExpenseAddMultipleFromGallery"
+  ],
+  "difficulty_counts": {
+    "easy": 4,
+    "medium": 3,
+    "hard": 3
+  },
+  "information_questions": [
+    "NotesMeetingAttendeeCount",
+    "NotesTodoItemCount"
+  ],
+  "official_metadata_source": "android_world/task_metadata.json at e3fea3ccc69787570e282c99573298f1c3019a34",
+  "execution_order": [
+    "SystemBrightnessMin",
+    "NotesTodoItemCount",
+    "BrowserMultiply",
+    "ContactsAddContact",
+    "ExpenseAddMultipleFromGallery",
+    "FilesMoveFile",
+    "MarkorCreateNote",
+    "MarkorCreateNoteAndSms",
+    "NotesMeetingAttendeeCount",
+    "RecipeAddSingleRecipe"
+  ]
+}
