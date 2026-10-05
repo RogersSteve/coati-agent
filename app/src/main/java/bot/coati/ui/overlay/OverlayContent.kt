@@ -45,10 +45,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import bot.coati.R
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
 import bot.coati.ui.theme.BallError
@@ -272,9 +274,9 @@ private fun SafetyModeSelector(
     onModeSelected: (SafetyMode) -> Unit,
 ) {
     val options = listOf(
-        SafetyMode.TRUST to "Auto",
-        SafetyMode.STANDARD to "Risk check",
-        SafetyMode.CAUTIOUS to "Every step",
+        SafetyMode.TRUST to stringResource(R.string.safety_mode_trust),
+        SafetyMode.STANDARD to stringResource(R.string.safety_mode_standard),
+        SafetyMode.CAUTIOUS to stringResource(R.string.safety_mode_cautious),
     )
 
     Text(
@@ -303,11 +305,17 @@ private fun SafetyModeSelector(
         }
     }
     Text(
-        text = when (selectedMode) {
-            SafetyMode.TRUST -> "Low and medium-risk actions run automatically. High-risk actions still require confirmation."
-            SafetyMode.STANDARD -> "Low-risk actions run automatically. Medium and high-risk actions require confirmation."
-            SafetyMode.CAUTIOUS -> "Every action requires confirmation before execution."
-        },
+        text = stringResource(when (selectedMode) {
+            SafetyMode.TRUST -> R.string.settings_safety_trust_description
+            SafetyMode.STANDARD -> R.string.settings_safety_standard_description
+            SafetyMode.CAUTIOUS -> R.string.settings_safety_cautious_description
+        }),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = stringResource(R.string.settings_safety_boundary),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

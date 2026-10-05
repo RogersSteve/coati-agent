@@ -157,35 +157,26 @@ class RuleEngineTest {
     // ─── shouldConfirm ───
 
     @Test
-    fun `shouldConfirm high always true regardless of mode`() {
-        assertTrue(RuleEngine.shouldConfirm("high", SafetyMode.CAUTIOUS))
-        assertTrue(RuleEngine.shouldConfirm("high", SafetyMode.STANDARD))
-        assertTrue(RuleEngine.shouldConfirm("high", SafetyMode.TRUST))
+    fun `shouldConfirm follows the complete mode and risk matrix`() {
+        val expected = mapOf(
+            SafetyMode.TRUST to listOf(false, false, false),
+            SafetyMode.STANDARD to listOf(false, false, true),
+            SafetyMode.CAUTIOUS to listOf(false, true, true),
+        )
+        for ((mode, confirmations) in expected) {
+            for ((index, risk) in listOf("low", "medium", "high").withIndex()) {
+                assertEquals("$mode/$risk", confirmations[index], RuleEngine.shouldConfirm(risk, mode))
+            }
+        }
     }
 
     @Test
-    fun `shouldConfirm medium true for CAUTIOUS and STANDARD`() {
-        assertTrue(RuleEngine.shouldConfirm("medium", SafetyMode.CAUTIOUS))
-        assertTrue(RuleEngine.shouldConfirm("medium", SafetyMode.STANDARD))
-    }
-
-    @Test
-    fun `shouldConfirm medium false for TRUST`() {
-        assertFalse(RuleEngine.shouldConfirm("medium", SafetyMode.TRUST))
-    }
-
-    @Test
-    fun `shouldConfirm low true only for CAUTIOUS`() {
-        assertTrue(RuleEngine.shouldConfirm("low", SafetyMode.CAUTIOUS))
-        assertFalse(RuleEngine.shouldConfirm("low", SafetyMode.STANDARD))
-        assertFalse(RuleEngine.shouldConfirm("low", SafetyMode.TRUST))
-    }
-
-    @Test
-    fun `shouldConfirm unknown level always fails closed`() {
-        assertTrue(RuleEngine.shouldConfirm("unknown", SafetyMode.CAUTIOUS))
-        assertTrue(RuleEngine.shouldConfirm("unknown", SafetyMode.STANDARD))
-        assertTrue(RuleEngine.shouldConfirm("unknown", SafetyMode.TRUST))
+    fun `shouldConfirm unknown and malformed levels fail closed in every mode`() {
+        for (mode in SafetyMode.values()) {
+            for (risk in listOf("unknown", "", "HIGH", " medium ", "invalid")) {
+                assertTrue("$mode/$risk", RuleEngine.shouldConfirm(risk, mode))
+            }
+        }
     }
 
     // ─── detectScreenChange ───

@@ -75,9 +75,9 @@ object RuleEngine {
     }
 
     fun shouldConfirm(safetyLevel: String, safetyMode: SafetyMode): Boolean = when (safetyLevel) {
-        "high" -> true
-        "medium" -> safetyMode != SafetyMode.TRUST
-        "low" -> safetyMode == SafetyMode.CAUTIOUS
+        "high" -> safetyMode != SafetyMode.TRUST
+        "medium" -> safetyMode == SafetyMode.CAUTIOUS
+        "low" -> false
         // Unknown or malformed risk must fail closed instead of being auto-approved.
         else -> true
     }

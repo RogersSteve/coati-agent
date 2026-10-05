@@ -1100,10 +1100,10 @@ class AgentLoop(
         if (!RuleEngine.shouldConfirm(level, safetyMode)) return true
         Log.i(TAG, "Safety confirmation needed ($level/$safetyMode): $reason")
         val confirmed = overlayManager.requestConfirmation(
-            title = when (safetyMode) {
-                SafetyMode.TRUST -> "High-Risk Action"
-                SafetyMode.STANDARD -> "Risk Confirmation"
-                SafetyMode.CAUTIOUS -> "Review Next Action"
+            title = when {
+                level !in setOf("low", "medium", "high") -> "Unknown Risk Confirmation"
+                safetyMode == SafetyMode.STANDARD -> "High-Risk Action"
+                else -> "Risk Confirmation"
             },
             detail = detail,
         )
