@@ -340,6 +340,13 @@ class JevStepExecutor(
             chosen.action is CandidateAction.Escalate -> return escalate("JEV asked for the Reasoning model")
             consecutiveBad >= MAX_CONSECUTIVE_BAD -> return escalate("$consecutiveBad fast actions in a row had no effect")
             cycling -> return escalate("no new page for several steps")
+            // A guess the selector itself rates low wastes a step that the Reasoning model, which can
+            // read the screen and the plan, usually turns into progress (AndroidWorld: 10-step tasks
+            // ran out on explorations at confidence 0.2-0.4 while the streak rule waited for six).
+            chosen.action !is CandidateAction.Done && isLowConfidenceGuess(decision.explored, decision.confidence) -> {
+                exploreStreak = 0
+                return escalate("the selector could only guess (confidence ${"%.2f".format(decision.confidence)})")
+            }
             // Every new page resets the cycle check, so blind exploration through a large app never
             // escalates on its own: after a long streak without one confident choice, the task has
             // usually left its target page. One Reasoning step reorients; JEV keeps its memory.
@@ -724,6 +731,10 @@ class JevStepExecutor(
     private fun newScope() = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     companion object {
+        /** An exploratory choice below this confidence goes to the Reasoning model instead. */
+        internal fun isLowConfidenceGuess(explored: Boolean, confidence: Double): Boolean =
+            explored && confidence < LOW_CONFIDENCE_EXPLORATION
+
         private const val TAG = "CoatiJev"
         private const val MAX_CONSECUTIVE_BAD = 3
         private const val PROGRESS_WINDOW = 6
@@ -743,6 +754,7 @@ class JevStepExecutor(
         private const val MIN_PARSE_AGREEMENT = 0.3
         private const val TEXT_WAIT_MS = 30_000L
         private const val PLAN_WAIT_MS = 20_000L
+        private const val LOW_CONFIDENCE_EXPLORATION = 0.4
         private const val SLOW_OCR_MS = 3_000L
         private const val MAX_SLOW_OCR_CALLS = 2
         private const val STALE_COORDINATES = "stale_screenshot_coordinates"
