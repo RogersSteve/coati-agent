@@ -102,7 +102,7 @@ class OpenAiCompatibleGateway(
                 put("model", modelName)
                 put("messages", messages)
                 put("temperature", 0.1)
-                put("max_tokens", compactJsonMaxTokens(manualObservationInstruction != null))
+                put("max_tokens", withThinking(compactJsonMaxTokens(manualObservationInstruction != null)))
             }.toString()
 
             val request = Request.Builder()
@@ -180,7 +180,7 @@ class OpenAiCompatibleGateway(
                 put("model", modelName)
                 put("messages", messages)
                 put("temperature", 0.1)
-                put("max_tokens", compactJsonMaxTokens(manualObservationInstruction != null))
+                put("max_tokens", withThinking(compactJsonMaxTokens(manualObservationInstruction != null)))
             }.toString()
 
             val request = Request.Builder()
@@ -227,7 +227,7 @@ class OpenAiCompatibleGateway(
                 put("model", modelName)
                 put("messages", messages)
                 put("temperature", 0.2)
-                put("max_tokens", 1024)
+                put("max_tokens", withThinking(1024))
             }.toString()
 
             val request = Request.Builder()
@@ -283,7 +283,7 @@ class OpenAiCompatibleGateway(
                 put("model", modelName)
                 put("messages", messages)
                 put("temperature", request.temperature)
-                put("max_tokens", request.maxOutputTokens)
+                put("max_tokens", withThinking(request.maxOutputTokens))
                 if (lowLatency) put("reasoning_effort", "low")
             }.toString()
             suspend fun send(lowLatency: Boolean) = client.newCall(
@@ -392,12 +392,24 @@ class OpenAiCompatibleGateway(
             put("model", modelName)
             put("messages", messages)
             put("temperature", 0.2)
-            put("max_tokens", 4096)
+            put("max_tokens", withThinking(4096))
         }.toString()
     }
 
     companion object {
         private const val TAG = "CoatiModel"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /**
+         * Reasoning models behind this API (Gemini through OpenRouter, GPT-5) count thinking in
+         * max_tokens: with 4096 a Reasoning turn's JSON was cut off (AndroidWorld, finish_reason
+         * "length"). Headroom is smaller than Gemini's and capped, because some models served here
+         * (deepseek-chat) reject max_tokens above 8192. Unused headroom costs nothing.
+         */
+        internal const val THINKING_HEADROOM_TOKENS = 4_096
+        internal const val MAX_OUTPUT_TOKENS = 8_192
+
+        internal fun withThinking(answerTokens: Int): Int =
+            minOf(answerTokens + THINKING_HEADROOM_TOKENS, maxOf(answerTokens, MAX_OUTPUT_TOKENS))
     }
 }
