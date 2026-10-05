@@ -81,6 +81,7 @@ internal fun TaskResult.toJson(): JSONObject = JSONObject()
     .put("verify", verify)
     .put("tree_withheld", treeWithheld)
     .put("answer", answer ?: JSONObject.NULL)
+    .put("refunded_steps", refundedSteps)
     .put("usage", usage)
 
 /**

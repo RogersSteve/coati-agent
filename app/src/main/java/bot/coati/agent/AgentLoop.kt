@@ -98,6 +98,7 @@ class AgentLoop(
     private var verifyEnabled = true
     private var treeWithheld = false
     private var finalAnswer: String? = null
+    private var refundedSteps = 0
 
     @Volatile
     var emergencyStop = false
@@ -125,6 +126,7 @@ class AgentLoop(
         taskCompletionAuditRejects = 0
         doneClaims = 0
         finalAnswer = null
+        refundedSteps = 0
         lastAuditDecision = null
         fastSteps = 0
         escalations = 0
@@ -278,6 +280,10 @@ class AgentLoop(
                         continue
                     }
                     FastStep.Retry -> continue
+                    FastStep.NotReady -> {
+                        refundStep()
+                        continue
+                    }
                     FastStep.Declined -> {
                         cancelByUser()
                         return
@@ -377,6 +383,7 @@ class AgentLoop(
             } catch (e: IllegalArgumentException) {
                 // e.g. a dialog or split-screen window cannot be coordinate-bound: fail this step, not the task.
                 if (!recordCoordinateFailure(e, response.action)) throw e
+                refundStep()
                 continue
             }
             Log.i(TAG, "Resolved action: ${action.toLogSummary()}")
@@ -416,6 +423,7 @@ class AgentLoop(
             } catch (e: IllegalArgumentException) {
                 // The screen moved on (or cannot be bound) between capture and dispatch: nothing was executed.
                 if (!recordCoordinateFailure(e, response.action)) throw e
+                refundStep()
                 continue
             }
             Log.i(TAG, "Action result: success=${actionResult.success}, message=${actionResult.message}")
@@ -948,6 +956,7 @@ class AgentLoop(
             verify = verifyEnabled,
             treeWithheld = treeWithheld,
             answer = finalAnswer,
+            refundedSteps = refundedSteps,
             usage = usage,
         )
         try {
@@ -1049,6 +1058,18 @@ class AgentLoop(
      * fail-closed guards stay intact: no gesture is sent, but the task continues. Returns false for
      * any other argument error, which keeps its previous (task-failing) behavior.
      */
+    /**
+     * The step budget counts actions sent to the screen. A loop pass that sent nothing because the
+     * screen was not ready (no coordinate mapping, or it changed before dispatch) is given back, up to
+     * [MAX_REFUNDED_STEPS] per task so a screen that never settles still ends the task.
+     */
+    private fun refundStep() {
+        if (refundedSteps >= MAX_REFUNDED_STEPS) return
+        refundedSteps++
+        stepCount--
+        Log.i(TAG, "Step not counted: nothing was executed ($refundedSteps/$MAX_REFUNDED_STEPS)")
+    }
+
     private fun recordCoordinateFailure(e: IllegalArgumentException, actionName: String): Boolean {
         val feedback = coordinateFailureFeedback(e.message) ?: return false
         Log.w(TAG, "Coordinate guard rejected '$actionName': ${e.message}")
@@ -1208,6 +1229,7 @@ class AgentLoop(
         private const val CAPTURE_ATTEMPTS = 3
         private const val CAPTURE_RETRY_DELAY_MS = 1_000L
         const val MAX_STEPS = 200
+        private const val MAX_REFUNDED_STEPS = 20
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val MAX_VERIFY_RETRIES = 2
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3

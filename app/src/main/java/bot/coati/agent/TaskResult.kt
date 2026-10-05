@@ -42,6 +42,8 @@ internal data class TaskResult(
     val treeWithheld: Boolean,
     /** The answer the agent gave for an information task, or null. */
     val answer: String?,
+    /** Loop passes that executed nothing because the screen was not ready; not counted in [steps]. */
+    val refundedSteps: Int,
     /** Model usage from [bot.coati.model.ModelUsageMeter.finishTask]. */
     val usage: JSONObject,
 ) {
