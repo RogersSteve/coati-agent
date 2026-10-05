@@ -87,7 +87,8 @@ class DebugAgentReceiver : BroadcastReceiver() {
     }
 
     /**
-     * Runs on-device OCR over every JPEG/PNG in getExternalFilesDir("ocr_bench") (push with adb)
+     * Runs on-device OCR over JPEG/PNG inputs. External app storage is the default;
+     * input_storage=internal selects File(context.filesDir, "ocr_bench") for run-as uploads.
      * and logs per-image latency and the recognized lines. Each image runs `repeat` times; model loading
      * is logged separately as init ms, and the first run of each new input size includes GPU
      * pipeline setup. OCR runs on the Vulkan GPU only; without one the bench logs that OCR is
@@ -97,7 +98,21 @@ class DebugAgentReceiver : BroadcastReceiver() {
      */
     private fun ocrBench(context: Context, intent: Intent) {
         val repeat = intent.getIntExtra("repeat", 3).coerceAtLeast(1)
+        val inputStorage = intent.getStringExtra("input_storage") ?: "external"
         CoroutineScope(Dispatchers.Default).launch {
+            // Validate every input before the expensive Vulkan initialization.
+            val input = try {
+                val dir = DebugOcrInputs.directory(inputStorage, context.filesDir) {
+                    context.getExternalFilesDir("ocr_bench")
+                }
+                val files = DebugOcrInputs.validate(dir)
+                Log.i(TAG, "OCR bench input validated: storage=$inputStorage dir=$dir names=${files.map { it.name }} repeat=$repeat")
+                dir to files
+            } catch (e: Exception) {
+                Log.w(TAG, "OCR bench input failed: storage=$inputStorage", e)
+                Log.i(TAG, "OCR bench done")
+                return@launch
+            }
             val initStarted = System.nanoTime()
             val ocr = OcrEngines.create(context)
             if (ocr == null) {
@@ -107,9 +122,7 @@ class DebugAgentReceiver : BroadcastReceiver() {
             }
             Log.i(TAG, "OCR bench config: engine=ncnn-vulkan PP-OCRv5 mobile, init ms=${(System.nanoTime() - initStarted) / 1_000_000}")
             try {
-                val dir = context.getExternalFilesDir("ocr_bench")
-                val files = dir?.listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg", "png") }
-                    .orEmpty().sortedBy { it.name }
+                val (dir, files) = input
                 Log.i(TAG, "OCR bench: ${files.size} images in $dir, repeat=$repeat")
                 files.forEach { file ->
                     val bytes = file.readBytes()
