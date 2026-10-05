@@ -179,11 +179,28 @@ class CoatiService : Service() {
 
     /**
      * The GPU OCR engine, loaded once in the background (model load and pipeline compilation take
-     * several seconds) and warmed up. Null inside the Deferred when the device has no usable GPU.
+     * several seconds) and warmed up. Null inside the Deferred when the device has no usable GPU or
+     * its GPU is too slow for OCR to sit on the critical path.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun ocrEngine(): Deferred<OcrEngine?> = ocrEngine ?: serviceScope.async(Dispatchers.Default) {
-        OcrEngines.create(this@CoatiService)?.also { it.warmUp() }
+        OcrEngines.create(this@CoatiService)?.let { engine ->
+            engine.warmUp()
+            // OCR sits on the critical path, so it must be fast. A virtual GPU backed by software
+            // rendering (emulators) passes the GPU check yet takes seconds per pass, and OCR then
+            // dominated every step (AndroidWorld server: 30 s per hybrid step, one call 242 s).
+            val started = System.nanoTime()
+            engine.warmUp()
+            val detectionMs = (System.nanoTime() - started) / 1_000_000
+            if (detectionMs > OCR_MAX_DETECTION_MS) {
+                Log.w(TAG, "OCR disabled: one detection pass takes ${detectionMs}ms on this GPU; perceiving without OCR")
+                engine.close()
+                null
+            } else {
+                Log.i(TAG, "OCR ready: detection pass ${detectionMs}ms")
+                engine
+            }
+        }
     }.also { ocrEngine = it }
 
     private fun setupAgent(stateManager: StateManager, a11y: CoatiAccessibilityService) {
@@ -493,6 +510,7 @@ class CoatiService : Service() {
 
     companion object {
         private const val TAG = "CoatiService"
+        private const val OCR_MAX_DETECTION_MS = 1_000L
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "coati_service"
         private const val ACTION_REFRESH_SAFETY_MODE = "bot.coati.action.REFRESH_SAFETY_MODE"
