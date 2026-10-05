@@ -27,8 +27,8 @@ data class Guidance(
 
 /**
  * Runs the Reasoning model asynchronously: an initial plan, then refreshed guidance and manual
- * observations whenever the page changes. The executor never waits for it, except when it must
- * type text that no plan has provided yet.
+ * observations whenever the page changes. The executor waits for it only once for the first plan,
+ * and when it must type text that no plan has provided yet.
  */
 class BackgroundAdvisor(
     private val gateway: CloudModelGateway,
@@ -143,10 +143,12 @@ class BackgroundAdvisor(
     /** Non-blocking: the latest finished guidance, consumed once. */
     fun poll(): Guidance? = pending.also { pending = null }
 
-    /** Blocking wait, used only when text must be typed and no plan has produced it yet. */
-    suspend fun await(timeoutMs: Long): Guidance? {
+    /**
+     * Waits for the running request (the first plan, or text that must be typed). It leaves the
+     * guidance for [poll]: returning it here made callers that poll afterwards lose the plan.
+     */
+    suspend fun await(timeoutMs: Long) {
         withTimeoutOrNull(timeoutMs) { job?.join() }
-        return poll()
     }
 
     fun cancel() {

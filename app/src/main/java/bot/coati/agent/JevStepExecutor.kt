@@ -114,6 +114,7 @@ class JevStepExecutor(
     private var hint: String? = null
     private var planRequested = false
     private var planReceived = false
+    private var planAwaited = false
     private var lastAdvisedPage: Set<String>? = null
     private var taskPackage: String? = null
     private var launchers: Set<String> = emptySet()
@@ -166,6 +167,7 @@ class JevStepExecutor(
         hint = null
         planRequested = false
         planReceived = false
+        planAwaited = false
         lastAdvisedPage = null
         taskPackage = null
         launchers = launcherPackages()
@@ -215,6 +217,13 @@ class JevStepExecutor(
         if (!planRequested) {
             planRequested = true
             advisor.plan(task, context.screenshotJpeg)
+        }
+        if (!planAwaited) {
+            // Without the plan the selector knows neither the target app nor the text to type, and
+            // its first choices are guesses (AndroidWorld: 3-7 of a 10-step budget lost before a plan
+            // that arrived after 7-16 s). Wait for it once; a late plan is absorbed when it arrives.
+            planAwaited = true
+            advisor.await(PLAN_WAIT_MS)
         }
         val coordinates = context.coordinates
         if (coordinates == null) {
@@ -706,6 +715,7 @@ class JevStepExecutor(
         /** Below this share of its texts confirmed by OCR, a vision parse describes another image (normal parses scored >= 0.5 on the board set). */
         private const val MIN_PARSE_AGREEMENT = 0.3
         private const val TEXT_WAIT_MS = 30_000L
+        private const val PLAN_WAIT_MS = 20_000L
         private const val STALE_COORDINATES = "stale_screenshot_coordinates"
 
         /** Navigation is reversible; typing and long-press menus are standard interactions. */
