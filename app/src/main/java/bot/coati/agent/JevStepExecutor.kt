@@ -121,6 +121,10 @@ class JevStepExecutor(
     private var planRequested = false
     private var planReceived = false
     private var planAwaited = false
+
+    // Session-wide, unlike per-task state: a slow OCR stays slow.
+    @Volatile private var slowOcrCalls = 0
+    @Volatile private var ocrTooSlow = false
     private var lastAdvisedPage: Set<String>? = null
     private var taskPackage: String? = null
     private var launchers: Set<String> = emptySet()
@@ -424,7 +428,7 @@ class JevStepExecutor(
         val height = coordinates.rawHeight
         val scale = width.toFloat() / coordinates.imageWidth
         val statusBar = coordinates.display.insets.top
-        val ocr = ocrProvider()
+        val ocr = if (ocrTooSlow) null else ocrProvider()
         if (tree != null && A11yScreenParser.isUsable(tree)) {
             val treeScreen = A11yScreenParser.parse(tree, context.appPackage, width, height)
             val engine = ocr ?: return treeScreen
@@ -443,7 +447,9 @@ class JevStepExecutor(
             val candidates = hosts.filter { !it.labelled && !it.image }.map { it.bounds }
             val lines = engine.recognize(context.screenshotJpeg, scale, labelled + PixelBounds(0, 0, width, statusBar), candidates)
             val uncovered = HybridPerception.paintedLines(lines, hosts, statusBar, keyboard)
-            Log.i(TAG, "OCR ${System.currentTimeMillis() - ocrStarted}ms: ${uncovered.size} lines not in the tree")
+            val ocrMs = System.currentTimeMillis() - ocrStarted
+            Log.i(TAG, "OCR ${ocrMs}ms: ${uncovered.size} lines not in the tree")
+            noteOcrTime(ocrMs)
             if (uncovered.size < HybridPerception.MIN_PAINTED_LINES) {
                 plainPage = context.appPackage to treeScreen.pageKey
                 return treeScreen
@@ -474,7 +480,12 @@ class JevStepExecutor(
         }
         val keyboard = keyboardBounds(tree, width, height)
         return coroutineScope {
-            val ocrLines = ocr?.let { engine -> async { engine.recognize(context.screenshotJpeg, scale, keyboard) } }
+            val ocrLines = ocr?.let { engine ->
+                async {
+                    val ocrStarted = System.currentTimeMillis()
+                    engine.recognize(context.screenshotJpeg, scale, keyboard).also { noteOcrTime(System.currentTimeMillis() - ocrStarted) }
+                }
+            }
             var vision = parseVision(context, coordinates)
             if (vision == null) {
                 ocrLines?.cancel()
@@ -614,6 +625,18 @@ class JevStepExecutor(
         return FastStep.NotReady
     }
 
+    /**
+     * OCR must stay cheap: after [MAX_SLOW_OCR_CALLS] calls slower than [SLOW_OCR_MS] it is off for the
+     * rest of the session (a cancelled call cannot stop native work, which still holds the engine).
+     */
+    private fun noteOcrTime(ms: Long) {
+        if (ms <= SLOW_OCR_MS || ocrTooSlow) return
+        if (++slowOcrCalls >= MAX_SLOW_OCR_CALLS) {
+            ocrTooSlow = true
+            Log.w(TAG, "OCR disabled for this session: $slowOcrCalls calls took over ${SLOW_OCR_MS}ms")
+        }
+    }
+
     private fun forgetPrevious() {
         previous = null
         previousScreen = null
@@ -722,6 +745,8 @@ class JevStepExecutor(
         private const val MIN_PARSE_AGREEMENT = 0.3
         private const val TEXT_WAIT_MS = 30_000L
         private const val PLAN_WAIT_MS = 20_000L
+        private const val SLOW_OCR_MS = 3_000L
+        private const val MAX_SLOW_OCR_CALLS = 2
         private const val STALE_COORDINATES = "stale_screenshot_coordinates"
 
         /** Navigation is reversible; typing and long-press menus are standard interactions. */
