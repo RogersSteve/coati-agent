@@ -1,6 +1,5 @@
 package bot.coati.agent
 
-import android.content.Intent
 import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityWindowInfo
@@ -44,6 +43,7 @@ import bot.coati.perception.ScreenSource
 import bot.coati.perception.VisionScreenParser
 import bot.coati.perception.VisualChange
 import bot.coati.service.CoatiAccessibilityService
+import bot.coati.service.HomeScreens
 import bot.coati.service.UiTreeNode
 import bot.coati.ui.overlay.OverlayManager
 import kotlinx.coroutines.CoroutineScope
@@ -181,6 +181,7 @@ class JevStepExecutor(
         lastAdvisedPage = null
         taskPackage = null
         launchers = launcherPackages()
+        Log.i(TAG, "Home screens: $launchers")
         consecutiveBad = 0
         consecutiveRetries = 0
         exploreStreak = 0
@@ -650,10 +651,7 @@ class JevStepExecutor(
     }
 
     /** Home screens never anchor a task: the task starts in whatever app is opened from them. */
-    private fun launcherPackages(): Set<String> {
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        return a11y.packageManager.queryIntentActivities(intent, 0).map { it.activityInfo.packageName }.toSet()
-    }
+    private fun launcherPackages(): Set<String> = HomeScreens.packages(a11y.packageManager)
 
     private fun toAgentAction(action: CandidateAction, screen: ParsedScreen, text: String?): AgentAction = when (action) {
         is CandidateAction.Element -> {

@@ -386,12 +386,7 @@ class CoatiService : Service() {
     }
 
     @Suppress("DEPRECATION")
-    private fun resolveHomePackages(): Set<String> {
-        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        return packageManager.queryIntentActivities(homeIntent, 0)
-            .mapNotNull { it.activityInfo?.packageName }
-            .toSet()
-    }
+    private fun resolveHomePackages(): Set<String> = HomeScreens.packages(packageManager)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
