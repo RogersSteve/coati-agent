@@ -60,8 +60,14 @@ sealed interface FastStep {
     /** An action was executed; observe again. */
     data object Acted : FastStep
 
-    /** Nothing was executed (screen not ready, stale decision, wait); observe again. */
+    /** A decision that executed nothing on the screen (wait, no text to type); observe again. */
     data object Retry : FastStep
+
+    /**
+     * The screen was not ready to act on (windows still changing, or it changed before the action
+     * could be dispatched): nothing was decided or sent, so the step does not use the task's budget.
+     */
+    data object NotReady : FastStep
 
     /** JEV claims the task is done; the loop runs the independent completion audit. */
     data class DoneClaimed(val summary: String) : FastStep
@@ -382,7 +388,7 @@ class JevStepExecutor(
             if (e.message != STALE_COORDINATES) throw e
             // The screen moved on between capture and dispatch: the decision is void, not failed.
             Log.i(TAG, "Screen changed before '$label' could run; re-observing")
-            return FastStep.Retry
+            return FastStep.NotReady
         }
         Log.i(TAG, "Executed ${action.toLogSummary()}: success=${result.success} ${result.message}")
         history += StepRecord(if (result.success) label else "$label (failed: ${result.message})")
@@ -605,7 +611,7 @@ class JevStepExecutor(
         }
         Log.i(TAG, "Fast step skipped ($consecutiveRetries/$MAX_CONSECUTIVE_RETRIES): $reason")
         delay(RETRY_DELAY_MS)
-        return FastStep.Retry
+        return FastStep.NotReady
     }
 
     private fun forgetPrevious() {
