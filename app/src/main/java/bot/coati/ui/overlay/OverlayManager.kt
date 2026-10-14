@@ -427,7 +427,7 @@ class OverlayManager(
 
     /**
      * Runs an injected gesture only after the full-screen overlay has had time to become
-     * non-touchable. WindowManager does not acknowledge when InputDispatcher has received a flag
+     * non-touchable and transparent. WindowManager does not acknowledge when InputDispatcher has received a flag
      * update, so the gate is also held around both transition windows. This prevents a gesture
      * aimed at the app from invoking the overlay's own Pause/Stop controls during an async update.
      */
@@ -462,6 +462,10 @@ class OverlayManager(
         } else {
             layoutParams.flags and LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         }
+        // A visible window of another app over the touch point marks the event as obscured, and apps
+        // that filter obscured touches (tapjacking protection: Joplin's add button, permission
+        // dialogs) drop it silently. Only a non-touchable window at alpha 0 does not obscure.
+        layoutParams.alpha = if (enable) 0f else 1f
         // Keep the stored flags correct even if the view disappears during cancellation. A later
         // show() must never inherit a stale FLAG_NOT_TOUCHABLE value.
         val view = composeView ?: return
