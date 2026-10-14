@@ -23,6 +23,8 @@ data class Guidance(
     val manualObservation: ManualPageObservation? = null,
     /** Opaque token identifying which step's screen the guidance describes. */
     val forStep: Int = 0,
+    /** The app on that screen; null for the task-wide plan. Its hint only applies inside that app. */
+    val forPackage: String? = null,
 )
 
 /**
@@ -53,6 +55,7 @@ class BackgroundAdvisor(
     fun advise(
         step: Int,
         task: String,
+        packageName: String,
         screenshot: ByteArray,
         subgoals: List<String>,
         history: List<StepRecord>,
@@ -60,7 +63,7 @@ class BackgroundAdvisor(
         onObservation: ((ManualPageObservation) -> Unit)? = null,
     ) {
         if (busy) return
-        launch(step, screenshot, advisePrompt(task, subgoals, history, learningInstruction), onObservation)
+        launch(step, screenshot, advisePrompt(task, subgoals, history, learningInstruction), onObservation, packageName)
     }
 
     /**
@@ -162,6 +165,7 @@ class BackgroundAdvisor(
         screenshot: ByteArray,
         prompt: String,
         onObservation: ((ManualPageObservation) -> Unit)? = null,
+        packageName: String? = null,
     ) {
         job?.cancel()
         jobObserves = onObservation != null
@@ -176,7 +180,7 @@ class BackgroundAdvisor(
                         imageJpeg = screenshot,
                     ),
                 ).getOrThrow()
-                val guidance = parse(result.text, step)
+                val guidance = parse(result.text, step).copy(forPackage = packageName)
                 guidance.manualObservation?.let { observation -> onObservation?.invoke(observation) }
                 pending = guidance
             } catch (e: CancellationException) {

@@ -67,20 +67,30 @@ class ClaudeCompatibleGateway(
         screenshot: ByteArray,
         question: String,
         manualObservationInstruction: String?,
+    ): Result<QuickCheckResult> = checkScreens(listOf(screenshot), question, manualObservationInstruction)
+
+    override suspend fun quickCheckScreens(screenshots: List<ByteArray>, question: String): Result<QuickCheckResult> =
+        checkScreens(screenshots, question, null)
+
+    private suspend fun checkScreens(
+        screenshots: List<ByteArray>,
+        question: String,
+        manualObservationInstruction: String?,
     ): Result<QuickCheckResult> = withContext(Dispatchers.IO) {
         try {
-            val base64Image = Base64.encodeToString(screenshot, Base64.NO_WRAP)
             val messages = JSONArray()
 
             val userContent = JSONArray()
-            userContent.put(JSONObject().apply {
-                put("type", "image")
-                put("source", JSONObject().apply {
-                    put("type", "base64")
-                    put("media_type", "image/jpeg")
-                    put("data", base64Image)
+            for (screenshot in screenshots) {
+                userContent.put(JSONObject().apply {
+                    put("type", "image")
+                    put("source", JSONObject().apply {
+                        put("type", "base64")
+                        put("media_type", "image/jpeg")
+                        put("data", Base64.encodeToString(screenshot, Base64.NO_WRAP))
+                    })
                 })
-            })
+            }
             userContent.put(JSONObject().apply {
                 put("type", "text")
                 put("text", PromptBuilder.buildQuickCheckPrompt(question, manualObservationInstruction))

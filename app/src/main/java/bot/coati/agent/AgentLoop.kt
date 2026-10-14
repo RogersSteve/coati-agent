@@ -21,6 +21,7 @@ import bot.coati.model.ScreenContext
 import bot.coati.model.VerifyOutcome
 import bot.coati.model.VerifyResult
 import bot.coati.service.CoatiAccessibilityService
+import bot.coati.service.HomeScreens
 import bot.coati.service.UiTreeNode
 import bot.coati.state.StateManager
 import bot.coati.state.TaskState
@@ -83,6 +84,9 @@ class AgentLoop(
     private val exceptionHandler = ExceptionHandler()
     private val capabilityFailureLedger = CapabilityFailureLedger()
     private val screenshotCache = mutableListOf<ByteArray>()
+    private val appFrames = AppResultFrames()
+    // Home screens and system chrome hold no task results.
+    private var framelessPackages: Set<String> = emptySet()
     private var currentTask: TaskState? = null
     private var resumedFromPause = false
     private var replanHint: String? = null
@@ -114,6 +118,8 @@ class AgentLoop(
         if (treeWithheld) Log.w(TAG, "Accessibility tree withheld from perception for this task (perturbation)")
         conversationHistory.clear()
         screenshotCache.clear()
+        appFrames.clear()
+        framelessPackages = HomeScreens.packages(a11y.packageManager) + setOf(a11y.packageName, SYSTEM_UI_PACKAGE)
         actionHistory.clear()
         taskStartTime = System.currentTimeMillis()
         stepCount = 0
@@ -251,6 +257,14 @@ class AgentLoop(
             val nodeCount = uiTree?.flatCount() ?: 0
             val textNodeCount = uiTree?.nodesWithText() ?: 0
             val screenSig = RuleEngine.buildScreenSignature(uiTree)
+            appFrames.record(
+                packageName = screenContext.appPackage,
+                step = stepCount,
+                jpeg = screenContext.screenshotJpeg,
+                signature = screenSig,
+                ignored = screenContext.appPackage in framelessPackages ||
+                    SecurityDialogs.isSecurityDialog(screenContext.appPackage),
+            )
             val inputSessionId = a11y.currentInputSessionId()
             capabilityFailureLedger.activateScope(
                 capabilityScope(
@@ -290,7 +304,7 @@ class AgentLoop(
                     }
                     is FastStep.DoneClaimed -> {
                         doneClaims++
-                        val audit = auditCompletion(task, screenContext.screenshotJpeg)
+                        val audit = auditCompletion(task, screenContext)
                         val decision = classifyTaskCompletionAudit(audit)
                         lastAuditDecision = decision.takeIf { verifyEnabled }
                         if (decision != CompletionAuditDecision.REJECT) {
@@ -308,7 +322,7 @@ class AgentLoop(
                         // JEV cannot read the audit's reason (a wrong count, an unsaved value): the
                         // Reasoning model takes this step to fix exactly what the audit found.
                         lastStepFeedback = "Task completion audit REJECTED: $auditReason. " +
-                            "The current screen does not yet prove every explicit user requirement."
+                            "The screens seen so far do not yet prove every explicit user requirement."
                         replanHint = "A fast executor claimed the task was done but the audit rejected it. " +
                             "Its recent actions:\n${fast.recentHistory()}\nRe-check the original task against " +
                             "the current screenshot and fix only the missing or wrong result (redo a submit or " +
@@ -505,29 +519,10 @@ class AgentLoop(
                 doneClaims++
                 // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not
                 // hold a finished task for the gateway's full limit, so a slow attempt is retried.
-                var audit: QuickCheckResult? = null
                 if (!verifyEnabled) Log.i(TAG, "Verification off: accepting the completion claim without an audit")
-                for (attempt in 1..(if (verifyEnabled) AUDIT_ATTEMPTS else 0)) {
-                    val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
-                        withContext(ModelCallPurpose.COMPLETION_AUDIT) {
-                            modelRouter.fast.quickCheck(
-                                // screenshot is a read-only completion action, so the current
-                                // overlay-free OBSERVE frame is the authoritative final state.
-                                screenshot = screenContext.screenshotJpeg,
-                                question = buildTaskCompletionAuditQuestion(task),
-                                // Page learning was already handled by the current Reasoning response.
-                                // Keep this independent audit compact and single-purpose.
-                                manualObservationInstruction = null,
-                            )
-                        }
-                    }
-                    if (result == null) {
-                        Log.w(TAG, "Task completion audit attempt $attempt timed out")
-                        continue
-                    }
-                    audit = result.getOrNull()
-                    break
-                }
+                // screenshot is a read-only completion action, so the current overlay-free OBSERVE
+                // frame is the authoritative final state.
+                val audit = if (verifyEnabled) requestCompletionAudit(task, screenContext) else null
                 val auditDecision = classifyTaskCompletionAudit(audit)
                 lastAuditDecision = auditDecision.takeIf { verifyEnabled }
                 Log.i(
@@ -1123,28 +1118,47 @@ class AgentLoop(
         overlayManager.resetBallState()
     }
 
-    /** Independent Fast-model check that the current screen proves the task is done. */
-    private suspend fun auditCompletion(task: String, screenshot: ByteArray): QuickCheckResult? {
+    /** Independent Fast-model check that the screens seen so far prove the task is done. */
+    private suspend fun auditCompletion(task: String, context: ScreenContext): QuickCheckResult? {
         if (!verifyEnabled) return null
         overlayManager.updateProgress(task, "Checking result...", "", stepCount, maxSteps)
+        val audit = requestCompletionAudit(task, context)
+        Log.i(TAG, "Task completion audit: decision=${classifyTaskCompletionAudit(audit)}, category=${audit?.category}")
+        return audit
+    }
+
+    /**
+     * Audits the current screen together with the last screen of every other app the task used:
+     * a result saved in one app cannot stay on screen while the next app is in use, and auditing the
+     * current screen alone rejected cross-app tasks in turn for whichever app was not in front.
+     */
+    private suspend fun requestCompletionAudit(task: String, context: ScreenContext): QuickCheckResult? {
+        val earlier = appFrames.evidenceFor(context.appPackage, stepCount)
+        val question = buildTaskCompletionAuditQuestion(task, earlier.map { it.packageName to it.step })
+        if (earlier.isNotEmpty()) {
+            Log.i(TAG, "Completion audit includes earlier screens ${earlier.map { "${it.packageName}@${it.step}" }}")
+        }
         // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not hold a
         // finished task for the gateway's full limit, so a slow attempt is retried.
-        var audit: QuickCheckResult? = null
         for (attempt in 1..AUDIT_ATTEMPTS) {
             val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
                 withContext(ModelCallPurpose.COMPLETION_AUDIT) {
-                    modelRouter.fast.quickCheck(screenshot, buildTaskCompletionAuditQuestion(task), null)
+                    // Page learning was already handled by the current Reasoning response; the audit
+                    // stays compact and single-purpose.
+                    if (earlier.isEmpty()) {
+                        modelRouter.fast.quickCheck(context.screenshotJpeg, question, null)
+                    } else {
+                        modelRouter.fast.quickCheckScreens(earlier.map { it.jpeg } + context.screenshotJpeg, question)
+                    }
                 }
             }
             if (result == null) {
                 Log.w(TAG, "Task completion audit attempt $attempt timed out")
                 continue
             }
-            audit = result.getOrNull()
-            break
+            return result.getOrNull()
         }
-        Log.i(TAG, "Task completion audit: decision=${classifyTaskCompletionAudit(audit)}, category=${audit?.category}")
-        return audit
+        return null
     }
 
     private suspend fun acceptCompletion(task: String, summary: String) {
@@ -1235,6 +1249,7 @@ class AgentLoop(
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
         private const val AUDIT_ATTEMPTS = 2
         private const val AUDIT_ATTEMPT_TIMEOUT_MS = 20_000L
+        private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
         /** Model-facing explanation for a rejected spatial action, or null when [message] is not a binding guard. */
         internal fun coordinateFailureFeedback(message: String?): String? = when (message) {
@@ -1248,7 +1263,15 @@ class AgentLoop(
             else -> null
         }
 
-        internal fun buildTaskCompletionAuditQuestion(task: String): String {
+        /**
+         * [earlierScreens] are (package, step) of the screenshots sent before the current one: the
+         * last screen of each other app the task used and the current app's earlier screens.
+         */
+        internal fun buildTaskCompletionAuditQuestion(
+            task: String,
+            earlierScreens: List<Pair<String, Int>> = emptyList(),
+        ): String {
+            if (earlierScreens.isNotEmpty()) return buildCrossAppCompletionAuditQuestion(task, earlierScreens)
             return """
                 Independently audit whether the CURRENT screenshot visibly satisfies every explicit requirement of this original Android task:
                 $task
@@ -1259,6 +1282,26 @@ class AgentLoop(
                 Use category to name the missing or incorrect requirement briefly.
                 If the task asks for information (a question, a count, a date, a value, a list), also return "taskAnswer": the exact answer as this screenshot shows it, as short as possible, or null when the screenshot does not show it. For other tasks return "taskAnswer": null.
             """.trimIndent()
+        }
+
+        private fun buildCrossAppCompletionAuditQuestion(task: String, earlierScreens: List<Pair<String, Int>>): String {
+            val listing = earlierScreens.mapIndexed { i, (pkg, step) -> "${i + 1}. a screen of app $pkg (step $step)" }
+                .joinToString("\n")
+            val current = earlierScreens.size + 1
+            return """
+                |Independently audit whether these screenshots together visibly satisfy every explicit requirement of this original Android task:
+                |$task
+                |
+                |Only one screen is visible at a time, so a finished result is often no longer on the current screen. The $current screenshots, taken during the task, are in order:
+                |$listing
+                |$current. the CURRENT screen
+                |A requirement is satisfied when any screenshot visibly shows it done. Do not fail it only because a later screen (another app, a list, a calendar view) does not show it: not visible is not missing. A later screenshot of the same app overrides an earlier one only where they contradict. A value entered in a form counts when a later screenshot shows that item saved (for example in a list); a form that was left without saving does not count.
+                |Return answer=true only when every result itself is visibly complete and correctly structured. Do not trust the agent's status, history, or claim of completion.
+                |If the task specifies a title and body, require a genuinely distinct rendered title region/style and the body in its body region. Text merely appearing as the first line of the body does not count as a title. A still-visible empty title placeholder means failure.
+                |If the task specifies multiple lines, require the exact visible line structure; collapsed, missing, duplicated, or misplaced text means failure.
+                |Use category to name the missing or incorrect requirement briefly.
+                |If the task asks for information (a question, a count, a date, a value, a list), also return "taskAnswer": the exact answer as the screenshots show it, as short as possible, or null when they do not show it. For other tasks return "taskAnswer": null.
+            """.trimMargin()
         }
 
         internal fun classifyTaskCompletionAudit(result: QuickCheckResult?): CompletionAuditDecision {

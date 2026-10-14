@@ -14,6 +14,13 @@ interface CloudModelGateway {
         manualObservationInstruction: String? = null,
     ): Result<QuickCheckResult>
 
+    /**
+     * [quickCheck] over several screenshots, oldest first; the last one is the current screen.
+     * Gateways without multi-image support check the current screen only.
+     */
+    suspend fun quickCheckScreens(screenshots: List<ByteArray>, question: String): Result<QuickCheckResult> =
+        quickCheck(screenshots.last(), question)
+
     suspend fun verifyAction(
         beforeScreenshot: ByteArray,
         afterScreenshot: ByteArray,
