@@ -8,6 +8,21 @@ import subprocess
 import uuid
 
 
+def as_credentials(value):
+    """A credential mapping; a bare string is one OpenRouter key for the models and Jev."""
+    if isinstance(value, str):
+        return {"provider": "openrouter", "llm_key": value, "jev_key": value}
+    return value
+
+
+def relay_endpoints(provider, device_port):
+    """(model endpoint, Jev endpoint) the app is configured with behind the relay."""
+    base = f"http://127.0.0.1:{device_port}"
+    if provider == "google":
+        return base+"/google", base+"/jev"
+    return base+"/api", base+"/api"
+
+
 class ReverseLease:
     def __init__(self, connection, device_port, host_port, android_id, run=None):
         c = connection
@@ -65,12 +80,21 @@ class ReverseLease:
             self.owned = False
 
 
+UPSTREAMS = {"openrouter": "https://openrouter.ai",
+             "google": "https://generativelanguage.googleapis.com|https://api.typesafe.ai"}
+
+
 class RelaySession:
-    def __init__(self, connection, key, config, android_id):
+    def __init__(self, connection, credentials, config, android_id):
         if set(config) != {"python", "device_port", "metrics_directory"}:
             raise ValueError("Unexpected relay configuration")
         self.connection, self.config, self.android_id = connection, config, android_id
-        self.auth_digest = hashlib.sha256(("Bearer "+key).encode()).hexdigest()
+        credentials = as_credentials(credentials)
+        self.provider = credentials["provider"]
+        # Jev (and OpenRouter) authenticate with a Bearer header; Gemini with a key query parameter.
+        self.auth_digest = hashlib.sha256(("Bearer "+credentials["jev_key"]).encode()).hexdigest()
+        self.google_digest = (hashlib.sha256(credentials["llm_key"].encode()).hexdigest()
+                              if self.provider == "google" else None)
         self.instance = uuid.uuid4().hex
         self.process = None
         self.reverse = None
@@ -79,7 +103,7 @@ class RelaySession:
 
     @property
     def endpoint(self):
-        return f'http://127.0.0.1:{self.config["device_port"]}/api'
+        return relay_endpoints(self.provider, self.config["device_port"])[0]
 
     def start(self):
         try:
@@ -87,7 +111,10 @@ class RelaySession:
                 "--port", "0", "--metrics", str(self.metrics_path)], stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                 env={"PATH": os.defpath, "PYTHONNOUSERSITE": "1", "LANG": "C.UTF-8"})
-            self.process.stdin.write(json.dumps({"authorization_sha256": self.auth_digest, "instance": self.instance, "device_port": self.config["device_port"]})+"\n")
+            control = {"authorization_sha256": self.auth_digest, "instance": self.instance, "device_port": self.config["device_port"]}
+            if self.google_digest is not None:
+                control["google_key_sha256"] = self.google_digest
+            self.process.stdin.write(json.dumps(control)+"\n")
             self.process.stdin.close()
             with selectors.DefaultSelector() as sel:
                 sel.register(self.process.stdout, selectors.EVENT_READ)
@@ -110,7 +137,7 @@ class RelaySession:
         self.reverse.ensure()
 
     def metadata(self):
-        return {"route": "loopback_adb_reverse_host_https", "upstream": "https://openrouter.ai",
+        return {"route": "loopback_adb_reverse_host_https", "upstream": UPSTREAMS[self.provider],
                 "endpoint": self.endpoint, "host_port": self.port, "serial": self.connection["serial"],
                 "adb_server_port": self.connection["adb_server_port"], "instance": self.instance,
                 "metrics_path": str(self.metrics_path), "extra_retries": 0, "TLS": "host_standard_CA_and_hostname"}

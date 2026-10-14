@@ -115,7 +115,32 @@ def reserve_before_start(store, ledger, spec):
         raise
 
 
-def existing_learning_records(directory, settings, connection, relay_config):
+def provider_models(provider, relay_config):
+    """Models and transport for a provider. The openrouter dictionaries are unchanged, so existing
+    experiment identities stay valid; google adds the app provider and a separate Jev endpoint."""
+    from relay_connection import UPSTREAMS, relay_endpoints
+    if provider == "openrouter":
+        models = {"endpoint": "https://openrouter.ai/api", "reasoning": "google/gemini-3.8-flash",
+                  "fast": "google/gemini-3.8-flash", "jev": "jev-1.13"}
+    elif provider == "google":
+        models = {"endpoint": "https://generativelanguage.googleapis.com", "jev_endpoint": "https://api.typesafe.ai",
+                  "app_provider": "gemini", "reasoning": "gemini-3.8-flash", "fast": "gemini-3.8-flash",
+                  "jev": "jev-1.13.0"}
+    else:
+        raise ValueError("Unknown provider")
+    if relay_config:
+        if type(relay_config.get("device_port")) is not int or not 1024 <= relay_config["device_port"] <= 65535:
+            raise ValueError("Invalid relay device port")
+        endpoint, jev_endpoint = relay_endpoints(provider, relay_config["device_port"])
+        models["endpoint"] = endpoint
+        if "jev_endpoint" in models:
+            models["jev_endpoint"] = jev_endpoint
+    transport = {"route": "loopback_adb_reverse_host_https" if relay_config else "direct_https",
+                 "upstream": UPSTREAMS[provider], "extra_retries": 0, "wall_s_includes_transport": True}
+    return models, transport
+
+
+def existing_learning_records(directory, settings, connection, relay_config, models=None, transport=None):
     """Ignore only validated relay metadata; require review for unsafe history."""
     records = []
     for path in sorted(directory.glob("*.json")):
@@ -131,8 +156,8 @@ def existing_learning_records(directory, settings, connection, relay_config):
                     or not isinstance(row["instance"], str)
                     or not re.fullmatch(r"[0-9a-f]{32}", row["instance"])
                     or row["route"] != "loopback_adb_reverse_host_https"
-                    or row["upstream"] != "https://openrouter.ai"
-                    or row["endpoint"] != f'http://127.0.0.1:{relay_config["device_port"]}/api'
+                    or row["upstream"] != (transport or {}).get("upstream", "https://openrouter.ai")
+                    or row["endpoint"] != (models or {}).get("endpoint", f'http://127.0.0.1:{relay_config["device_port"]}/api')
                     or row["serial"] != connection["serial"]
                     or type(row["adb_server_port"]) is not int
                     or row["adb_server_port"] != connection["adb_server_port"]
@@ -239,6 +264,8 @@ def main():
     parser.add_argument("--perturbation", default="")
     parser.add_argument("--output", required=True)
     parser.add_argument("--credentials")
+    parser.add_argument("--provider", choices=["openrouter", "google"], default="openrouter",
+                        help="openrouter: one OpenRouter key for models and Jev; google: official Gemini API and Jev")
     parser.add_argument("--relay-config", help="Explicit local transport configuration; absent preserves direct HTTPS")
     parser.add_argument("--manual-freeze")
     parser.add_argument("--resume-compatibility", help="Explicit reviewed old two-record compatibility manifest")
@@ -265,16 +292,11 @@ def main():
     if args.variants < 1:
         raise ValueError("Positive variants required")
     sources = source_manifest(args.aw_root, args.device_bench, args.host_diff_sha256)
-    models = {"endpoint": "https://openrouter.ai/api", "reasoning": "google/gemini-3.8-flash", "fast": "google/gemini-3.8-flash", "jev": "jev-1.13"}
     relay_config = json.loads(Path(args.relay_config).read_text()) if args.relay_config else None
-    if relay_config:
-        if type(relay_config.get("device_port")) is not int or not 1024 <= relay_config["device_port"] <= 65535:
-            raise ValueError("Invalid relay device port")
-        models["endpoint"] = f'http://127.0.0.1:{relay_config["device_port"]}/api'
+    models, transport = provider_models(args.provider, relay_config)
     experiment = {"sources": sources, "models": models, "tasks": full, "variants": args.variants,
                   "condition": asdict(settings), "perturbation": args.perturbation, "manual_files_sha256": None, "manual_inventory": None, "execution_order":order}
-    experiment["transport"] = {"route": "loopback_adb_reverse_host_https" if relay_config else "direct_https",
-        "upstream": "https://openrouter.ai", "extra_retries": 0, "wall_s_includes_transport": True}
+    experiment["transport"] = transport
     from android_world import suite_utils
     budgets = {n:{"complexity":classes[n].complexity,
                   "official_max_steps":suite_utils._allocate_step_budget(classes[n].complexity),
@@ -327,23 +349,25 @@ def main():
         for entry in compatibility.entries.values():
             path = store.directory/(entry["label"]+".json")
             compatibility.validate(json.loads(path.read_text()), path)
-    key = load_credentials(args.credentials)
+    credentials = load_credentials(args.credentials)
+    if credentials["provider"] != args.provider:
+        raise ValueError("Credential file does not match --provider")
     env = None
     relay = None
     try:
         if relay_config:
             from relay_connection import RelaySession
-            relay = RelaySession(c, key, relay_config, args.android_id).start()
+            relay = RelaySession(c, credentials, relay_config, args.android_id).start()
             session = relay.metadata()
             from uuid import uuid4
             with (store.directory/("transport-session-"+uuid4().hex+".json")).open("x") as file:
                 json.dump(session, file, indent=2)
-        bench = load_host(args.device_bench, c, key, models, args.perturbation)
-        bridge = Bridge(bench, c, key)
+        bench = load_host(args.device_bench, c, credentials, models, args.perturbation)
+        bridge = Bridge(bench, c, credentials)
         bridge.relay = relay
         bridge.verify_identity(args.android_id, args.apk_sha256)
         if settings.phase == "learn":
-            existing = existing_learning_records(store.directory, settings, c, relay_config)
+            existing = existing_learning_records(store.directory, settings, c, relay_config, models, transport)
             if args.clear_learning and existing:
                 raise ValueError("Cannot clear manuals while resuming a learning run")
             if not existing and not args.clear_learning:

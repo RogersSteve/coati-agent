@@ -1,8 +1,11 @@
-"""Single-instance loopback transport for two fixed OpenRouter POST endpoints.
+"""Single-instance loopback transport for fixed model POST endpoints.
 
-The relay validates upstream TLS normally using the host clock. It never loads
-model credentials: only an authorization digest is supplied over parent stdin.
-POST requests are streamed back without retries, redirects or decompression.
+Profile openrouter (default): two fixed OpenRouter POST endpoints. Profile google:
+Gemini generateContent on the official Google API (allowlisted models) under
+/google, and Jev on api.typesafe.ai under /jev. The relay validates upstream TLS
+normally using the host clock. It never loads model credentials: only
+authorization digests are supplied over parent stdin. POST requests are
+streamed back without retries, redirects or decompression.
 """
 import argparse
 import asyncio
@@ -10,6 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import signal
 import ssl
 import sys
@@ -21,6 +25,12 @@ from multidict import CIMultiDict
 
 ORIGIN = "https://openrouter.ai"
 PATHS = frozenset(("/api/v1/chat/completions", "/api/v1/systemone"))
+GOOGLE_ORIGIN = "https://generativelanguage.googleapis.com"
+JEV_ORIGIN = "https://api.typesafe.ai"
+GOOGLE_MODELS = frozenset(("gemini-3.8-flash",))
+# The Gemini gateway authenticates with a key query parameter; nothing else may follow it.
+GOOGLE_PATH = re.compile(r"/google(/v1beta/models/([A-Za-z0-9.-]+):generateContent)\?key=([A-Za-z0-9_.-]+)")
+JEV_PATH = "/jev/v1/systemone"
 HOP = frozenset(("connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
                  "te", "trailer", "transfer-encoding", "upgrade", "proxy-connection"))
 MAX_BODY = 32 * 1024 * 1024
@@ -37,10 +47,16 @@ def clean_headers(headers, request=False):
 
 
 class Relay:
-    def __init__(self, auth_digest, metrics, instance, session_factory=None, timeout=UPSTREAM_TIMEOUT, device_port=None):
-        if len(auth_digest) != 64 or any(c not in "0123456789abcdef" for c in auth_digest):
+    def __init__(self, auth_digest, metrics, instance, session_factory=None, timeout=UPSTREAM_TIMEOUT, device_port=None,
+                 google_key_digest=None):
+        for value in (auth_digest, google_key_digest):
+            if value is not None and (len(value) != 64 or any(c not in "0123456789abcdef" for c in value)):
+                raise ValueError("Authorization digest required")
+        if auth_digest is None:
             raise ValueError("Authorization digest required")
         self.auth_digest, self.metrics, self.instance = auth_digest, metrics, instance
+        # Present only for the google profile.
+        self.google_key_digest = google_key_digest
         self.session_factory, self.timeout = session_factory, timeout
         self.device_port = device_port
         self.session = None
@@ -62,22 +78,40 @@ class Relay:
         if self.session is not None:
             await self.session.close()
 
+    def target(self, raw_path):
+        """(upstream URL, path safe to log, query credential or None for Bearer auth), or None."""
+        if self.google_key_digest is None:
+            return (ORIGIN+raw_path, raw_path, None) if raw_path in PATHS else None
+        if raw_path == JEV_PATH:
+            return JEV_ORIGIN+"/v1/systemone", JEV_PATH, None
+        match = GOOGLE_PATH.fullmatch(raw_path)
+        if match and match[2] in GOOGLE_MODELS:
+            return GOOGLE_ORIGIN+match[1]+"?key="+match[3], "/google"+match[1], match[3]
+        return None
+
     async def handle(self, request):
         start = time.monotonic()
+        target = self.target(request.raw_path)
         event = {"instance": self.instance, "route": "loopback_adb_reverse_host_https",
-                 "path": request.raw_path if request.raw_path in PATHS else "rejected_path",
+                 # Never the raw path: a Gemini path carries its key.
+                 "path": target[1] if target else "rejected_path",
                  "host_monotonic_start": start,
-                 "upstream": "openrouter.ai", "upstream_requests": 0, "request_bytes": 0,
+                 "upstream": target[0].split("/")[2] if target else "openrouter.ai" if self.google_key_digest is None else "none",
+                 "upstream_requests": 0, "request_bytes": 0,
                  "response_bytes": 0, "status": None, "outcome": "rejected"}
         response = None
         acquired = False
         try:
             if request.host not in {f"127.0.0.1:{self.device_port}", f"localhost:{self.device_port}"}:
                 return web.Response(status=400, text="Invalid local authority")
-            if request.raw_path not in PATHS or request.method != "POST":
+            if target is None or request.method != "POST":
                 return web.Response(status=404, text="Unsupported route")
+            url, _, query_key = target
             auth = request.headers.getall("Authorization", [])
-            if len(auth) != 1 or not auth[0].startswith("Bearer ") or not hmac.compare_digest(
+            if query_key is not None:
+                if auth or not hmac.compare_digest(hashlib.sha256(query_key.encode()).hexdigest(), self.google_key_digest):
+                    return web.Response(status=401, text="Local authorization required")
+            elif len(auth) != 1 or not auth[0].startswith("Bearer ") or not hmac.compare_digest(
                     hashlib.sha256(auth[0].encode()).hexdigest(), self.auth_digest):
                 return web.Response(status=401, text="Local authorization required")
             if request.headers.get("Content-Encoding", "identity").lower() != "identity":
@@ -96,7 +130,7 @@ class Relay:
                 event["upstream_requests"] = 1
                 # aiohttp retries only idempotent methods; POST is not one of them.
                 # No application retry loop exists here. Never enable redirects.
-                async with self.session.request("POST", ORIGIN+request.raw_path, data=body,
+                async with self.session.request("POST", url, data=body,
                         headers=headers, allow_redirects=False) as upstream:
                     event["upstream_headers_wait_ms"] = (time.monotonic()-upstream_start)*1000
                     if 300 <= upstream.status < 400:
@@ -145,7 +179,8 @@ class Relay:
 async def serve(args):
     # Private parent pipe: digest only, no raw model key or request body.
     config = json.loads(sys.stdin.readline())
-    if set(config) != {"authorization_sha256", "instance", "device_port"} or type(config["device_port"]) is not int or not 1024 <= config["device_port"] <= 65535:
+    legacy, google = {"authorization_sha256", "instance", "device_port"}, {"authorization_sha256", "google_key_sha256", "instance", "device_port"}
+    if set(config) not in (legacy, google) or type(config["device_port"]) is not int or not 1024 <= config["device_port"] <= 65535:
         raise ValueError("Invalid control message")
     path = Path(args.metrics)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,7 +189,8 @@ async def serve(args):
     with os.fdopen(fd, "w", buffering=1) as log:
         def metrics(event):
             log.write(json.dumps(event, separators=(",", ":"))+"\n")
-        relay = Relay(config["authorization_sha256"], metrics, config["instance"], device_port=config["device_port"])
+        relay = Relay(config["authorization_sha256"], metrics, config["instance"], device_port=config["device_port"],
+                      google_key_digest=config.get("google_key_sha256"))
         runner = web.AppRunner(relay.app(), access_log=None, handler_cancellation=True, auto_decompress=False, shutdown_timeout=5)
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", args.port)

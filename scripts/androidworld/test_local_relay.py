@@ -8,7 +8,7 @@ from unittest.mock import Mock
 from aiohttp import ClientSession, ClientTimeout, web
 from aiohttp.test_utils import TestClient, TestServer
 from multidict import CIMultiDict
-from local_relay import Relay, ORIGIN, PATHS, clean_headers
+from local_relay import Relay, ORIGIN, PATHS, GOOGLE_ORIGIN, JEV_ORIGIN, clean_headers
 from relay_connection import ReverseLease
 
 AUTH = "Bearer local-test-value-not-a-model-key"
@@ -172,6 +172,49 @@ class ReverseTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):self.lease.ensure()
         for port in [5037,5038]:
             with self.assertRaises(ValueError):ReverseLease(dict(self.c,adb_server_port=port),35556,48001,'expected')
+
+
+
+GOOGLE_KEY = "AQ.local-test-value_not-a-model-key"
+GEMINI_PATH = "/google/v1beta/models/gemini-3.8-flash:generateContent"
+
+
+class GoogleProfileTests(unittest.IsolatedAsyncioTestCase):
+    """Gemini authenticates with a key query parameter, Jev with a Bearer header."""
+    async def asyncSetUp(self):
+        self.events=[]; self.session=Session(Upstream())
+        self.relay=Relay(hashlib.sha256(AUTH.encode()).hexdigest(),self.events.append,"test-instance",
+                         session_factory=lambda:self.session,google_key_digest=hashlib.sha256(GOOGLE_KEY.encode()).hexdigest())
+        self.c=TestClient(TestServer(self.relay.app(),handler_cancellation=True,auto_decompress=False))
+        await self.c.start_server(); self.relay.device_port=self.c.server.port
+    async def asyncTearDown(self): await self.c.close()
+    async def status(self,path,headers=None):
+        async with await self.c.post(path,data=BODY,headers=headers or {}) as response:
+            await response.read(); return response.status
+    async def test_gemini_and_jev_reach_their_fixed_origins(self):
+        self.assertEqual(await self.status(GEMINI_PATH+"?key="+GOOGLE_KEY),200)
+        args,kw=self.session.calls[-1]
+        self.assertEqual(args,("POST",GOOGLE_ORIGIN+"/v1beta/models/gemini-3.8-flash:generateContent?key="+GOOGLE_KEY))
+        self.assertEqual(kw["data"],BODY); self.assertFalse(kw["allow_redirects"])
+        self.assertEqual(await self.status("/jev/v1/systemone",{"Authorization":AUTH}),200)
+        args,kw=self.session.calls[-1]
+        self.assertEqual(args,("POST",JEV_ORIGIN+"/v1/systemone")); self.assertEqual(kw["headers"]["Authorization"],AUTH)
+        logged=json.dumps(self.events)
+        self.assertNotIn(GOOGLE_KEY,logged); self.assertNotIn(AUTH,logged)
+        self.assertEqual([e["path"] for e in self.events],["/google/v1beta/models/gemini-3.8-flash:generateContent","/jev/v1/systemone"])
+        self.assertEqual([e["upstream"] for e in self.events],["generativelanguage.googleapis.com","api.typesafe.ai"])
+    async def test_wrong_credentials_models_and_paths_never_forward(self):
+        self.assertEqual(await self.status(GEMINI_PATH+"?key=wrong"),401)
+        self.assertEqual(await self.status(GEMINI_PATH+"?key="+GOOGLE_KEY,{"Authorization":AUTH}),401)
+        self.assertEqual(await self.status("/jev/v1/systemone",{"Authorization":"Bearer wrong"}),401)
+        self.assertEqual(await self.status("/jev/v1/systemone"),401)
+        for path in ["/google/v1beta/models/gemini-other:generateContent?key="+GOOGLE_KEY,
+                     GEMINI_PATH+"?key="+GOOGLE_KEY+"&alt=sse", GEMINI_PATH,
+                     "/google/v1beta/models/gemini-3.8-flash:streamGenerateContent?key="+GOOGLE_KEY,
+                     "/api/v1/chat/completions", "/api/v1/systemone"]:
+            self.assertEqual(await self.status(path,{"Authorization":AUTH}),404,path)
+        self.assertFalse(self.session.calls)
+        self.assertNotIn(GOOGLE_KEY,json.dumps(self.events))
 
 
 if __name__=='__main__':unittest.main(verbosity=2)
