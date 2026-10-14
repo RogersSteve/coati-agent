@@ -240,13 +240,6 @@ class AgentLoop(
                 .let { if (treeWithheld) it.copy(uiTreeJson = "") else it }
 
             screenshotCache.add(screenContext.screenshotJpeg)
-            appFrames.record(
-                packageName = screenContext.appPackage,
-                step = stepCount,
-                jpeg = screenContext.screenshotJpeg,
-                ignored = screenContext.appPackage in framelessPackages ||
-                    SecurityDialogs.isSecurityDialog(screenContext.appPackage),
-            )
 
             // b2. SYSTEM AUTHORIZATION: permission and install dialogs belong to the user unless
             // they fully trust the agent (TRUST).
@@ -264,6 +257,14 @@ class AgentLoop(
             val nodeCount = uiTree?.flatCount() ?: 0
             val textNodeCount = uiTree?.nodesWithText() ?: 0
             val screenSig = RuleEngine.buildScreenSignature(uiTree)
+            appFrames.record(
+                packageName = screenContext.appPackage,
+                step = stepCount,
+                jpeg = screenContext.screenshotJpeg,
+                signature = screenSig,
+                ignored = screenContext.appPackage in framelessPackages ||
+                    SecurityDialogs.isSecurityDialog(screenContext.appPackage),
+            )
             val inputSessionId = a11y.currentInputSessionId()
             capabilityFailureLedger.activateScope(
                 capabilityScope(
@@ -1132,10 +1133,10 @@ class AgentLoop(
      * current screen alone rejected cross-app tasks in turn for whichever app was not in front.
      */
     private suspend fun requestCompletionAudit(task: String, context: ScreenContext): QuickCheckResult? {
-        val earlier = appFrames.earlierThan(context.appPackage)
+        val earlier = appFrames.evidenceFor(context.appPackage, stepCount)
         val question = buildTaskCompletionAuditQuestion(task, earlier.map { it.packageName to it.step })
         if (earlier.isNotEmpty()) {
-            Log.i(TAG, "Completion audit includes the last screens of ${earlier.map { "${it.packageName}@${it.step}" }}")
+            Log.i(TAG, "Completion audit includes earlier screens ${earlier.map { "${it.packageName}@${it.step}" }}")
         }
         // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not hold a
         // finished task for the gateway's full limit, so a slow attempt is retried.
@@ -1264,7 +1265,7 @@ class AgentLoop(
 
         /**
          * [earlierScreens] are (package, step) of the screenshots sent before the current one: the
-         * last screen of each other app the task used.
+         * last screen of each other app the task used and the current app's earlier screens.
          */
         internal fun buildTaskCompletionAuditQuestion(
             task: String,
@@ -1284,17 +1285,17 @@ class AgentLoop(
         }
 
         private fun buildCrossAppCompletionAuditQuestion(task: String, earlierScreens: List<Pair<String, Int>>): String {
-            val listing = earlierScreens.mapIndexed { i, (pkg, step) -> "${i + 1}. the last screen of app $pkg (step $step)" }
+            val listing = earlierScreens.mapIndexed { i, (pkg, step) -> "${i + 1}. a screen of app $pkg (step $step)" }
                 .joinToString("\n")
             val current = earlierScreens.size + 1
             return """
                 |Independently audit whether these screenshots together visibly satisfy every explicit requirement of this original Android task:
                 |$task
                 |
-                |The task uses several apps and only one can be on screen at a time. The $current screenshots are, in order:
+                |Only one screen is visible at a time, so a finished result is often no longer on the current screen. The $current screenshots, taken during the task, are in order:
                 |$listing
                 |$current. the CURRENT screen
-                |A requirement is satisfied when any screenshot visibly shows it done; do not fail it only because the current screen shows another app. For the same app, the later screenshot wins. A value visible only in a form or dialog that was then left unsaved does not count.
+                |A requirement is satisfied when any screenshot visibly shows it done. Do not fail it only because a later screen (another app, a list, a calendar view) does not show it: not visible is not missing. A later screenshot of the same app overrides an earlier one only where they contradict. A value entered in a form counts when a later screenshot shows that item saved (for example in a list); a form that was left without saving does not count.
                 |Return answer=true only when every result itself is visibly complete and correctly structured. Do not trust the agent's status, history, or claim of completion.
                 |If the task specifies a title and body, require a genuinely distinct rendered title region/style and the body in its body region. Text merely appearing as the first line of the body does not count as a title. A still-visible empty title placeholder means failure.
                 |If the task specifies multiple lines, require the exact visible line structure; collapsed, missing, duplicated, or misplaced text means failure.

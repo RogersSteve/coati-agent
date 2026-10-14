@@ -98,10 +98,11 @@ class AgentLoopTest {
             listOf("com.google.android.keep" to 26),
         )
 
-        assertTrue(question.contains("1. the last screen of app com.google.android.keep (step 26)"))
+        assertTrue(question.contains("1. a screen of app com.google.android.keep (step 26)"))
         assertTrue(question.contains("2. the CURRENT screen"))
         assertTrue(question.contains("any screenshot visibly shows it done"))
-        assertTrue(question.contains("later screenshot wins"))
+        assertTrue(question.contains("not visible is not missing"))
+        assertTrue(question.contains("only where they contradict"))
         // Structural checks still apply to every result.
         assertTrue(question.contains("first line of the body does not count as a title"))
         assertTrue(question.contains("exact visible line structure"))
