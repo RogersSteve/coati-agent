@@ -118,6 +118,8 @@ class JevStepExecutor(
     private val noChangeCounts = mutableMapOf<String, Int>()
     private var subgoals = listOf<String>()
     private var hint: String? = null
+    // The app whose screen the hint was computed on; null for the task-wide plan.
+    private var hintPackage: String? = null
     private var planRequested = false
     private var planReceived = false
     private var planAwaited = false
@@ -175,6 +177,7 @@ class JevStepExecutor(
         noChangeCounts.clear()
         subgoals = listOf(task)
         hint = null
+        hintPackage = null
         planRequested = false
         planReceived = false
         planAwaited = false
@@ -297,7 +300,7 @@ class JevStepExecutor(
             JevStepInput(
                 task = task,
                 subgoals = subgoals,
-                advisorHint = hint,
+                advisorHint = currentHint(currentPackage),
                 appGuide = manual?.text,
                 history = history,
                 screen = screen,
@@ -353,6 +356,16 @@ class JevStepExecutor(
             chosen.action !is CandidateAction.Done && exploreStreak >= MAX_EXPLORE_STREAK -> {
                 exploreStreak = 0
                 return escalate("$MAX_EXPLORE_STREAK exploratory steps in a row without a confident choice")
+            }
+            // Leaving an app ends its phase: whatever was not yet read or saved there is lost or costs
+            // a round trip back (a cross-app demo left Maps twice before the address was visible, at
+            // confidence 0.43-0.47). An unsure switch is a phase decision for the Reasoning model.
+            isUnsureAppSwitch(chosen.action, currentPackage in launchers, decision.explored, decision.confidence) -> {
+                exploreStreak = 0
+                return escalate(
+                    "unsure whether the work in $currentPackage is complete before switching apps " +
+                        "(confidence ${"%.2f".format(decision.confidence)}); read and save every value later steps need first",
+                )
             }
             chosen.action is CandidateAction.Done -> return FastStep.DoneClaimed(screen.summary)
             chosen.action is CandidateAction.Wait -> {
@@ -564,11 +577,23 @@ class JevStepExecutor(
         val guidance = advisor.poll() ?: return
         planReceived = true
         if (guidance.subgoals.isNotEmpty()) subgoals = guidance.subgoals
-        guidance.hint?.let { hint = it }
+        guidance.hint?.let {
+            hint = it
+            hintPackage = guidance.forPackage
+        }
         textValues.putAll(guidance.textValues)
         guidance.apps.filterNot(apps::contains).forEach(apps::add)
-        Log.i(TAG, "Guidance(step=${guidance.forStep}): subgoals=${subgoals.size}, texts=${textValues.keys}, hint=${hint?.take(60)}")
+        Log.i(TAG, "Guidance(step=${guidance.forStep}, app=${guidance.forPackage}): subgoals=${subgoals.size}, texts=${textValues.keys}, hint=${hint?.take(60)}")
     }
+
+    /**
+     * The advisor's hint says where the target is "from here". Guidance arrives seconds after the
+     * screen it describes, and a hint computed in one app misled choices in the next (a search hint
+     * for Maps while the executor was already typing in Keep). Subgoals and text values stay
+     * task-wide; only the page-level hint is scoped to its app.
+     */
+    private fun currentHint(currentPackage: String): String? =
+        hint.takeIf { hintPackage == null || hintPackage == currentPackage }
 
     /** Background guidance (and manual learning) whenever a new page appears. */
     private fun adviseOnNewPage(
@@ -608,7 +633,7 @@ class JevStepExecutor(
             return
         }
         lastAdvisedPage = here
-        advisor.advise(stepNumber, task, context.screenshotJpeg, subgoals, history.toList(), learning, record.takeIf { learning != null })
+        advisor.advise(stepNumber, task, context.appPackage, context.screenshotJpeg, subgoals, history.toList(), learning, record.takeIf { learning != null })
     }
 
     /** Lets page observations still in flight reach the app manual before the task completes. */
@@ -735,7 +760,22 @@ class JevStepExecutor(
         internal fun isLowConfidenceGuess(explored: Boolean, confidence: Double): Boolean =
             explored && confidence < LOW_CONFIDENCE_EXPLORATION
 
+        /**
+         * Opening another app from inside an app with an exploratory or below-[CONFIDENT_APP_SWITCH]
+         * choice. Launching from a home screen and returning to the task's app are not phase changes.
+         */
+        internal fun isUnsureAppSwitch(
+            action: CandidateAction,
+            onHomeScreen: Boolean,
+            explored: Boolean,
+            confidence: Double,
+        ): Boolean {
+            if (action !is CandidateAction.OpenApp || onHomeScreen) return false
+            return explored || confidence < CONFIDENT_APP_SWITCH
+        }
+
         private const val TAG = "CoatiJev"
+        private const val CONFIDENT_APP_SWITCH = 0.6
         private const val MAX_CONSECUTIVE_BAD = 3
         private const val PROGRESS_WINDOW = 6
         private const val OBSERVATION_WAIT_MS = 20_000L

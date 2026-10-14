@@ -60,9 +60,17 @@ class GeminiGateway(
         screenshot: ByteArray,
         question: String,
         manualObservationInstruction: String?,
+    ): Result<QuickCheckResult> = checkScreens(listOf(screenshot), question, manualObservationInstruction)
+
+    override suspend fun quickCheckScreens(screenshots: List<ByteArray>, question: String): Result<QuickCheckResult> =
+        checkScreens(screenshots, question, null)
+
+    private suspend fun checkScreens(
+        screenshots: List<ByteArray>,
+        question: String,
+        manualObservationInstruction: String?,
     ): Result<QuickCheckResult> = withContext(Dispatchers.IO) {
         try {
-            val base64Image = Base64.encodeToString(screenshot, Base64.NO_WRAP)
             val contents = JSONArray()
 
             // System instruction
@@ -81,12 +89,14 @@ class GeminiGateway(
 
             // Screenshot + question
             val userParts = JSONArray()
-            userParts.put(JSONObject().apply {
-                put("inline_data", JSONObject().apply {
-                    put("mime_type", "image/jpeg")
-                    put("data", base64Image)
+            for (screenshot in screenshots) {
+                userParts.put(JSONObject().apply {
+                    put("inline_data", JSONObject().apply {
+                        put("mime_type", "image/jpeg")
+                        put("data", Base64.encodeToString(screenshot, Base64.NO_WRAP))
+                    })
                 })
-            })
+            }
             userParts.put(JSONObject().apply {
                 put("text", PromptBuilder.buildQuickCheckPrompt(question, manualObservationInstruction))
             })

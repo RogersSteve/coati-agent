@@ -42,6 +42,13 @@ class ResilientModelGateway(
         delegate.quickCheck(screenshot, question, manualObservationInstruction)
     }
 
+    override suspend fun quickCheckScreens(
+        screenshots: List<ByteArray>,
+        question: String,
+    ): Result<QuickCheckResult> = withRetry("quickCheck", retryMalformed = false) {
+        delegate.quickCheckScreens(screenshots, question)
+    }
+
     override suspend fun verifyAction(
         beforeScreenshot: ByteArray,
         afterScreenshot: ByteArray,

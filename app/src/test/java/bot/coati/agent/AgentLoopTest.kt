@@ -92,6 +92,29 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a cross-app audit accepts a requirement proven by any app's last screen`() {
+        val question = AgentLoop.buildTaskCompletionAuditQuestion(
+            "Save the address in a Keep note, then create a Calendar event",
+            listOf("com.google.android.keep" to 26),
+        )
+
+        assertTrue(question.contains("1. the last screen of app com.google.android.keep (step 26)"))
+        assertTrue(question.contains("2. the CURRENT screen"))
+        assertTrue(question.contains("any screenshot visibly shows it done"))
+        assertTrue(question.contains("later screenshot wins"))
+        // Structural checks still apply to every result.
+        assertTrue(question.contains("first line of the body does not count as a title"))
+        assertTrue(question.contains("exact visible line structure"))
+    }
+
+    @Test
+    fun `a single-app audit keeps the current-screen question`() {
+        val question = AgentLoop.buildTaskCompletionAuditQuestion("Turn on Wi-Fi")
+
+        assertTrue(question.startsWith("Independently audit whether the CURRENT screenshot"))
+    }
+
+    @Test
     fun `MAX_STEPS is 200`() {
         assertEquals(200, AgentLoop.MAX_STEPS)
     }
