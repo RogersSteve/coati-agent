@@ -75,6 +75,16 @@ JSON must be owned regular 0600 with an owned 0700 parent, containing only
 Default models are the agreed `google/gemini-3.8-flash` for reasoning/fast and
 `jev-1.13` for routed selection. No task-specific prompt or score checker is added.
 
+`--provider google` uses the official Gemini API (`gemini-3.8-flash`) and Jev
+(`jev-1.13.0` on api.typesafe.ai) instead of OpenRouter. Its credential JSON
+holds exactly `google_api_key` and `jev_api_key` with the same file rules. AW's
+2023 device clock fails TLS to both, so pass `--relay-config`. The relay then
+forwards `/google/v1beta/models/<allowlisted model>:generateContent?key=…`,
+authenticated by the key's digest, and `/jev/v1/systemone` with its Bearer
+digest. Logged paths never include the key. The openrouter models and transport
+dictionaries are unchanged, so earlier experiment identities remain valid.
+Results from different providers are different experiments; never combine them.
+
 ## Conditions, learning and freezing
 
 C1: baseline, Verify=false, manual OFF. C2: classic, Verify=true, manual OFF.

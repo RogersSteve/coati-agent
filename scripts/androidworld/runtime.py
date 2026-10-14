@@ -69,12 +69,21 @@ def load_credentials(path):
         raise ValueError("Credential file/parent must be owned regular0600/directory0700")
     with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW)) as f:
         data = json.load(f)
-    if set(data) != {"openrouter_api_key"} or not isinstance(data["openrouter_api_key"], str) or not data["openrouter_api_key"].strip():
-        raise ValueError("Invalid credential format")
-    return data["openrouter_api_key"]
+    def text(name):
+        if not isinstance(data[name], str) or not data[name].strip():
+            raise ValueError("Invalid credential format")
+        return data[name].strip()
+    # OpenRouter serves both the models and Jev; the google provider uses the official
+    # Gemini API and Jev directly, each with its own key.
+    if set(data) == {"openrouter_api_key"}:
+        key = text("openrouter_api_key")
+        return {"provider": "openrouter", "llm_key": key, "jev_key": key}
+    if set(data) == {"google_api_key", "jev_api_key"}:
+        return {"provider": "google", "llm_key": text("google_api_key"), "jev_key": text("jev_api_key")}
+    raise ValueError("Invalid credential format")
 
 
-def load_host(path, c, key, models, perturbation):
+def load_host(path, c, credentials, models, perturbation):
     root = Path(c["workspace"])
     os.environ.update(ADB=c["adb_path"], ADB_SERVER_SOCKET=f'tcp:127.0.0.1:{c["adb_server_port"]}',
         ANDROID_ADB_SERVER_PORT=str(c["adb_server_port"]), ANDROID_SERIAL=c["serial"],
@@ -82,8 +91,9 @@ def load_host(path, c, key, models, perturbation):
         EMULATOR=str(root/"sdk/emulator/emulator"), ANDROID_AVD_HOME=str(root/"avd"),
         ANDROID_USER_HOME=str(root/"android-user"),
         EMULATOR_EXTRA_ARGS=json.dumps(["-no-window", "-no-audio", "-gpu", "swiftshader_indirect"]),
-        RELAY_KEY=key, JEV_KEY=key, RELAY_ENDPOINT=models["endpoint"], JEV_ENDPOINT=models["endpoint"],
-        LLM_PROVIDER="openai_compatible", LLM_MODEL=models["reasoning"], FAST_MODEL=models["fast"],
+        RELAY_KEY=credentials["llm_key"], JEV_KEY=credentials["jev_key"], RELAY_ENDPOINT=models["endpoint"],
+        JEV_ENDPOINT=models.get("jev_endpoint", models["endpoint"]),
+        LLM_PROVIDER=models.get("app_provider", "openai_compatible"), LLM_MODEL=models["reasoning"], FAST_MODEL=models["fast"],
         JEV_MODEL=models["jev"], BENCH_ENV_RECOVERY="0", BENCH_PERTURB=perturbation)
     for name in ("BENCH_ROTATION", "BENCH_APK_CLASSIC", "BENCH_APK_BASELINE", "BENCH_APK_JEV", "BENCH_APK_JEVNOOCR"):
         os.environ.pop(name, None)
@@ -101,13 +111,19 @@ def load_host(path, c, key, models, perturbation):
 
 
 class Bridge:
-    def __init__(self, bench, connection, key):
-        self.bench, self.dev, self.connection, self.key = bench, bench.dev, connection, key
+    def __init__(self, bench, connection, credentials):
+        self.bench, self.dev, self.connection = bench, bench.dev, connection
+        from relay_connection import as_credentials
+        credentials = as_credentials(credentials)
+        self.keys = sorted({credentials["llm_key"], credentials["jev_key"]}, key=len, reverse=True)
         self.log_cursor = None
         self.relay = None
 
     def redact(self, text):
-        return text.replace(self.key, "[REDACTED]") if self.key else text
+        for key in self.keys:
+            if key:
+                text = text.replace(key, "[REDACTED]")
+        return text
 
     def json_safe(self, value):
         return json.loads(self.redact(json.dumps(value, ensure_ascii=False, default=str)), parse_constant=lambda _: None)
