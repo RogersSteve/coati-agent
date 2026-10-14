@@ -59,7 +59,7 @@ class ActionEngine(
 
     private suspend fun executeTap(x: Int, y: Int): ActionResult {
         val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 100)
+        val stroke = GestureDescription.StrokeDescription(path, 0, TAP_DURATION_MS)
         val result = dispatchGesture(stroke)
         return ActionResult(success = result, message = if (result) "Tapped ($x, $y)" else "Tap failed")
     }
@@ -510,6 +510,13 @@ class ActionEngine(
 
     companion object {
         private const val TAG = "CoatiAction"
+
+        /**
+         * A tap is a short press, like adb's `input tap`. Some views drop a longer press: right after
+         * Joplin starts, its add button ignored every first press of 50 ms or more (100 ms included)
+         * and accepted presses of 1-30 ms in 3 of 3 cold starts.
+         */
+        private const val TAP_DURATION_MS = 20L
         private const val MAX_APP_CANDIDATES_IN_ERROR = 5
         private val ACCESSIBILITY_FALLBACK_STATUSES = setOf(
             DirectTextEditStatus.LEGACY_UNSUPPORTED,
