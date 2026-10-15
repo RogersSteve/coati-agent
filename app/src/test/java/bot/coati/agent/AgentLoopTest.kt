@@ -92,6 +92,20 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `both audits compare specified values character by character`() {
+        val single = AgentLoop.buildTaskCompletionAuditQuestion("Create an event at 1 St Andrew's Road, Singapore 178957")
+        val crossApp = AgentLoop.buildTaskCompletionAuditQuestion(
+            "Save the address in Keep, then create a Calendar event at it",
+            listOf("com.google.android.keep" to 26),
+        )
+
+        for (question in listOf(single, crossApp)) {
+            assertTrue(question.contains("character by character"))
+            assertTrue(question.contains("a suggestion that replaced the requested text means failure"))
+        }
+    }
+
+    @Test
     fun `a cross-app audit accepts a requirement proven by any app's last screen`() {
         val question = AgentLoop.buildTaskCompletionAuditQuestion(
             "Save the address in a Keep note, then create a Calendar event",
