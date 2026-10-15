@@ -1,8 +1,6 @@
 package bot.coati.state
 
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 
 class StateManager(private val baseDir: File) {
 
@@ -35,9 +33,5 @@ class StateManager(private val baseDir: File) {
         return if (file.exists()) file.readText() else null
     }
 
-    private fun atomicWrite(file: File, content: String) {
-        val tmp = File(file.parentFile, "${file.name}.tmp")
-        tmp.writeText(content)
-        Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    }
+    private fun atomicWrite(file: File, content: String) = DurableFiles.writeAtomically(file, content)
 }

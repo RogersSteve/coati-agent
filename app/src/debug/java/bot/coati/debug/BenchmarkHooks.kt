@@ -8,6 +8,7 @@ import android.net.Uri
 import android.util.Log
 import bot.coati.agent.TaskHooks
 import bot.coati.agent.TaskResult
+import bot.coati.state.DurableFiles
 import org.json.JSONObject
 import java.io.File
 
@@ -26,13 +27,7 @@ internal class BenchmarkHooks(private val context: Context) : TaskHooks {
         Log.i(USAGE_TAG, "Task usage status=${result.status} ${result.usage}")
         val json = result.toJson().toString()
         Log.i(RESULT_TAG, "Task result $json")
-        val file = File(context.filesDir, RESULT_FILE)
-        val tmp = File(context.filesDir, "$RESULT_FILE.tmp")
-        tmp.writeText(json)
-        if (!tmp.renameTo(file)) {
-            file.writeText(json)
-            tmp.delete()
-        }
+        DurableFiles.writeAtomically(File(context.filesDir, RESULT_FILE), json)
     }
 
     companion object {
