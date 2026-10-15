@@ -80,7 +80,9 @@ class PreCommitCheck(private val gateway: CloudModelGateway) {
             Task: $task
             The agent is about to tap: $actionLabel
             Look at the screenshot. Does it already show every value the task asks to set before this
-            tap (selections, counts, toggles, typed text)? Ignore steps that come after this tap.
+            tap (selections, counts, toggles, typed text)? A value the task specifies must match exactly
+            (every number, postal code, date and amount); a suggestion that replaced it is wrong.
+            Ignore steps that come after this tap.
             Output ONLY: {"ready":true|false,"missing":"what is still wrong, <=20 words, or null"}
         """.trimIndent()
     }

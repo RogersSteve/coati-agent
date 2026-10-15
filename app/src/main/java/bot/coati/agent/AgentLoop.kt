@@ -1277,6 +1277,7 @@ class AgentLoop(
                 $task
 
                 Return answer=true only when the result itself is visibly complete and correctly structured. Do not trust the agent's status, history, or claim of completion.
+                $EXACT_VALUES_RULE
                 If the task specifies a title and body, require a genuinely distinct rendered title region/style and the body in its body region. Text merely appearing as the first line of the body does not count as a title. A still-visible empty title placeholder means failure.
                 If the task specifies multiple lines, require the exact visible line structure; collapsed, missing, duplicated, or misplaced text means failure.
                 Use category to name the missing or incorrect requirement briefly.
@@ -1297,12 +1298,22 @@ class AgentLoop(
                 |$current. the CURRENT screen
                 |A requirement is satisfied when any screenshot visibly shows it done. Do not fail it only because a later screen (another app, a list, a calendar view) does not show it: not visible is not missing. A later screenshot of the same app overrides an earlier one only where they contradict. A value entered in a form counts when a later screenshot shows that item saved (for example in a list); a form that was left without saving does not count.
                 |Return answer=true only when every result itself is visibly complete and correctly structured. Do not trust the agent's status, history, or claim of completion.
+                |$EXACT_VALUES_RULE
                 |If the task specifies a title and body, require a genuinely distinct rendered title region/style and the body in its body region. Text merely appearing as the first line of the body does not count as a title. A still-visible empty title placeholder means failure.
                 |If the task specifies multiple lines, require the exact visible line structure; collapsed, missing, duplicated, or misplaced text means failure.
                 |Use category to name the missing or incorrect requirement briefly.
                 |If the task asks for information (a question, a count, a date, a value, a list), also return "taskAnswer": the exact answer as the screenshots show it, as short as possible, or null when they do not show it. For other tasks return "taskAnswer": null.
             """.trimMargin()
         }
+
+        /**
+         * Apps silently replace typed values: a calendar location autocomplete saved a nearby place whose
+         * postal code differed from the address the task gave, and the audit accepted it.
+         */
+        private const val EXACT_VALUES_RULE =
+            "Compare every value the task specifies (names, addresses with house numbers and postal codes, numbers, " +
+                "dates, times, amounts) character by character with the value the result shows; a different digit or " +
+                "a suggestion that replaced the requested text means failure."
 
         internal fun classifyTaskCompletionAudit(result: QuickCheckResult?): CompletionAuditDecision {
             if (result == null || !result.isValid || result.confidence < 0.7f) {
