@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Path
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import bot.coati.service.CoatiAccessibilityService
@@ -26,14 +27,19 @@ import kotlin.coroutines.resume
 class ActionEngine(
     private val a11y: CoatiAccessibilityService,
     private val appResolver: AppResolver = AppResolver(a11y.packageManager),
+    private val uptimeMillis: () -> Long = SystemClock::uptimeMillis,
 ) {
 
     suspend fun execute(action: AgentAction, coordinates: ScreenshotCoordinates? = null): ActionResult {
         Log.i(TAG, "Executing action: ${action.toLogSummary()}")
         return try {
             when (action) {
-                is AgentAction.Tap -> executeTap(action.x, action.y)
-                is AgentAction.LongPress -> executeLongPress(action.x, action.y, action.durationMs)
+                is AgentAction.Tap -> withClickFallback(action.x, action.y, longClick = false) {
+                    executeTap(action.x, action.y)
+                }
+                is AgentAction.LongPress -> withClickFallback(action.x, action.y, longClick = true) {
+                    executeLongPress(action.x, action.y, action.durationMs)
+                }
                 is AgentAction.Swipe -> executeSwipe(action.x1, action.y1, action.x2, action.y2, action.durationMs)
                 is AgentAction.InputText -> executeInputText(action.text, action.mode)
                 is AgentAction.FocusAndInputText -> executeFocusAndInputText(
@@ -55,6 +61,36 @@ class ActionEngine(
             Log.e(TAG, "Action failed: ${e.message}", e)
             ActionResult(success = false, message = "Action failed: ${e.message}")
         }
+    }
+
+    /**
+     * Gestures injected by an accessibility service carry TOOL_TYPE_UNKNOWN, and lists that route touch
+     * by tool type ignore them: in the Files app (RecyclerView selection) every tap and long press on a
+     * file row did nothing while its toolbar worked, failing every AndroidWorld Files and Browser task.
+     * The ignored row still reported TYPE_VIEW_CLICKED and a pressed-state content event, so events
+     * cannot tell a handled tap from an ignored one; what the app shows can. When a tap on a list item
+     * leaves the app screen unchanged for [REACTION_WAIT_MS], the item's accessibility click is
+     * performed instead, the path TalkBack uses and the one such lists act on. A list item that handled
+     * the tap opens, selects or updates something, so it is not clicked twice.
+     */
+    internal suspend fun withClickFallback(x: Int, y: Int, longClick: Boolean, gesture: suspend () -> ActionResult): ActionResult {
+        val target = a11y.actionableNodeAt(x, y, longClick)
+        val before = target?.let { a11y.appScreenSnapshot() }
+        val result = gesture()
+        if (!result.success || target == null || before.isNullOrEmpty()) return result
+        val deadline = uptimeMillis() + REACTION_WAIT_MS
+        while (uptimeMillis() < deadline) {
+            delay(REACTION_POLL_MS)
+            if (a11y.appScreenSnapshot() != before) return result
+        }
+        val action = if (longClick) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
+        val performed = target.performAction(action)
+        Log.i(
+            TAG,
+            "Screen unchanged after the gesture at ($x, $y); accessibility " +
+                "${if (longClick) "long click" else "click"} on ${target.className}: performed=$performed",
+        )
+        return if (performed) result.copy(message = result.message + " (accessibility click: the gesture changed nothing)") else result
     }
 
     private suspend fun executeTap(x: Int, y: Int): ActionResult {
@@ -517,6 +553,10 @@ class ActionEngine(
          * and accepted presses of 1-30 ms in 3 of 3 cold starts.
          */
         private const val TAP_DURATION_MS = 20L
+
+        /** A handled tap on a list item changes what the app shows well within this. */
+        private const val REACTION_WAIT_MS = 800L
+        private const val REACTION_POLL_MS = 200L
         private const val MAX_APP_CANDIDATES_IN_ERROR = 5
         private val ACCESSIBILITY_FALLBACK_STATUSES = setOf(
             DirectTextEditStatus.LEGACY_UNSUPPORTED,

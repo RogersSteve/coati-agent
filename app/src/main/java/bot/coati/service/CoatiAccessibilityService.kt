@@ -14,6 +14,7 @@ import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -122,6 +123,80 @@ class CoatiAccessibilityService : AccessibilityService() {
         } finally {
             source?.recycle()
         }
+    }
+
+    /**
+     * What the app windows currently show: each window's identity and the class, text, state and bounds
+     * of its visible nodes. A press highlight leaves it unchanged; navigation, a new window, a selection
+     * or updated content changes it. Coati's own windows, keyboards and system bars are left out.
+     */
+    fun appScreenSnapshot(): String {
+        val out = StringBuilder()
+        val bounds = Rect()
+        val windowList = try {
+            windows
+        } catch (e: RuntimeException) {
+            return ""
+        }
+        for (window in windowList.sortedBy { it.id }) {
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
+            val root = window.root ?: continue
+            if (root.packageName?.toString() == packageName) continue
+            out.append("#").append(window.id).append('\n')
+            var budget = MAX_SNAPSHOT_NODES
+            val stack = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+            while (stack.isNotEmpty() && budget-- > 0) {
+                val node = stack.removeLast()
+                if (!node.isVisibleToUser) continue
+                node.getBoundsInScreen(bounds)
+                out.append(node.className).append('|').append(node.text).append('|')
+                    .append(node.contentDescription).append('|').append(node.isChecked).append(node.isSelected)
+                    .append('|').append(bounds.toShortString()).append('\n')
+                for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let(stack::add)
+            }
+        }
+        return out.toString()
+    }
+
+    /**
+     * The list item a tap (or, with [longClick], a long press) at a screen point would activate: the
+     * deepest visible node under the point in the topmost app window, or its nearest ancestor that offers
+     * the click action, when that node is an item of a list or grid. Other controls return null. Coati's own windows and accessibility overlays are skipped, and a keyboard returns
+     * null: a key press reports its text change from the editing app, never from the keyboard itself,
+     * so a fallback click there would type the key twice.
+     */
+    fun actionableNodeAt(x: Int, y: Int, longClick: Boolean): AccessibilityNodeInfo? {
+        val action = if (longClick) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
+        val bounds = Rect()
+        val window = try {
+            windows.sortedByDescending { it.layer }.firstOrNull { window ->
+                window.getBoundsInScreen(bounds)
+                window.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY &&
+                    bounds.contains(x, y) && window.root?.packageName?.toString() != packageName
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Window list unavailable: ${e.message}")
+            null
+        } ?: return null
+        if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) return null
+        var node = window.root ?: return null
+        // Descend to the deepest visible node under the point.
+        while (true) {
+            val child = (0 until node.childCount).asSequence().mapNotNull { node.getChild(it) }
+                .lastOrNull { child ->
+                    child.getBoundsInScreen(bounds)
+                    child.isVisibleToUser && bounds.contains(x, y)
+                } ?: break
+            node = child
+        }
+        var current: AccessibilityNodeInfo? = node
+        while (current != null) {
+            if (current.isEnabled && current.actionList.any { it.id == action }) {
+                return current.takeIf { it.collectionItemInfo != null || it.parent?.collectionInfo != null }
+            }
+            current = current.parent
+        }
+        return null
     }
 
     override fun onInterrupt() {
@@ -894,6 +969,8 @@ class CoatiAccessibilityService : AccessibilityService() {
         private const val SESSION_RESTART_SETTLE_MS = 150L
         private const val FOCUS_EVIDENCE_POLL_MS = 25L
         private const val MAX_ATOMIC_CONNECTION_EVIDENCE_READS = 3
+
+        private const val MAX_SNAPSHOT_NODES = 600
 
         private val FOCUS_PROBE_EVENT_TYPES = setOf(
             AccessibilityEvent.TYPE_VIEW_CLICKED,
