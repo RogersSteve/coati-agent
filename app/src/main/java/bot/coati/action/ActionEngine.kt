@@ -107,7 +107,14 @@ class ActionEngine(
         return ActionResult(success = result, message = if (result) "Long pressed ($x, $y)" else "Long press failed")
     }
 
-    private suspend fun executeSwipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long): ActionResult {
+    private suspend fun executeSwipe(rawX1: Int, rawY1: Int, rawX2: Int, rawY2: Int, durationMs: Long): ActionResult {
+        val requested = GestureSafeArea.Swipe(rawX1, rawY1, rawX2, rawY2)
+        val (x1, y1, x2, y2) = a11y.systemGestureArea()?.let { area ->
+            GestureSafeArea.clamp(requested, area.width, area.height, area.insets, area.density)
+        } ?: requested
+        if (x1 != rawX1 || y1 != rawY1 || x2 != rawX2 || y2 != rawY2) {
+            Log.i(TAG, "Swipe moved out of the system gesture area: ($rawX1,$rawY1)->($rawX2,$rawY2) to ($x1,$y1)->($x2,$y2)")
+        }
         val path = Path().apply {
             moveTo(x1.toFloat(), y1.toFloat())
             lineTo(x2.toFloat(), y2.toFloat())

@@ -15,6 +15,9 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.WindowInsets
+import android.view.WindowManager
+import bot.coati.coordinates.PixelBounds
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -197,6 +200,24 @@ class CoatiAccessibilityService : AccessibilityService() {
             current = current.parent
         }
         return null
+    }
+
+    /** Display size, density and the system navigation gesture insets (bottom bar, side back edges). */
+    data class GestureArea(val width: Int, val height: Int, val density: Float, val insets: PixelBounds)
+
+    fun systemGestureArea(): GestureArea? = try {
+        val metrics = (getSystemService(WINDOW_SERVICE) as WindowManager).maximumWindowMetrics
+        val i = metrics.windowInsets.getInsetsIgnoringVisibility(
+            WindowInsets.Type.systemGestures() or WindowInsets.Type.mandatorySystemGestures() or
+                WindowInsets.Type.navigationBars(),
+        )
+        GestureArea(
+            metrics.bounds.width(), metrics.bounds.height(), resources.displayMetrics.density,
+            PixelBounds(i.left, i.top, i.right, i.bottom),
+        )
+    } catch (e: RuntimeException) {
+        Log.w(TAG, "System gesture area unavailable: ${e.message}")
+        null
     }
 
     override fun onInterrupt() {
