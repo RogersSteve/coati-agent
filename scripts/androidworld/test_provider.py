@@ -57,6 +57,17 @@ class ProviderTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_routing(bad)
 
+    def test_official_row_parameters(self):
+        from android_world.task_evals.utils import sqlite_schema_utils as rows
+        from protocol import parameter_evidence
+        event = rows.CalendarEvent(start_ts=1, end_ts=2, title="Visit")
+        evidence = parameter_evidence({"events": [event]})
+        self.assertEqual(evidence["events"][0]["__aw_row_type__"],
+                         "android_world.task_evals.utils.sqlite_schema_utils.CalendarEvent")
+        self.assertEqual(evidence["events"][0]["fields"]["title"], "Visit")
+        with self.assertRaises(TypeError):
+            parameter_evidence(object())
+
 
 if __name__ == "__main__":
     unittest.main()
