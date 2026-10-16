@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from harness import provider_models
+from harness import provider_models, validate_routing
 from relay_connection import as_credentials
 from runtime import load_credentials
 
@@ -49,6 +49,13 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(transport["upstream"], "https://generativelanguage.googleapis.com|https://api.typesafe.ai")
         with self.assertRaises(ValueError):
             provider_models("other", None)
+
+    def test_routing_values(self):
+        for value in (None, "FAST", "BALANCED", "ACCURATE", "0.7,1.01", "0,0.6"):
+            self.assertEqual(validate_routing(value), value)
+        for bad in ("fast", "0.7", "0.7,1.5", "a,b", "0.7,0.6,0.5"):
+            with self.assertRaises(ValueError):
+                validate_routing(bad)
 
 
 if __name__ == "__main__":

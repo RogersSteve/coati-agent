@@ -54,6 +54,19 @@ LOG_TAGS.append("CoatiJev")
 LOG_TAGS.append("CoatiInterrupt")
 # Robustness runs: one perturbation for every run (see perturb.py), e.g. dialog@3, notree, display.
 PERTURB = Perturbation(os.environ.get("BENCH_PERTURB"))
+# Fast-executor routing: a mode (FAST, BALANCED, ACCURATE) or explicit "goal,explore" thresholds. The app
+# keeps the last value, so it is always sent; apps without routing ignore the extras.
+ROUTING = os.environ.get("BENCH_ROUTING") or "BALANCED"
+
+
+def routing_extras(routing=ROUTING):
+    if routing.upper() in ("FAST", "BALANCED", "ACCURATE"):
+        return ["--es", "routing", routing.upper()]
+    goal, explore = (float(v) for v in routing.split(","))
+    if not (0 <= goal <= 1.01 and 0 <= explore <= 1.01):
+        raise ValueError("Routing thresholds must be within 0..1.01")
+    # The mode resets explicit thresholds; the explicit pair is then applied on top of it.
+    return ["--es", "routing", "BALANCED", "--ef", "routing_goal", repr(goal), "--ef", "routing_explore", repr(explore)]
 
 _runs_since_restart = 0
 
@@ -282,7 +295,7 @@ def configure(mode):
               "--es", "provider", PROVIDER, "--es", "endpoint", ENDPOINT, "--es", "api_key", API_KEY,
               "--es", "reasoning_model", MODEL, "--es", "fast_model", FAST_MODEL, "--es", "safety", "TRUST",
               *MODES[mode], "--es", "jev_endpoint", JEV_ENDPOINT, "--es", "jev_model", JEV_MODEL,
-              *PERTURB.configure_extras())
+              *PERTURB.configure_extras(), *routing_extras())
     # With permissions, models and onboarding in place, the launcher activity starts the service.
     dev.sh("shell", "am", "start", "-n", "bot.coati/.ui.main.MainActivity")
     wait_for_configuration(mode, cursor)

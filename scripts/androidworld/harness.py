@@ -140,6 +140,16 @@ def provider_models(provider, relay_config):
     return models, transport
 
 
+def validate_routing(value):
+    """A routing mode or explicit 'goal,explore' thresholds within 0..1.01; None keeps the default."""
+    if value is None or value in ("FAST", "BALANCED", "ACCURATE"):
+        return value
+    parts = value.split(",")
+    if len(parts) != 2 or not all(re.fullmatch(r"(0|1)(\.\d{1,2})?", p) for p in parts) or any(float(p) > 1.01 for p in parts):
+        raise ValueError("Routing must be FAST, BALANCED, ACCURATE or 'goal,explore' thresholds within 0..1.01")
+    return value
+
+
 def existing_learning_records(directory, settings, connection, relay_config, models=None, transport=None):
     """Ignore only validated relay metadata; require review for unsafe history."""
     records = []
@@ -219,7 +229,7 @@ def frozen_manuals(path, settings, experiment, expected_apk=None):
             raise ValueError("Learning source-version summary differs")
         if expected_apk is not None and summary.get("apk_sha256") != expected_apk:
             raise ValueError("Training/evaluation APK differs")
-    for key in ("sources", "models", "tasks", "variants", "perturbation", "execution_order", "transport"):
+    for key in ("sources", "models", "tasks", "variants", "perturbation", "execution_order", "transport", "routing"):
         if value["experiment"].get(key) != experiment.get(key):
             raise ValueError("Training/evaluation manual protocol differs")
     if digest(value["files"]) != value.get("files_sha256"):
@@ -262,6 +272,8 @@ def main():
     parser.add_argument("--shards", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--perturbation", default="")
+    parser.add_argument("--routing", help="Fast-executor routing: FAST, BALANCED, ACCURATE or explicit 'goal,explore' "
+                        "confidence thresholds; part of the experiment identity when given (default BALANCED)")
     parser.add_argument("--output", required=True)
     parser.add_argument("--credentials")
     parser.add_argument("--provider", choices=["openrouter", "google"], default="openrouter",
@@ -296,6 +308,10 @@ def main():
     models, transport = provider_models(args.provider, relay_config)
     experiment = {"sources": sources, "models": models, "tasks": full, "variants": args.variants,
                   "condition": asdict(settings), "perturbation": args.perturbation, "manual_files_sha256": None, "manual_inventory": None, "execution_order":order}
+    validate_routing(args.routing)
+    if args.routing:
+        # Only when given, so experiments that predate routing keep their identity.
+        experiment["routing"] = args.routing
     experiment["transport"] = transport
     from android_world import suite_utils
     budgets = {n:{"complexity":classes[n].complexity,
@@ -362,7 +378,7 @@ def main():
             from uuid import uuid4
             with (store.directory/("transport-session-"+uuid4().hex+".json")).open("x") as file:
                 json.dump(session, file, indent=2)
-        bench = load_host(args.device_bench, c, credentials, models, args.perturbation)
+        bench = load_host(args.device_bench, c, credentials, models, args.perturbation, args.routing)
         bridge = Bridge(bench, c, credentials)
         bridge.relay = relay
         bridge.verify_identity(args.android_id, args.apk_sha256)
