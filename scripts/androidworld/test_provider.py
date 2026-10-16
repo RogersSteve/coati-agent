@@ -68,6 +68,24 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             parameter_evidence(object())
 
+    def test_goal_filled_by_official_initialization_is_dispatched(self):
+        from unittest.mock import Mock
+        from agent import CoatiAgent
+
+        class Dispatched(Exception):
+            pass
+
+        bridge = Mock()
+        bridge.safe_clear.side_effect = Dispatched
+        spec = {"goal": "What is on my calendar on {date}?", "official_max_steps": 10, "run_id": "r", "wall_limit_s": 600}
+        agent = CoatiAgent(Mock(), bridge, spec, Mock())
+        agent.set_max_steps(10)
+        with self.assertRaises(ValueError):
+            agent.step("Something else entirely")
+        agent.official_goal = "What is on my calendar on October 17?"
+        with self.assertRaises(Dispatched):
+            agent.step("What is on my calendar on October 17?")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -42,12 +42,16 @@ def run_episode_record(task, agent, spec, store, bridge, settings, reserved=Fals
     artifacts_done = False
     answer_cache_before_score = None
     ocr_state = None
+    dispatched_goal = None
     start = time.monotonic()
     if not reserved:
         store.reserve(spec)
     def episode(current):
-        nonlocal stage, artifacts_done, answer_cache_before_score, ocr_state
+        nonlocal stage, artifacts_done, answer_cache_before_score, ocr_state, dispatched_goal
         stage = "episode"
+        # The official goal after initialization; it differs from the identity goal only for tasks
+        # whose initialization fills the goal (information retrieval), and is recorded then.
+        dispatched_goal = agent.official_goal = current.goal
         result = episode_runner.run_episode(current.goal, agent,
             max_n_steps=suite_utils._allocate_step_budget(current.complexity),
             start_on_home_screen=current.start_on_home_screen)
@@ -98,6 +102,8 @@ def run_episode_record(task, agent, spec, store, bridge, settings, reserved=Fals
         "official_episode": raw, "raw_official_score":raw.get(constants.EpisodeConstants.IS_SUCCESSFUL) if raw else None, "answer_cache_before_official_score":answer_cache_before_score,
         "official_teardown_finished":not task.initialized, "complete": env_failure is None and artifacts_done,
         "transport_session": bridge.relay.metadata() if type(getattr(bridge, "relay", None)).__name__ == "RelaySession" else None})
+    if dispatched_goal is not None and dispatched_goal != spec["goal"]:
+        record["goal_at_dispatch"] = bridge.json_safe(dispatched_goal)
     # Official results contain a datetime; serialize it without changing scores.
     store.save(spec, record)
     if env_failure:

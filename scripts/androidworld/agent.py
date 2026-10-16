@@ -17,6 +17,9 @@ class CoatiAgent(base_agent.EnvironmentInteractingAgent):
         self.agent_failure = self.env_failure = None
         self.started = False
         self.wall_s = 0.0
+        # Set by the harness after official initialization: information-retrieval tasks fill their
+        # goal template from the data that initialization generates.
+        self.official_goal = None
 
     def reset(self, go_home=False):
         if self.started:
@@ -26,7 +29,7 @@ class CoatiAgent(base_agent.EnvironmentInteractingAgent):
     def step(self, goal):
         if self.started:
             raise RuntimeError("RUN_TASK must not be sent twice")
-        if goal != self.spec["goal"] or self._max_steps != self.spec["official_max_steps"]:
+        if goal not in (self.spec["goal"], self.official_goal) or self._max_steps != self.spec["official_max_steps"]:
             raise ValueError("Official goal/budget mismatch before task dispatch")
         self.started = True
         start = self.clock()
