@@ -388,12 +388,13 @@ def parameter_evidence(value):
         # Standard JSON already represents tuples as arrays.
         return [parameter_evidence(v) for v in value]
     typename = type(value).__module__+"."+type(value).__qualname__
-    allowed = {"android_world.task_evals.utils.sqlite_schema_utils.Expense",
-               "android_world.task_evals.utils.sqlite_schema_utils.Recipe"}
-    if typename in allowed:
+    # Every official frozen row type: Expense, Recipe, CalendarEvent (SimpleCalendar), Task,
+    # SportsActivity, PlaylistInfo, OsmAndMapMarker, JoplinNormalizedNote.
+    if type(value).__module__ == "android_world.task_evals.utils.sqlite_schema_utils":
         from android_world.task_evals.utils import sqlite_schema_utils
-        cls = getattr(sqlite_schema_utils, type(value).__name__)
-        if type(value) is not cls or not dataclasses.is_dataclass(value) or not cls.__dataclass_params__.frozen:
+        cls = getattr(sqlite_schema_utils, type(value).__name__, None)
+        if (type(value) is not cls or not dataclasses.is_dataclass(value) or not cls.__dataclass_params__.frozen
+                or not issubclass(cls, sqlite_schema_utils.SQLiteRow)):
             raise TypeError("Unexpected official row type")
         return {"__aw_row_type__": typename,
                 "fields": {field.name: parameter_evidence(getattr(value, field.name)) for field in dataclasses.fields(value)}}
