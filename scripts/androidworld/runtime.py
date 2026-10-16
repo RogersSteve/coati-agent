@@ -83,7 +83,7 @@ def load_credentials(path):
     raise ValueError("Invalid credential format")
 
 
-def load_host(path, c, credentials, models, perturbation):
+def load_host(path, c, credentials, models, perturbation, routing=None):
     root = Path(c["workspace"])
     os.environ.update(ADB=c["adb_path"], ADB_SERVER_SOCKET=f'tcp:127.0.0.1:{c["adb_server_port"]}',
         ANDROID_ADB_SERVER_PORT=str(c["adb_server_port"]), ANDROID_SERIAL=c["serial"],
@@ -94,7 +94,8 @@ def load_host(path, c, credentials, models, perturbation):
         RELAY_KEY=credentials["llm_key"], JEV_KEY=credentials["jev_key"], RELAY_ENDPOINT=models["endpoint"],
         JEV_ENDPOINT=models.get("jev_endpoint", models["endpoint"]),
         LLM_PROVIDER=models.get("app_provider", "openai_compatible"), LLM_MODEL=models["reasoning"], FAST_MODEL=models["fast"],
-        JEV_MODEL=models["jev"], BENCH_ENV_RECOVERY="0", BENCH_PERTURB=perturbation)
+        JEV_MODEL=models["jev"], BENCH_ENV_RECOVERY="0", BENCH_PERTURB=perturbation,
+        BENCH_ROUTING=routing or "BALANCED")
     for name in ("BENCH_ROTATION", "BENCH_APK_CLASSIC", "BENCH_APK_BASELINE", "BENCH_APK_JEV", "BENCH_APK_JEVNOOCR"):
         os.environ.pop(name, None)
     sys.path.insert(0, str(Path(path).resolve()))
