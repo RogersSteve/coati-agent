@@ -1,6 +1,8 @@
 package bot.coati.ui.settings
 
 import bot.coati.data.ProviderConfig
+import bot.coati.data.RoutingMode
+import bot.coati.data.RoutingPolicy
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
 import bot.coati.model.ModelProviders
@@ -51,6 +53,7 @@ data class JevEditorState(
 data class SettingsUiState(
     val versionName: String = "",
     val safetyMode: SafetyMode = SafetyMode.STANDARD,
+    val routingMode: RoutingMode = RoutingPolicy.DEFAULT_MODE,
     val manualMode: ManualMode = ManualMode.OFF,
     val clearingManualData: Boolean = false,
     val hasStoredManualData: Boolean? = null,

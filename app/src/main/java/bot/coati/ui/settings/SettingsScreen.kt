@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import bot.coati.R
 import bot.coati.jev.JevProviders
+import bot.coati.data.RoutingMode
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
 import bot.coati.model.ModelProviders
@@ -120,6 +121,11 @@ fun SettingsScreen(
                 SafetyModeCard(
                     selected = state.safetyMode,
                     onSelected = viewModel::setSafetyMode,
+                )
+                Spacer(Modifier.height(10.dp))
+                RoutingModeCard(
+                    selected = state.routingMode,
+                    onSelected = viewModel::setRoutingMode,
                 )
             }
             item {
@@ -448,6 +454,51 @@ private fun PermissionRow(
             TextButton(onClick = onAction) {
                 Text(actionLabel)
             }
+        }
+    }
+}
+
+@Composable
+private fun RoutingModeCard(
+    selected: RoutingMode,
+    onSelected: (RoutingMode) -> Unit,
+) {
+    Card(shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.padding(vertical = 8.dp)) {
+            Text(
+                text = stringResource(R.string.settings_routing_title),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            listOf(
+                Triple(RoutingMode.FAST, R.string.settings_routing_fast_title, R.string.settings_routing_fast_description),
+                Triple(RoutingMode.BALANCED, R.string.settings_routing_balanced_title, R.string.settings_routing_balanced_description),
+                Triple(RoutingMode.ACCURATE, R.string.settings_routing_accurate_title, R.string.settings_routing_accurate_description),
+            ).forEach { (mode, title, description) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelected(mode) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = mode == selected, onClick = { onSelected(mode) })
+                    Column(Modifier.padding(start = 4.dp)) {
+                        Text(stringResource(title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        Text(
+                            stringResource(description),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Text(
+                text = stringResource(R.string.settings_routing_note),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

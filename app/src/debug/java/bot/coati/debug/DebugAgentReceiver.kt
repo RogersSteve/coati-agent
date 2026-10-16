@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.edit
 import bot.coati.agent.AgentLoop
 import bot.coati.agent.TaskRunOptions
 import bot.coati.data.ConfigStore
+import bot.coati.data.RoutingMode
 import bot.coati.data.SafetyMode
 import android.graphics.BitmapFactory
 import bot.coati.coordinates.PixelBounds
@@ -174,8 +175,15 @@ class DebugAgentReceiver : BroadcastReceiver() {
         intent.getStringExtra("safety")?.let { name ->
             runCatching { SafetyMode.valueOf(name.uppercase()) }.getOrNull()?.let(store::setSafetyMode)
         }
+        // A routing mode, or explicit thresholds for a sweep (both routing_goal and routing_explore).
+        intent.getStringExtra("routing")?.let { name ->
+            runCatching { RoutingMode.valueOf(name.uppercase()) }.getOrNull()?.let(store::setRoutingMode)
+        }
+        if (intent.hasExtra("routing_goal") && intent.hasExtra("routing_explore")) {
+            store.setCustomRouting(intent.getFloatExtra("routing_goal", 0f), intent.getFloatExtra("routing_explore", 0f))
+        }
         if (CoatiService.isRunning()) CoatiService.reloadModelConfiguration(context)
-        Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}, jev=${store.getJevConfig() != null}, ocr=${store.isOcrEnabled()}, verify=${BenchmarkSettings.verifyEnabled(context)}, treeWithheld=${BenchmarkSettings.treeWithheld(context)}")
+        Log.i(TAG, "Debug agent configured: safety=${store.getSafetyMode()}, routing=${store.getRoutingPolicy().label}, jev=${store.getJevConfig() != null}, ocr=${store.isOcrEnabled()}, verify=${BenchmarkSettings.verifyEnabled(context)}, treeWithheld=${BenchmarkSettings.treeWithheld(context)}")
     }
 
     /** Logs what the accessibility service can read right now: every window and the active tree's text. */

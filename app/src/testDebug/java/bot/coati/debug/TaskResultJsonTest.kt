@@ -25,6 +25,7 @@ class TaskResultJsonTest {
         finalAudit = finalAudit,
         fastSteps = 4,
         escalations = 1,
+        routing = "BALANCED",
         verify = true,
         treeWithheld = false,
         answer = "3",
@@ -36,6 +37,7 @@ class TaskResultJsonTest {
     fun `completed task declares done and serializes its counters`() {
         val json = result("completed").toJson()
         assertEquals("L3_jev_r0", json.getString("run_id"))
+        assertEquals("BALANCED", json.getString("routing"))
         assertTrue(json.getBoolean("declared_done"))
         assertEquals(2, json.getInt("done_claims"))
         assertEquals(1, json.getInt("audit_rejects"))

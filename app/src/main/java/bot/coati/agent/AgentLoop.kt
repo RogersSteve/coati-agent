@@ -99,6 +99,7 @@ class AgentLoop(
     private var fastSteps = 0
     private var escalations = 0
     private var routedTask = false
+    private var routingLabel: String? = null
     private var verifyEnabled = true
     private var treeWithheld = false
     private var finalAnswer: String? = null
@@ -141,6 +142,7 @@ class AgentLoop(
         fastExecutor?.startTask(task)
         // Captured now: stopping the task clears the executor before a stopped task's result is written.
         routedTask = fastExecutor?.activeForTask == true
+        routingLabel = fastExecutor?.takeIf { routedTask }?.routing?.label
         Log.i(TAG, "Starting agent loop for task: $task (confirmationMode=$taskSafetyMode, runId=${options.runId}, maxSteps=${options.maxSteps})")
 
         overlayManager.enterFrameExecuting(task)
@@ -948,6 +950,7 @@ class AgentLoop(
             finalAudit = lastAuditDecision,
             fastSteps = fastSteps,
             escalations = escalations,
+            routing = routingLabel,
             verify = verifyEnabled,
             treeWithheld = treeWithheld,
             answer = finalAnswer,

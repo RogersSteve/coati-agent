@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import bot.coati.R
 import bot.coati.data.ConfigStore
 import bot.coati.data.ProviderConfig
+import bot.coati.data.RoutingMode
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
 import bot.coati.experience.AppManualRepository
@@ -67,6 +68,7 @@ class SettingsViewModel @Inject constructor(
                 application.packageManager.getPackageInfo(application.packageName, 0).versionName.orEmpty()
             }.getOrDefault(""),
             safetyMode = configStore.getSafetyMode(),
+            routingMode = configStore.getRoutingMode(),
             manualMode = configStore.getManualMode(),
             reasoningConfigured = isCompleteModelConfig(reasoningSavedConfig),
             fastConfigured = isCompleteModelConfig(configStore.getFastConfig()),
@@ -89,6 +91,7 @@ class SettingsViewModel @Inject constructor(
         fastSavedConfig = configStore.getRoleConfig(ConfigStore.ROLE_FAST)
         _uiState.value = _uiState.value.copy(
             safetyMode = configStore.getSafetyMode(),
+            routingMode = configStore.getRoutingMode(),
             manualMode = configStore.getManualMode(),
             overlayGranted = Settings.canDrawOverlays(context),
             accessibilityGranted = OnboardingViewModel.hasAccessibilityPermission(context),
@@ -97,6 +100,12 @@ class SettingsViewModel @Inject constructor(
             fastConfigured = isCompleteModelConfig(configStore.getFastConfig()),
         )
         refreshManualDataPresence()
+    }
+
+    /** Read by the fast executor at the start of each task, so no service refresh is needed. */
+    fun setRoutingMode(mode: RoutingMode) {
+        configStore.setRoutingMode(mode)
+        _uiState.value = _uiState.value.copy(routingMode = mode)
     }
 
     fun setSafetyMode(mode: SafetyMode) {
