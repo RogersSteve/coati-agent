@@ -82,9 +82,14 @@ class ProviderTests(unittest.TestCase):
         agent.set_max_steps(10)
         with self.assertRaises(ValueError):
             agent.step("Something else entirely")
+        self.assertFalse(agent.started)
         agent.official_goal = "What is on my calendar on October 17?"
-        with self.assertRaises(Dispatched):
+        try:
             agent.step("What is on my calendar on October 17?")
+        except Exception:
+            pass  # step() records bridge errors itself; only dispatch matters here
+        self.assertTrue(agent.started)
+        bridge.safe_clear.assert_called_once()
 
 
 if __name__ == "__main__":
