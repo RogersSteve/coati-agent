@@ -121,6 +121,35 @@ class ConfigStore(context: Context) {
         Log.i(TAG, "App manual mode set to $mode")
     }
 
+    // ─── ROUTING (fast executor vs Reasoning) ───
+
+    fun getRoutingMode(): RoutingMode {
+        val name = prefs.getString(KEY_ROUTING_MODE, null) ?: return RoutingPolicy.DEFAULT_MODE
+        return runCatching { RoutingMode.valueOf(name) }.getOrDefault(RoutingPolicy.DEFAULT_MODE)
+    }
+
+    /** Selecting a mode replaces any explicit thresholds set for an experiment. */
+    fun setRoutingMode(mode: RoutingMode) {
+        prefs.edit().putString(KEY_ROUTING_MODE, mode.name)
+            .remove(KEY_ROUTING_GOAL).remove(KEY_ROUTING_EXPLORE).apply()
+    }
+
+    /** Explicit thresholds (benchmark sweeps); they override the mode until a mode is selected again. */
+    fun setCustomRouting(minGoalConfidence: Float, minExploreConfidence: Float) {
+        prefs.edit().putFloat(KEY_ROUTING_GOAL, minGoalConfidence)
+            .putFloat(KEY_ROUTING_EXPLORE, minExploreConfidence).apply()
+    }
+
+    fun getRoutingPolicy(): RoutingPolicy {
+        if (prefs.contains(KEY_ROUTING_GOAL) && prefs.contains(KEY_ROUTING_EXPLORE)) {
+            return RoutingPolicy.custom(
+                prefs.getFloat(KEY_ROUTING_GOAL, 0f).toDouble(),
+                prefs.getFloat(KEY_ROUTING_EXPLORE, 0f).toDouble(),
+            )
+        }
+        return RoutingPolicy.of(getRoutingMode())
+    }
+
     // ─── JEV FAST EXECUTOR (optional) ───
 
     fun saveJevConfig(apiKey: String, endpoint: String, model: String) {
@@ -230,6 +259,9 @@ class ConfigStore(context: Context) {
         private const val KEY_SAFETY_MODE = "safety_mode"
         private const val KEY_MANUAL_MODE = "app_manual_mode"
         private const val KEY_JEV_API_KEY = "jev_api_key"
+        private const val KEY_ROUTING_MODE = "routing_mode"
+        private const val KEY_ROUTING_GOAL = "routing_min_goal_confidence"
+        private const val KEY_ROUTING_EXPLORE = "routing_min_explore_confidence"
         private const val KEY_JEV_ENDPOINT = "jev_endpoint"
         private const val KEY_JEV_MODEL = "jev_model"
         private const val KEY_OCR_ENABLED = "ocr_enabled"

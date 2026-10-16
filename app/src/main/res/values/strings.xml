@@ -84,6 +84,14 @@
     <string name="settings_app_knowledge">App knowledge</string>
     <string name="settings_ai_models">AI models</string>
     <string name="settings_safety_support">Safety and support</string>
+    <string name="settings_routing_title">Speed and accuracy</string>
+    <string name="settings_routing_fast_title">Fast</string>
+    <string name="settings_routing_fast_description">The fast executor takes most steps itself. Quickest and cheapest, with more detours.</string>
+    <string name="settings_routing_balanced_title">Balanced · Recommended</string>
+    <string name="settings_routing_balanced_description">The fast executor takes the steps it knows; unfamiliar screens go to the reasoning model.</string>
+    <string name="settings_routing_accurate_title">Accurate</string>
+    <string name="settings_routing_accurate_description">The fast executor acts only when it is sure; the reasoning model decides the rest. Slowest, fewest mistakes.</string>
+    <string name="settings_routing_note">Applies when a Jev fast executor is configured. Without one, the reasoning model takes every step.</string>
     <string name="settings_emergency_stop_title">Emergency stop</string>
     <string name="settings_emergency_stop_body">Press Volume Up and Volume Down together to stop the current task immediately.</string>
     <string name="settings_about_title">About Coati</string>

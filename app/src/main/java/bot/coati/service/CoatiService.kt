@@ -256,6 +256,7 @@ class CoatiService : Service() {
                 JevDecisionEngine(JevClient(client, it.apiKey, it.endpoint, it.model)),
                 newManualRuntime,
                 ocrProvider = { ocr?.takeIf { d -> d.isCompleted }?.getCompleted() },
+                routingPolicy = { configStore.getRoutingPolicy() },
             )
         }
         val loop = AgentLoop(

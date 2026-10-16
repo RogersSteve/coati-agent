@@ -36,6 +36,8 @@ internal data class TaskResult(
     val finalAudit: CompletionAuditDecision?,
     val fastSteps: Int,
     val escalations: Int,
+    /** Label of the routing policy for a routed task (FAST, BALANCED, ACCURATE or CUSTOM(...)), else null. */
+    val routing: String?,
     /** False for ablation runs with verification switched off. */
     val verify: Boolean,
     /** True for perturbation runs that hid the accessibility tree from perception. */

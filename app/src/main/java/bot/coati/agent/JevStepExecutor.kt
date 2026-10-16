@@ -12,6 +12,7 @@ import bot.coati.action.toLogSummary
 import bot.coati.coordinates.DisplaySpaceReader
 import bot.coati.coordinates.PixelBounds
 import bot.coati.coordinates.ScreenshotCoordinates
+import bot.coati.data.RoutingPolicy
 import bot.coati.experience.AppManualRuntime
 import bot.coati.experience.RenderedAppManual
 import bot.coati.jev.BackgroundAdvisor
@@ -100,6 +101,8 @@ class JevStepExecutor(
      * without it and never waits for it.
      */
     private val ocrProvider: () -> OcrEngine? = { null },
+    /** Which choices the fast path may execute; read at the start of each task. */
+    private val routingPolicy: () -> RoutingPolicy = { RoutingPolicy.of(RoutingPolicy.DEFAULT_MODE) },
 ) {
     /** Performs a safety confirmation for a candidate; false when the user declined. */
     fun interface Confirmer {
@@ -165,8 +168,14 @@ class JevStepExecutor(
         private set
     val activeForTask: Boolean get() = escalations < MAX_ESCALATIONS
 
+    /** The routing policy of the current task. */
+    var routing: RoutingPolicy = RoutingPolicy.of(RoutingPolicy.DEFAULT_MODE)
+        private set
+
     fun startTask(task: String) {
         finishTask()
+        routing = routingPolicy()
+        Log.i(TAG, "Routing policy: $routing")
         scope = newScope()
         advisor = BackgroundAdvisor(modelRouter.reasoning, scope)
         memory = ExplorationMemory()
@@ -343,12 +352,16 @@ class JevStepExecutor(
             chosen.action is CandidateAction.Escalate -> return escalate("JEV asked for the Reasoning model")
             consecutiveBad >= MAX_CONSECUTIVE_BAD -> return escalate("$consecutiveBad fast actions in a row had no effect")
             cycling -> return escalate("no new page for several steps")
-            // A guess the selector itself rates low wastes a step that the Reasoning model, which can
-            // read the screen and the plan, usually turns into progress (AndroidWorld: 10-step tasks
-            // ran out on explorations at confidence 0.2-0.4 while the streak rule waited for six).
-            chosen.action !is CandidateAction.Done && isLowConfidenceGuess(decision.explored, decision.confidence) -> {
+            // A choice the routing policy does not trust goes to the Reasoning model, which can read the
+            // screen and the plan. On AndroidWorld, ~600 fast steps failed (no effect or drifted) at 7%
+            // for goal-directed choices at confidence >= 0.8, 20-25% below it, and 18-38% for
+            // explorations; under budgets of 10-20 steps one wrong move often decided the task.
+            chosen.action !is CandidateAction.Done && routing.escalates(decision.explored, decision.confidence) -> {
                 exploreStreak = 0
-                return escalate("the selector could only guess (confidence ${"%.2f".format(decision.confidence)})")
+                return escalate(
+                    "the selector is not sure enough for ${routing.label} routing (confidence " +
+                        "${"%.2f".format(decision.confidence)}${if (decision.explored) ", exploring" else ""})",
+                )
             }
             // Every new page resets the cycle check, so blind exploration through a large app never
             // escalates on its own: after a long streak without one confident choice, the task has
@@ -756,10 +769,6 @@ class JevStepExecutor(
     private fun newScope() = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     companion object {
-        /** An exploratory choice below this confidence goes to the Reasoning model instead. */
-        internal fun isLowConfidenceGuess(explored: Boolean, confidence: Double): Boolean =
-            explored && confidence < LOW_CONFIDENCE_EXPLORATION
-
         /**
          * Opening another app from inside an app with an exploratory or below-[CONFIDENT_APP_SWITCH]
          * choice. Launching from a home screen and returning to the task's app are not phase changes.
@@ -794,7 +803,6 @@ class JevStepExecutor(
         private const val MIN_PARSE_AGREEMENT = 0.3
         private const val TEXT_WAIT_MS = 30_000L
         private const val PLAN_WAIT_MS = 20_000L
-        private const val LOW_CONFIDENCE_EXPLORATION = 0.4
         private const val SLOW_OCR_MS = 3_000L
         private const val MAX_SLOW_OCR_CALLS = 2
         private const val STALE_COORDINATES = "stale_screenshot_coordinates"
