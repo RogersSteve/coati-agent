@@ -255,7 +255,7 @@ class AgentLoop(
                 continue
             }
 
-            val uiTree = if (treeWithheld) null else a11y.getUiTree()
+            val uiTree = if (treeWithheld) null else screenContext.uiTree ?: a11y.getUiTree()
             val nodeCount = uiTree?.flatCount() ?: 0
             val textNodeCount = uiTree?.nodesWithText() ?: 0
             val screenSig = RuleEngine.buildScreenSignature(uiTree)
@@ -621,7 +621,7 @@ class AgentLoop(
                 } finally {
                     overlayManager.showAfterScreenshot()
                 } ?: throw Exception("Failed to capture verification screenshot")
-                val afterTree = if (treeWithheld) null else a11y.getUiTree()
+                val afterTree = if (treeWithheld) null else afterContext.uiTree ?: a11y.getUiTree()
                 val afterScreenSig = RuleEngine.buildScreenSignature(afterTree)
                 pendingManualTransition = if (shouldAttachManualTransition(
                         beforePackage = screenContext.appPackage,

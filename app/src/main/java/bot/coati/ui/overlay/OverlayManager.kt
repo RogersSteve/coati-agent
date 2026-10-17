@@ -409,9 +409,15 @@ class OverlayManager(
      * Call hideForScreenshot() before taking a screenshot, showAfterScreenshot() after.
      * Requires a ~50ms delay after hiding for the compositor to re-render before capturing.
      */
+    /**
+     * Also makes the overlay non-touchable: Android reports every app node under a touchable
+     * window as not visible to the user, so a tree read under the full-screen overlay lost almost
+     * all of the app's nodes (2 of 63 visible on a list page).
+     */
     fun hideForScreenshot() {
         val view = composeView ?: return
         layoutParams.alpha = 0f
+        layoutParams.flags = layoutParams.flags or LayoutParams.FLAG_NOT_TOUCHABLE
         try {
             windowManager.updateViewLayout(view, layoutParams)
         } catch (_: IllegalArgumentException) {}
@@ -420,6 +426,7 @@ class OverlayManager(
     fun showAfterScreenshot() {
         val view = composeView ?: return
         layoutParams.alpha = 1f
+        layoutParams.flags = layoutParams.flags and LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         try {
             windowManager.updateViewLayout(view, layoutParams)
         } catch (_: IllegalArgumentException) {}
