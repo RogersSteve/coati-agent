@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.accessibilityservice.InputMethod
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.os.Bundle
 import android.os.Build
 import android.os.SystemClock
 import android.text.Spannable
@@ -170,6 +171,46 @@ class CoatiAccessibilityService : AccessibilityService() {
      */
     fun actionableNodeAt(x: Int, y: Int, longClick: Boolean): AccessibilityNodeInfo? {
         val action = if (longClick) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
+        var current: AccessibilityNodeInfo? = deepestNodeAt(x, y) ?: return null
+        while (current != null) {
+            if (current.isEnabled && current.actionList.any { it.id == action }) {
+                return current.takeIf { it.collectionItemInfo != null || it.parent?.collectionInfo != null }
+            }
+            current = current.parent
+        }
+        return null
+    }
+
+    /**
+     * Sets the slider under (x, y) to its minimum or maximum when the point lies within the outer 5%
+     * of its track, and returns the value set; null when there is no such slider. A tap or drag to
+     * the end of a slider landed a few pixels short: AndroidWorld's "brightness to maximum" ended at
+     * a displayed 100% that was not the maximum value.
+     */
+    fun snapSliderAt(x: Int, y: Int): Float? {
+        val bounds = Rect()
+        var node: AccessibilityNodeInfo? = deepestNodeAt(x, y) ?: return null
+        val setProgress = AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id
+        while (node != null && !(node.rangeInfo != null && node.actionList.any { it.id == setProgress })) {
+            node = node.parent
+        }
+        val slider = node ?: return null
+        val range = slider.rangeInfo ?: return null
+        slider.getBoundsInScreen(bounds)
+        val horizontal = bounds.width() >= bounds.height()
+        val fraction = if (horizontal) (x - bounds.left).toFloat() / bounds.width().coerceAtLeast(1)
+        else (bounds.bottom - y).toFloat() / bounds.height().coerceAtLeast(1)
+        val value = when {
+            fraction >= 1f - SLIDER_END_FRACTION -> range.max
+            fraction <= SLIDER_END_FRACTION -> range.min
+            else -> return null
+        }
+        val args = Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value) }
+        return value.takeIf { slider.performAction(setProgress, args) }
+    }
+
+    /** The deepest visible node of the topmost app window under (x, y); never Coati's own windows or the keyboard. */
+    private fun deepestNodeAt(x: Int, y: Int): AccessibilityNodeInfo? {
         val bounds = Rect()
         val window = try {
             windows.sortedByDescending { it.layer }.firstOrNull { window ->
@@ -183,7 +224,6 @@ class CoatiAccessibilityService : AccessibilityService() {
         } ?: return null
         if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) return null
         var node = window.root ?: return null
-        // Descend to the deepest visible node under the point.
         while (true) {
             val child = (0 until node.childCount).asSequence().mapNotNull { node.getChild(it) }
                 .lastOrNull { child ->
@@ -192,14 +232,7 @@ class CoatiAccessibilityService : AccessibilityService() {
                 } ?: break
             node = child
         }
-        var current: AccessibilityNodeInfo? = node
-        while (current != null) {
-            if (current.isEnabled && current.actionList.any { it.id == action }) {
-                return current.takeIf { it.collectionItemInfo != null || it.parent?.collectionInfo != null }
-            }
-            current = current.parent
-        }
-        return null
+        return node
     }
 
     /** Display size, density and the system navigation gesture insets (bottom bar, side back edges). */
@@ -980,6 +1013,7 @@ class CoatiAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private const val SLIDER_END_FRACTION = 0.05f
         private const val TAG = "CoatiA11y"
         private const val SCREENSHOT_TIMEOUT_MS = 5_000L
         private const val SELECTION_CONTEXT_CHARS = 64

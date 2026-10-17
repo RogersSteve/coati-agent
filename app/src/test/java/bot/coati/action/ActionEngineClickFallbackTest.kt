@@ -107,4 +107,19 @@ class ActionEngineClickFallbackTest {
             unmockkStatic(Log::class)
         }
     }
+
+    @Test
+    fun `a gesture ending at a slider's end also sets the slider's extreme value`() = runTest {
+        val a11y = mockk<CoatiAccessibilityService>(relaxed = true) {
+            every { snapSliderAt(1010, 900) } returns 255f
+            every { snapSliderAt(540, 900) } returns null
+        }
+        with(engine(a11y)) {
+            assertEquals("Tapped (540, 829); slider set to its end value 255.0", gesture.withSliderSnap(1010, 900).message)
+            assertEquals(gesture, gesture.withSliderSnap(540, 900))
+            val failed = ActionResult(success = false, message = "Gesture cancelled")
+            assertEquals(failed, failed.withSliderSnap(1010, 900))
+        }
+        verify(exactly = 2) { a11y.snapSliderAt(any(), any()) }
+    }
 }
