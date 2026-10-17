@@ -14,6 +14,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.util.Locale
 
 /**
  * One listing: title, price and every decisive field as a "Label: value" line. The fields fit on
@@ -25,6 +26,14 @@ class DetailActivity : Activity() {
         super.onCreate(savedInstanceState)
         val catalog = MarketCatalog.get(this)
         val listing = catalog.byId(intent.getStringExtra(EXTRA_ID)) ?: return finish()
+        // Repeat mode overrides status and price so the page agrees with its list row.
+        val repeat = if (MarketSession.isRepeatMode(this)) RepeatConfig.get(this) else null
+        val refreshes = if (repeat != null) MarketSession.repeatState(this).refreshes else 0
+        val priceLabel = repeat?.let { String.format(Locale.US, "$%,d", it.priceUsd(listing, refreshes)) }
+            ?: listing.priceLabel
+        val lines = listing.detailLines(catalog.referenceCity).map { line ->
+            if (repeat != null && repeat.isSold(listing.id) && line.startsWith("Status: ")) "Status: Sold" else line
+        }
         val pad = dp(16)
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -36,7 +45,7 @@ class DetailActivity : Activity() {
                 setTextColor(INK)
             })
             addView(TextView(context).apply {
-                text = listing.priceLabel
+                text = priceLabel
                 textSize = 20f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(ACCENT)
@@ -46,7 +55,7 @@ class DetailActivity : Activity() {
                 (background as GradientDrawable).setColor(swatch(listing.color))
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120)))
             addView(section("Vehicle details"))
-            listing.detailLines(catalog.referenceCity).forEach { line ->
+            lines.forEach { line ->
                 addView(TextView(context).apply {
                     text = line
                     textSize = 16f

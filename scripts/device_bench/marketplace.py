@@ -4,11 +4,15 @@ Usage:
   python marketplace.py expected                 # every task with its expected answer
   python marketplace.py score <task> "<answer>"  # score one free-text answer
   python marketplace.py summary <out_dir>        # per task x mode table of run_app_bench.py records
+  python marketplace.py repeat-summary <out_dir> # the same for the repeat tasks R1-R4, with time per item
 
 Each task asks for listings matching criteria that are only on the detail pages, so the agent has
 to open every E-Class listing, read it, go back and remember the matches. The expected answers are
 derived from the same listings.json the app shows, and the checker reads listing IDs, counts and
 prices out of the answer text, so formatting does not matter.
+
+Tasks R1-R4 run the app in repeat mode (test-apps/marketplace/src/main/assets/repeat.json): loops of
+simple steps, one tap or one glance each, checked from the app's persisted state instead of an answer.
 """
 import json
 import re
@@ -19,6 +23,7 @@ from pathlib import Path
 
 PKG = "bot.coati.fixture.marketplace"
 LISTINGS = Path(__file__).resolve().parents[2] / "test-apps/marketplace/src/main/assets/listings.json"
+REPEAT = LISTINGS.with_name("repeat.json")
 KM_PER_MILE = 1.609344
 
 
@@ -177,6 +182,83 @@ def summary(out_dir):
               f"{med(rs, lambda r: r.get('reasoning_calls')):>6.0f}{med(rs, lambda r: r['detail_views']):>7.0f}")
 
 
+def repeat_config():
+    return json.loads(REPEAT.read_text(encoding="utf-8"))
+
+
+def _repeat_tasks():
+    cfg = repeat_config()
+    watch = cfg["watch"]
+    return {
+        "R1": f"In the Car Market app, add the first {cfg['favorite_count']} listings to your favorites.",
+        "R2": "In the Car Market app, add these listings to the compare list: " + ", ".join(cfg["compare"]) + ".",
+        "R3": "In the Car Market app, hide every listing marked Sold.",
+        "R4": (f"In the Car Market app, refresh the listings until the price of {watch['id']} drops below "
+               f"${watch['threshold_usd']:,}, then report its new price."),
+    }
+
+
+# Repeat tasks: one tap or one glance per item, many items (see repeat.json).
+REPEAT_TASKS = _repeat_tasks()
+
+
+def repeat_items(tid):
+    """How many unit steps a task is made of: rows to favorite, compare or hide, or refreshes."""
+    cfg = repeat_config()
+    return {"R1": cfg["favorite_count"], "R2": len(cfg["compare"]), "R3": len(cfg["sold"]),
+            "R4": cfg["watch"]["drop_at_refresh"]}[tid]
+
+
+def parse_session(xml):
+    """The app's market_session preferences: string sets and the refresh count."""
+    def strings(name):
+        m = re.search(rf'<set name="{name}">(.*?)</set>', xml or "", re.S)
+        return set(re.findall(r"<string>(.*?)</string>", m.group(1))) if m else set()
+    m = re.search(r'<int name="refreshes" value="(\d+)"', xml or "")
+    return {"favorites": strings("favorites"), "compare": strings("compare"), "hidden": strings("hidden"),
+            "refreshes": int(m.group(1)) if m else 0}
+
+
+def score_repeat(tid, state, answer=None):
+    """Scores a repeat task from the app state (and, for R4, the reported price)."""
+    cfg = repeat_config()
+    if tid == "R4":
+        watch = cfg["watch"]
+        reported = watch["new_price_usd"] in prices_in(answer or "")
+        refreshed = state["refreshes"] >= watch["drop_at_refresh"]
+        return {"correct": refreshed and reported, "refreshes": state["refreshes"], "price_reported": reported}
+    want = {"R1": {c["id"] for c in listings()[:cfg["favorite_count"]]},
+            "R2": set(cfg["compare"]), "R3": set(cfg["sold"])}[tid]
+    got = state[{"R1": "favorites", "R2": "compare", "R3": "hidden"}[tid]]
+    return {"correct": got == want, "done": len(got & want), "of": len(want),
+            "missed": sorted(want - got), "extra": sorted(got - want)}
+
+
+def repeat_summary(out_dir):
+    """Per task x mode: success, median wall time, steps, wall time per item and tokens."""
+    runs = defaultdict(list)
+    for f in sorted(Path(out_dir).glob("R*_*.json")):
+        r = json.loads(f.read_text(encoding="utf-8"))
+        if r["task"] in REPEAT_TASKS:
+            runs[(r["task"], r["mode"])].append(r)
+
+    def med(rs, key):
+        vals = [key(r) for r in rs if key(r) is not None]
+        return statistics.median(vals) if vals else float("nan")
+
+    def tokens(r):
+        usage = r.get("usage") or {}
+        return sum((usage.get(p) or {}).get("total_tokens") or 0 for p in ("critical", "background")) or None
+
+    print(f"{'task':<5}{'mode':<10}{'ok':>6}{'wall':>7}{'steps':>7}{'s/item':>8}{'jev':>6}{'reas':>6}{'ktok':>7}")
+    for (tid, mode), rs in sorted(runs.items()):
+        ok = sum(1 for r in rs if r.get("verified"))
+        wall = med(rs, lambda r: r["wall"])
+        print(f"{tid:<5}{mode:<10}{f'{ok}/{len(rs)}':>6}{wall:>7.0f}{med(rs, lambda r: r['steps']):>7.0f}"
+              f"{wall / repeat_items(tid):>8.1f}{med(rs, lambda r: r.get('jev_steps')):>6.0f}"
+              f"{med(rs, lambda r: r.get('reasoning_calls')):>6.0f}{med(rs, tokens) / 1000:>7.0f}")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "expected"
     if cmd == "expected":
@@ -186,6 +268,8 @@ def main():
         print(json.dumps(score(sys.argv[2], sys.argv[3]), indent=1))
     elif cmd == "summary":
         summary(sys.argv[2])
+    elif cmd == "repeat-summary":
+        repeat_summary(sys.argv[2])
     else:
         sys.exit(__doc__)
 

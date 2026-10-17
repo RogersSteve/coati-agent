@@ -73,6 +73,10 @@ def gallery_theme_is(theme):
 SETUP = {
     GALLERY: lambda: dev.sh("shell", "cmd", "locale", "set-app-locales", GALLERY, "--locales", "en-US"),
     "M5": lambda: dev.sh("shell", "am", "start", "-W", "-n", f"{marketplace.PKG}/.MainActivity", "--ez", "promo", "true"),
+    # Repeat mode for R1-R4 (persisted, so the launcher start that follows keeps it).
+    **{tid: (lambda: dev.sh("shell", "am", "start", "-W", "-n", f"{marketplace.PKG}/.MainActivity",
+                            "--ez", "repeat", "true"))
+       for tid in marketplace.REPEAT_TASKS},
 }
 
 TASKS = {
@@ -121,3 +125,22 @@ TASKS = {
 TASKS.update({tid: (marketplace.PKG, text, marketplace.answer_check(tid),
                     ["native", "repetitive", "answer"] + (["interrupt"] if tid == "M5" else []))
               for tid, (_, _, text) in marketplace.TASKS.items()})
+
+
+def market_state():
+    """The Car Market app's persisted repeat-mode state (debuggable, so run-as can read it)."""
+    return marketplace.parse_session(
+        dev.sh("shell", "run-as", marketplace.PKG, "cat", "shared_prefs/market_session.xml"))
+
+
+def repeat_check(tid):
+    """Scores a repeat task from the app state; R4 also needs Coati's reported price."""
+    def check(answer):
+        return marketplace.score_repeat(tid, market_state(), answer)
+    check.needs_answer = True
+    return check
+
+
+# Car Market repeat mode: loops of one tap or one glance, scored from the app's own state.
+TASKS.update({tid: (marketplace.PKG, text, repeat_check(tid), ["native", "repetitive", "simple-steps"])
+              for tid, text in marketplace.REPEAT_TASKS.items()})
