@@ -67,6 +67,17 @@ def validate_result(value, request):
     return value
 
 
+def successful_model_calls(trace_path):
+    """HTTP 200 model responses in a worker trace (Midscene: one JSON object; FinalRun: JSON lines)."""
+    text = Path(trace_path).read_text() if Path(trace_path).exists() else ""
+    try:
+        events = json.loads(text).get("modelEvents", [])
+    except ValueError:
+        events = [json.loads(line) for line in text.splitlines() if line.strip()]
+        events = [e for e in events if e.get("event") == "model_http"]
+    return sum(1 for e in events if e.get("status") == 200)
+
+
 def compact_result(path):
     """Moves a large native history next to the result so the episode record stays bounded."""
     path = Path(path)
@@ -236,7 +247,11 @@ class Opponent:
                 self.stop_driver()
         if timed_out or process.returncode != 0 or not result_path.is_file():
             raise EnvironmentFailure("worker_timeout_exit_or_missing_result")
-        return validate_result(compact_result(result_path), request)
+        result = validate_result(compact_result(result_path), request)
+        # A rejected request (e.g. an unsupported parameter, HTTP 400) is a setup error, not a task failure.
+        if successful_model_calls(trace_path) == 0:
+            raise EnvironmentFailure("no_successful_model_response")
+        return result
 
 
 def kill_group(process):

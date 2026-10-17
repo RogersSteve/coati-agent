@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from agent import EnvironmentFailure
-from opponent_agent import Opponent, answer_required, compact_result, validate_result
+from opponent_agent import Opponent, answer_required, compact_result, successful_model_calls, validate_result
 
 CONNECTION = {"workspace": None, "adb_path": "/sdk/adb", "adb_server_port": 5043, "serial": "emulator-5564"}
 
@@ -16,7 +16,7 @@ request = json.loads(sys.stdin.read())
 lease = json.load(open(request["lease"]["metadata_path"]))
 assert lease["token"] == request["lease"]["token"] and not lease["closed"] and lease["serial"] == "emulator-5564"
 assert os.environ["GEMINI_API_KEY"] == "fake-key" and "RELAY_KEY" not in os.environ
-open(request["trace_path"], "w").write("{}")
+open(request["trace_path"], "w").write(json.dumps({"modelEvents": [{"status": 200}]}))
 json.dump({"schema": 1, "agent": request["agent"], "run_id": request["run_id"], "status": "completed",
            "charged_steps": 2, "answer": "3" if request["question_answer_required"] else None,
            "native_result": {"history": ["tap", "done"]}}, open(request["result_path"], "w"))
@@ -56,6 +56,16 @@ class OpponentTests(unittest.TestCase):
                     {**good, "answer": 3}, {**good, "infrastructure_failure": True}):
             with self.assertRaises(EnvironmentFailure):
                 validate_result(bad, request)
+
+    def test_successful_model_calls_are_counted_in_both_trace_formats(self):
+        midscene, finalrun = self.root / "m.trace.json", self.root / "f.trace.json"
+        midscene.write_text(json.dumps({"modelEvents": [{"status": 400}, {"status": 200}], "nativeEvents": []}))
+        finalrun.write_text("\n".join(json.dumps(e) for e in (
+            {"event": "model_http", "status": 400}, {"event": "planner_action"}, {"event": "model_http", "status": 200})))
+        self.assertEqual(successful_model_calls(midscene), 1)
+        self.assertEqual(successful_model_calls(finalrun), 1)
+        midscene.write_text(json.dumps({"modelEvents": [{"status": 400}]}))
+        self.assertEqual(successful_model_calls(midscene), 0)
 
     def test_native_history_moves_next_to_the_result(self):
         path = self.root / "x.worker.json"
