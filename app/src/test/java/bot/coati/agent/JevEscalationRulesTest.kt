@@ -5,6 +5,7 @@ import org.junit.Assert.assertTrue
 import bot.coati.data.RoutingMode
 import bot.coati.data.RoutingPolicy
 import bot.coati.jev.CandidateAction
+import bot.coati.perception.ElementOp
 import org.junit.Test
 
 class JevEscalationRulesTest {
@@ -39,19 +40,24 @@ class JevEscalationRulesTest {
     }
 
     @Test
-    fun `an unsure switch to another app goes to the Reasoning model`() {
-        val openKeep = CandidateAction.OpenApp("Keep Notes")
-        assertTrue(JevStepExecutor.isUnsureAppSwitch(openKeep, onHomeScreen = false, explored = true, confidence = 0.47))
-        assertTrue(JevStepExecutor.isUnsureAppSwitch(openKeep, onHomeScreen = false, explored = false, confidence = 0.5))
+    fun `every switch to another app from inside an app goes to the Reasoning model`() {
+        // Yudou's ColorOS demo: a 0.82-confidence switch to Keep left Maps before the opening hours were read.
+        assertTrue(JevStepExecutor.isAppSwitch(CandidateAction.OpenApp("Keep Notes"), onHomeScreen = false))
+        assertTrue(JevStepExecutor.isAppSwitch(CandidateAction.ReturnToApp("com.google.android.apps.maps"), onHomeScreen = false))
     }
 
     @Test
-    fun `confident switches, launches from home and in-app actions stay on the fast route`() {
-        val openKeep = CandidateAction.OpenApp("Keep Notes")
-        assertFalse(JevStepExecutor.isUnsureAppSwitch(openKeep, onHomeScreen = false, explored = false, confidence = 0.8))
-        assertFalse(JevStepExecutor.isUnsureAppSwitch(openKeep, onHomeScreen = true, explored = true, confidence = 0.3))
-        assertFalse(
-            JevStepExecutor.isUnsureAppSwitch(CandidateAction.ReturnToApp("com.example"), onHomeScreen = false, explored = true, confidence = 0.3),
-        )
+    fun `launches from a home screen and in-app actions are not switches`() {
+        assertFalse(JevStepExecutor.isAppSwitch(CandidateAction.OpenApp("Maps"), onHomeScreen = true))
+        assertFalse(JevStepExecutor.isAppSwitch(CandidateAction.Done, onHomeScreen = false))
+        assertFalse(JevStepExecutor.isAppSwitch(CandidateAction.Element("add", ElementOp.TAP), onHomeScreen = false))
+    }
+
+    @Test
+    fun `only the fast mode types text on the fast path`() {
+        assertTrue(RoutingPolicy.of(RoutingMode.FAST).fastTextInput)
+        assertFalse(RoutingPolicy.of(RoutingMode.BALANCED).fastTextInput)
+        assertFalse(RoutingPolicy.of(RoutingMode.ACCURATE).fastTextInput)
+        assertFalse(RoutingPolicy.custom(0.7, 1.01).fastTextInput)
     }
 }

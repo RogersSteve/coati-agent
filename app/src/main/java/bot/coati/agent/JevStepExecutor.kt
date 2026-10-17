@@ -371,14 +371,21 @@ class JevStepExecutor(
                 return escalate("$MAX_EXPLORE_STREAK exploratory steps in a row without a confident choice")
             }
             // Leaving an app ends its phase: whatever was not yet read or saved there is lost or costs
-            // a round trip back (a cross-app demo left Maps twice before the address was visible, at
-            // confidence 0.43-0.47). An unsure switch is a phase decision for the Reasoning model.
-            isUnsureAppSwitch(chosen.action, currentPackage in launchers, decision.explored, decision.confidence) -> {
+            // a round trip back. A cross-app demo left Maps twice before the address was visible at
+            // confidence 0.43-0.47, and once at 0.82 before the opening hours were read (Yudou, ColorOS):
+            // confidence does not tell whether a phase is done, so every switch goes to the Reasoning model.
+            isAppSwitch(chosen.action, currentPackage in launchers) -> {
                 exploreStreak = 0
                 return escalate(
-                    "unsure whether the work in $currentPackage is complete before switching apps " +
-                        "(confidence ${"%.2f".format(decision.confidence)}); read and save every value later steps need first",
+                    "switching apps ends the work in $currentPackage; read and save every value later " +
+                        "steps need first, then open the app the task names",
                 )
+            }
+            // Text values need the whole task. On the same demo, fast-path entries were blocked 4 times
+            // by the fresh-caret guard and then overwrote a body the Reasoning model had completed.
+            !routing.fastTextInput && (chosen.action as? CandidateAction.Element)?.op == ElementOp.INPUT -> {
+                exploreStreak = 0
+                return escalate("text entry needs the full task: type the exact values and keep fields already filled")
             }
             chosen.action is CandidateAction.Done -> return FastStep.DoneClaimed(screen.summary)
             chosen.action is CandidateAction.Wait -> {
@@ -769,22 +776,11 @@ class JevStepExecutor(
     private fun newScope() = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     companion object {
-        /**
-         * Opening another app from inside an app with an exploratory or below-[CONFIDENT_APP_SWITCH]
-         * choice. Launching from a home screen and returning to the task's app are not phase changes.
-         */
-        internal fun isUnsureAppSwitch(
-            action: CandidateAction,
-            onHomeScreen: Boolean,
-            explored: Boolean,
-            confidence: Double,
-        ): Boolean {
-            if (action !is CandidateAction.OpenApp || onHomeScreen) return false
-            return explored || confidence < CONFIDENT_APP_SWITCH
-        }
+        /** Opening or returning to another app from inside an app; launching from a home screen is not a switch. */
+        internal fun isAppSwitch(action: CandidateAction, onHomeScreen: Boolean): Boolean =
+            !onHomeScreen && (action is CandidateAction.OpenApp || action is CandidateAction.ReturnToApp)
 
         private const val TAG = "CoatiJev"
-        private const val CONFIDENT_APP_SWITCH = 0.6
         private const val MAX_CONSECUTIVE_BAD = 3
         private const val PROGRESS_WINDOW = 6
         private const val OBSERVATION_WAIT_MS = 20_000L
