@@ -10,6 +10,7 @@ import re
 import time
 
 import adbdev as dev
+import marketplace
 
 LAB = "bot.coati.fixture.manual"
 BILI = "tv.danmaku.bili"
@@ -66,9 +67,12 @@ def gallery_theme_is(theme):
     return f"Theme\n{theme}" in shown
 
 
-# Per-app setup after its data is cleared. Gallery follows the system language, so pin English.
+# Setup after the app's data is cleared, per package or per task id. Gallery follows the system
+# language, so pin English. M5 turns on the Car Market promotion; the later launcher start reuses
+# that activity.
 SETUP = {
     GALLERY: lambda: dev.sh("shell", "cmd", "locale", "set-app-locales", GALLERY, "--locales", "en-US"),
+    "M5": lambda: dev.sh("shell", "am", "start", "-W", "-n", f"{marketplace.PKG}/.MainActivity", "--ez", "promo", "true"),
 }
 
 TASKS = {
@@ -112,3 +116,8 @@ TASKS = {
     "B3": (BILI, "In the bilibili app, open its Settings and turn on dark mode (night mode)",
            None, ["mixed", "dependent"]),
 }
+# Car Market (test-apps/marketplace): long loops of open detail, read, go back. These checks score
+# Coati's answer (see marketplace.py), so run_app_bench.py passes them the answer.
+TASKS.update({tid: (marketplace.PKG, text, marketplace.answer_check(tid),
+                    ["native", "repetitive", "answer"] + (["interrupt"] if tid == "M5" else []))
+              for tid, (_, _, text) in marketplace.TASKS.items()})

@@ -31,6 +31,7 @@ End-to-end benchmark of the real Coati app on a device or emulator. It drives an
 | `JEV_KEY` | Optional Jev key; required for `jev` and `jevnoocr` |
 | `JEV_ENDPOINT` | Optional System One base URL; defaults to `https://api.typesafe.ai` |
 | `JEV_MODEL` | Optional Jev model ID; defaults to `jev-1.13.0` |
+| `BENCH_RUN_TIMEOUT` | Optional per-run limit in seconds, default 600; Car Market scans need more |
 
 For OpenRouter, set both `RELAY_ENDPOINT` and `JEV_ENDPOINT` to
 `https://openrouter.ai/api`, `LLM_PROVIDER` to `openai_compatible`,
@@ -108,6 +109,25 @@ Defined in `tasks.py`; most have an automatic check against the app's UI or save
 | G1 | Flutter Gallery | Flutter semantics tree, sign-in text input, multi-page shopping flow |
 | G2 | Flutter Gallery | Flutter settings panel, option behind another control |
 | B1-B3 | bilibili | real app; checked by hand from the final screenshot |
+| M1-M5 | Car Market | long loop of open detail, read, go back over 40 listings; scored from the answer |
 
 Canvas Workbench and Mixed Order store their outcome in the lab app's `manual_lab_state`
 preferences, which `tasks.py` reads with `run-as`.
+
+## Car Market
+
+M1-M5 run on `test-apps/marketplace` (`./gradlew :test-apps:marketplace:assembleDebug`, then
+`adb install -r test-apps/marketplace/build/outputs/apk/debug/marketplace-debug.apk`). Each asks
+for the available 2023 Mercedes-Benz E 300 listings within 100 km of Los Angeles with under 50,000
+miles, whose decisive fields are only on the detail pages: M1 their IDs and prices, M2 their count,
+M3 the cheapest, M4 those without accidents, M5 the same as M1 with a promotion dialog on the 5th
+detail page. A full scan opens 16 detail pages, so set `BENCH_RUN_TIMEOUT` (e.g. 1800) for classic
+mode. These tasks are scored from Coati's answer (`answer` in `files/task_result.json`), and the
+record gets a `score` with recall and precision of the reported listing IDs:
+
+```sh
+BENCH_RUN_TIMEOUT=1800 python run_app_bench.py <out_dir> M1,M2,M3,M4 classic,jev 3
+python marketplace.py summary <out_dir>   # success, recall, precision, wall, steps, model calls
+python marketplace.py expected            # task texts and expected answers
+python marketplace.py score M1 "CM-3417 $41,900, ..."
+```

@@ -1,0 +1,905 @@
+{
+  "comment": "Ground truth for the Car Market fixture. The app reads this file from its assets; the benchmark checker (scripts/device_bench/marketplace.py) reads the same file. 'trap' fields annotate near-misses and are never shown in the app.",
+  "reference_city": "Los Angeles",
+  "listings": [
+    {
+      "id": "CM-2048",
+      "make": "Mercedes-Benz",
+      "family": "C-Class Sedan",
+      "year": 2023,
+      "model": "C 300",
+      "color": "Polar White",
+      "price_usd": 39500,
+      "mileage": {
+        "value": 21500,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 30,
+        "unit": "km"
+      },
+      "location": "Hollywood, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "AMG Line exterior.",
+      "trap": "C-Class, not E-Class"
+    },
+    {
+      "id": "CM-6610",
+      "make": "Toyota",
+      "family": "Camry",
+      "year": 2022,
+      "model": "Camry SE",
+      "color": "Midnight Black",
+      "price_usd": 24900,
+      "mileage": {
+        "value": 31000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 18,
+        "unit": "km"
+      },
+      "location": "Downey, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-5208",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 350",
+      "color": "Polar White",
+      "price_usd": 42800,
+      "mileage": {
+        "value": 28100,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 35,
+        "unit": "km"
+      },
+      "location": "Torrance, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "South Bay Motors",
+      "note": "Premium package, panoramic roof.",
+      "trap": "model E 350, not E 300"
+    },
+    {
+      "id": "CM-3305",
+      "make": "BMW",
+      "family": "5 Series Sedan",
+      "year": 2023,
+      "model": "530i",
+      "color": "Alpine White",
+      "price_usd": 43800,
+      "mileage": {
+        "value": 27000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 40,
+        "unit": "km"
+      },
+      "location": "Torrance, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "South Bay Motors",
+      "note": ""
+    },
+    {
+      "id": "CM-3417",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Obsidian Black",
+      "price_usd": 41900,
+      "mileage": {
+        "value": 32400,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 42,
+        "unit": "km"
+      },
+      "location": "Long Beach, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Harbor Auto Group",
+      "note": "One owner, dealer serviced."
+    },
+    {
+      "id": "CM-7472",
+      "make": "Tesla",
+      "family": "Model 3",
+      "year": 2023,
+      "model": "Model 3 Long Range",
+      "color": "Pearl White",
+      "price_usd": 33900,
+      "mileage": {
+        "value": 19000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 12,
+        "unit": "km"
+      },
+      "location": "Silver Lake, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-1259",
+      "make": "Audi",
+      "family": "A6 Sedan",
+      "year": 2022,
+      "model": "A6 45 TFSI",
+      "color": "Navarra Blue",
+      "price_usd": 37200,
+      "mileage": {
+        "value": 36500,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 55,
+        "unit": "km"
+      },
+      "location": "Fullerton, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-2861",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2022,
+      "model": "E 300",
+      "color": "Selenite Grey",
+      "price_usd": 36900,
+      "mileage": {
+        "value": 30500,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 60,
+        "unit": "km"
+      },
+      "location": "Anaheim, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "Garage kept, new tires.",
+      "trap": "year 2022; cheaper than every match"
+    },
+    {
+      "id": "CM-8821",
+      "make": "Honda",
+      "family": "Accord",
+      "year": 2023,
+      "model": "Accord EX-L",
+      "color": "Lunar Silver",
+      "price_usd": 28400,
+      "mileage": {
+        "value": 15800,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 33,
+        "unit": "km"
+      },
+      "location": "Inglewood, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-6943",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Graphite Grey",
+      "price_usd": 38400,
+      "mileage": {
+        "value": 50500,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 20,
+        "unit": "km"
+      },
+      "location": "Glendale, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Glendale Euro Cars",
+      "note": "Highway miles, full service history.",
+      "trap": "50,500 miles, just over the limit; cheaper than every match"
+    },
+    {
+      "id": "CM-4716",
+      "make": "Mercedes-Benz",
+      "family": "GLE SUV",
+      "year": 2023,
+      "model": "GLE 350",
+      "color": "Obsidian Black",
+      "price_usd": 56800,
+      "mileage": {
+        "value": 24000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 45,
+        "unit": "km"
+      },
+      "location": "Long Beach, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Harbor Auto Group",
+      "note": ""
+    },
+    {
+      "id": "CM-9338",
+      "make": "Lexus",
+      "family": "ES Sedan",
+      "year": 2023,
+      "model": "ES 350",
+      "color": "Eminent White",
+      "price_usd": 40100,
+      "mileage": {
+        "value": 17600,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 70,
+        "unit": "km"
+      },
+      "location": "Irvine, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-6375",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Graphite Grey",
+      "price_usd": 43200,
+      "mileage": {
+        "value": 35200,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 73,
+        "unit": "km"
+      },
+      "location": "Irvine, CA",
+      "accidents": "None reported",
+      "status": "Sold",
+      "seller": "Irvine Premier Cars",
+      "note": "This car has been sold.",
+      "trap": "sold original of CM-9046; otherwise a match"
+    },
+    {
+      "id": "CM-5094",
+      "make": "Genesis",
+      "family": "G80 Sedan",
+      "year": 2023,
+      "model": "G80 2.5T",
+      "color": "Uyuni White",
+      "price_usd": 44900,
+      "mileage": {
+        "value": 14200,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 26,
+        "unit": "km"
+      },
+      "location": "Koreatown, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-7720",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Obsidian Black",
+      "price_usd": 43900,
+      "mileage": {
+        "value": 21000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 101,
+        "unit": "km"
+      },
+      "location": "Oxnard, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Coastal Star Motors",
+      "note": "Driver assistance package.",
+      "trap": "101 km, just outside 100 km"
+    },
+    {
+      "id": "CM-2583",
+      "make": "Mercedes-Benz",
+      "family": "C-Class Sedan",
+      "year": 2022,
+      "model": "C 300",
+      "color": "Graphite Grey",
+      "price_usd": 34800,
+      "mileage": {
+        "value": 33900,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 58,
+        "unit": "km"
+      },
+      "location": "Pomona, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "",
+      "trap": "C-Class, not E-Class"
+    },
+    {
+      "id": "CM-6187",
+      "make": "Volvo",
+      "family": "S90 Sedan",
+      "year": 2022,
+      "model": "S90 B6",
+      "color": "Denim Blue",
+      "price_usd": 38700,
+      "mileage": {
+        "value": 29400,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 92,
+        "unit": "km"
+      },
+      "location": "Thousand Oaks, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-5561",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "AMG E 53",
+      "color": "Obsidian Black",
+      "price_usd": 61500,
+      "mileage": {
+        "value": 12000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 30,
+        "unit": "km"
+      },
+      "location": "Beverly Hills, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Westside Performance",
+      "note": "AMG Night package.",
+      "trap": "model AMG E 53"
+    },
+    {
+      "id": "CM-3962",
+      "make": "BMW",
+      "family": "3 Series Sedan",
+      "year": 2023,
+      "model": "330i",
+      "color": "Black Sapphire",
+      "price_usd": 36500,
+      "mileage": {
+        "value": 22800,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 24,
+        "unit": "km"
+      },
+      "location": "West Hollywood, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-4052",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Nautical Blue",
+      "price_usd": 44500,
+      "mileage": {
+        "value": 18700,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 95,
+        "unit": "km"
+      },
+      "location": "Ventura, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "Burmester sound system.",
+      "trap": "match at 95 km"
+    },
+    {
+      "id": "CM-8457",
+      "make": "Toyota",
+      "family": "RAV4",
+      "year": 2023,
+      "model": "RAV4 XLE",
+      "color": "Blueprint",
+      "price_usd": 31200,
+      "mileage": {
+        "value": 26100,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 80,
+        "unit": "km"
+      },
+      "location": "Ontario, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-1774",
+      "make": "Mercedes-Benz",
+      "family": "CLA Coupe",
+      "year": 2023,
+      "model": "CLA 250",
+      "color": "Polar White",
+      "price_usd": 35600,
+      "mileage": {
+        "value": 18300,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 37,
+        "unit": "km"
+      },
+      "location": "Carson, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "",
+      "trap": "CLA, not E-Class"
+    },
+    {
+      "id": "CM-3780",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2024,
+      "model": "E 300",
+      "color": "Obsidian Black",
+      "price_usd": 52900,
+      "mileage": {
+        "value": 22000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 50,
+        "unit": "km"
+      },
+      "location": "Burbank, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "Remaining factory warranty.",
+      "trap": "year 2024"
+    },
+    {
+      "id": "CM-7035",
+      "make": "Audi",
+      "family": "Q5 SUV",
+      "year": 2023,
+      "model": "Q5 45 TFSI",
+      "color": "Glacier White",
+      "price_usd": 42300,
+      "mileage": {
+        "value": 20400,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 64,
+        "unit": "km"
+      },
+      "location": "Mission Viejo, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-1586",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Polar White",
+      "price_usd": 39950,
+      "mileage": {
+        "value": 49800,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 88,
+        "unit": "km"
+      },
+      "location": "Riverside, CA",
+      "accidents": "1 minor (rear bumper, 2024)",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "Bumper repaired at a certified shop.",
+      "trap": "match with 49,800 miles; cheapest match; has an accident"
+    },
+    {
+      "id": "CM-4283",
+      "make": "Tesla",
+      "family": "Model Y",
+      "year": 2022,
+      "model": "Model Y Long Range",
+      "color": "Midnight Silver",
+      "price_usd": 35900,
+      "mileage": {
+        "value": 34700,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 48,
+        "unit": "km"
+      },
+      "location": "Cerritos, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-9512",
+      "make": "BMW",
+      "family": "5 Series Sedan",
+      "year": 2022,
+      "model": "540i",
+      "color": "Carbon Black",
+      "price_usd": 41700,
+      "mileage": {
+        "value": 38900,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 97,
+        "unit": "km"
+      },
+      "location": "Simi Valley, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-2297",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Selenite Grey",
+      "price_usd": 41200,
+      "mileage": {
+        "value": 26300,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 68,
+        "unit": "mi"
+      },
+      "location": "Lancaster, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Antelope Valley Autos",
+      "note": "Distance shown in miles.",
+      "trap": "68 miles is about 109 km"
+    },
+    {
+      "id": "CM-2635",
+      "make": "Porsche",
+      "family": "Macan",
+      "year": 2022,
+      "model": "Macan S",
+      "color": "Jet Black",
+      "price_usd": 57900,
+      "mileage": {
+        "value": 25500,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 31,
+        "unit": "km"
+      },
+      "location": "Beverly Hills, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Westside Performance",
+      "note": ""
+    },
+    {
+      "id": "CM-4429",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Coupe",
+      "year": 2023,
+      "model": "E 450 Coupe",
+      "color": "Polar White",
+      "price_usd": 58900,
+      "mileage": {
+        "value": 9800,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 22,
+        "unit": "km"
+      },
+      "location": "Santa Monica, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "Two-door coupe.",
+      "trap": "model E 450 Coupe"
+    },
+    {
+      "id": "CM-6809",
+      "make": "Mercedes-Benz",
+      "family": "GLE SUV",
+      "year": 2022,
+      "model": "GLE 450",
+      "color": "Selenite Grey",
+      "price_usd": 54200,
+      "mileage": {
+        "value": 41000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 110,
+        "unit": "km"
+      },
+      "location": "Temecula, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-8134",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Polar White",
+      "price_usd": 40800,
+      "mileage": {
+        "value": 64000,
+        "unit": "km"
+      },
+      "distance": {
+        "value": 15,
+        "unit": "km"
+      },
+      "location": "Pasadena, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "Imported from Canada; odometer reads in kilometres.",
+      "trap": "match: 64,000 km is about 39,800 miles"
+    },
+    {
+      "id": "CM-5347",
+      "make": "Honda",
+      "family": "Civic",
+      "year": 2023,
+      "model": "Civic Touring",
+      "color": "Rallye Red",
+      "price_usd": 26900,
+      "mileage": {
+        "value": 12300,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 21,
+        "unit": "km"
+      },
+      "location": "Hawthorne, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-3129",
+      "make": "Lexus",
+      "family": "ES Sedan",
+      "year": 2022,
+      "model": "ES 300h",
+      "color": "Caviar",
+      "price_usd": 37400,
+      "mileage": {
+        "value": 30800,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 66,
+        "unit": "km"
+      },
+      "location": "Santa Ana, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-7168",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 450",
+      "color": "Nautical Blue",
+      "price_usd": 55400,
+      "mileage": {
+        "value": 8000,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 28,
+        "unit": "km"
+      },
+      "location": "Culver City, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "Executive rear seat package.",
+      "trap": "model E 450"
+    },
+    {
+      "id": "CM-8690",
+      "make": "Mercedes-Benz",
+      "family": "C-Class Sedan",
+      "year": 2023,
+      "model": "C 300",
+      "color": "Obsidian Black",
+      "price_usd": 41300,
+      "mileage": {
+        "value": 9900,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 14,
+        "unit": "km"
+      },
+      "location": "Echo Park, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "",
+      "trap": "C-Class, not E-Class"
+    },
+    {
+      "id": "CM-1903",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Selenite Grey",
+      "price_usd": 45800,
+      "mileage": {
+        "value": 47900,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 152,
+        "unit": "km"
+      },
+      "location": "Santa Barbara, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": "Clean title, two keys.",
+      "trap": "152 km away"
+    },
+    {
+      "id": "CM-4904",
+      "make": "Audi",
+      "family": "A6 Sedan",
+      "year": 2023,
+      "model": "A6 55 TFSI",
+      "color": "Mythos Black",
+      "price_usd": 49800,
+      "mileage": {
+        "value": 16700,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 39,
+        "unit": "km"
+      },
+      "location": "Manhattan Beach, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-1438",
+      "make": "BMW",
+      "family": "5 Series Sedan",
+      "year": 2023,
+      "model": "530e",
+      "color": "Phytonic Blue",
+      "price_usd": 45200,
+      "mileage": {
+        "value": 21100,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 57,
+        "unit": "km"
+      },
+      "location": "Whittier, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Private seller",
+      "note": ""
+    },
+    {
+      "id": "CM-9046",
+      "make": "Mercedes-Benz",
+      "family": "E-Class Sedan",
+      "year": 2023,
+      "model": "E 300",
+      "color": "Graphite Grey",
+      "price_usd": 42600,
+      "mileage": {
+        "value": 35200,
+        "unit": "mi"
+      },
+      "distance": {
+        "value": 73,
+        "unit": "km"
+      },
+      "location": "Irvine, CA",
+      "accidents": "None reported",
+      "status": "Available",
+      "seller": "Irvine Premier Cars",
+      "note": "Relisted at a lower price (previously listing CM-6375).",
+      "trap": "match: re-listed duplicate of the sold CM-6375"
+    }
+  ]
+}

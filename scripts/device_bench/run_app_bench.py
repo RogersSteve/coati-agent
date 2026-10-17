@@ -21,7 +21,8 @@ from perturb import Perturbation
 from tasks import SETUP, TASKS
 
 RECEIVER = "bot.coati/.debug.DebugAgentReceiver"
-RUN_TIMEOUT_S = 600
+# Car Market scans take long in classic mode; raise the limit with BENCH_RUN_TIMEOUT (seconds).
+RUN_TIMEOUT_S = int(os.environ.get("BENCH_RUN_TIMEOUT", "600"))
 # Disable host environment restarts/replays for a strictly single-attempt smoke run.
 ENV_RECOVERY_ENABLED = os.environ.get("BENCH_ENV_RECOVERY", "1") != "0"
 LOG_TAGS = ["CoatiLoop", "CoatiScreen", "CoatiModel", "CoatiA11y", "CoatiAction", "CoatiDebugAgent", "CoatiUsage"]
@@ -52,6 +53,7 @@ MODES = {
 }
 LOG_TAGS.append("CoatiJev")
 LOG_TAGS.append("CoatiInterrupt")
+LOG_TAGS.append("CoatiMarket")
 # Robustness runs: one perturbation for every run (see perturb.py), e.g. dialog@3, notree, display.
 PERTURB = Perturbation(os.environ.get("BENCH_PERTURB"))
 # Fast-executor routing: a mode (FAST, BALANCED, ACCURATE) or explicit "goal,explore" thresholds. The app
@@ -323,11 +325,12 @@ def recover_device(mode, reason):
     configure(mode)
 
 
-def start_task(pkg, task, run_id):
+def start_task(pkg, task, run_id, tid=None):
     dev.force_stop(pkg)
     dev.sh("shell", "pm", "clear", pkg)
-    if pkg in SETUP:
-        SETUP[pkg]()
+    for key in (pkg, tid):
+        if key in SETUP:
+            SETUP[key]()
     dev.key("HOME")
     time.sleep(1)
     dev.launch(pkg)
@@ -362,13 +365,13 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
 
     PERTURB.before_task()
     t0 = time.perf_counter()
-    if not start_task(pkg, task, name):
+    if not start_task(pkg, task, name, tid):
         if not ENV_RECOVERY_ENABLED:
             raise RuntimeError("Task was not accepted; single-attempt run stopped")
         print(f"!!! {name}: runtime not ready, restarting the service", flush=True)
         configure(mode)
         t0 = time.perf_counter()
-        start_task(pkg, task, name)
+        start_task(pkg, task, name, tid)
     PERTURB.task_started()
     status, state = "timeout", {}
     while time.perf_counter() - t0 < RUN_TIMEOUT_S:
@@ -394,7 +397,9 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
         return run_one(tid, mode, rep, out_dir, attempt + 1)
 
     dev.screenshot().save(out_dir / f"{name}.jpg", quality=80)
-    verified = check() if check else None
+    # Answer checks score the answer Coati gave (Car Market); the others inspect the device.
+    score = check((result or {}).get("answer")) if getattr(check, "needs_answer", False) else None
+    verified = score["correct"] if score else check() if check else None
     m = re.search(r"Task complete at step (\d+)", log)
     steps = int(m.group(1)) if m else len(re.findall(r"── Step \d+/", log))
     rec = {"task": tid, "mode": mode, "rep": rep, "tags": tags, "status": status, "verified": verified,
@@ -408,6 +413,8 @@ def run_one(tid, mode, rep, out_dir, attempt=1):
            # Coati's own account of the run: completion claims, audit decision, budget (TaskResult).
            "result": result,
            "perturbation": perturbation}
+    if score:
+        rec["score"] = score
     (out_dir / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
     (out_dir / f"{name}.log").write_text(log, encoding="utf-8")
     print(f"=== {name}: status={status} verified={verified} steps={steps} wall={wall:.0f}s", flush=True)
