@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.EditorInputProfile
+import bot.coati.service.UiTreeNode
 import java.io.ByteArrayOutputStream
 
 data class ScreenContext(
@@ -14,6 +15,8 @@ data class ScreenContext(
     val uiTreeJson: String,
     val appPackage: String,
     val coordinates: ScreenshotCoordinates? = null,
+    /** The tree behind [uiTreeJson], read while Coati's overlay did not cover the app. */
+    val uiTree: UiTreeNode? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -112,6 +115,7 @@ data class ScreenContext(
                 uiTreeJson = focusHint + uiTreeStr,
                 appPackage = appPackage,
                 coordinates = coordinates,
+                uiTree = uiTree,
             )
         }
 
