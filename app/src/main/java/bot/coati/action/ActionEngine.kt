@@ -505,6 +505,12 @@ class ActionEngine(
     }
 
     private suspend fun launchApp(intent: Intent, packageName: String, appName: String?): ActionResult {
+        val label = appName?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+        // Relaunching the app already in front only costs a home round trip (AndroidWorld: openApp in
+        // Broccoli while Broccoli was open, then a wait on the unchanged screen).
+        if (a11y.rootInActiveWindow?.packageName?.toString() == packageName) {
+            return ActionResult(success = true, message = "$packageName$label is already open; continue within it")
+        }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         // Return to home screen before launching to avoid cross-app permission dialogs
         // covering Coati's overlay during app transitions.
@@ -512,8 +518,29 @@ class ActionEngine(
         delay(300)
         a11y.startActivity(intent)
         delay(500)
-        val label = appName?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+        awaitAppRendered(packageName)
         return ActionResult(success = true, message = "Opened $packageName$label")
+    }
+
+    /**
+     * Waits until the launched app's window has content. 74 of 195 AndroidWorld app launches were
+     * observed as a black or blank screen 500 ms after the intent; the model then spent steps on
+     * waits that verification judged FAILED.
+     */
+    private suspend fun awaitAppRendered(packageName: String) {
+        val deadline = uptimeMillis() + APP_RENDER_TIMEOUT_MS
+        while (uptimeMillis() < deadline) {
+            val root = a11y.rootInActiveWindow
+            if (root?.packageName?.toString() == packageName && root.childCount > 0) {
+                val tree = a11y.getUiTree()
+                if (tree != null && tree.flatCount() >= MIN_RENDERED_NODES) {
+                    // The tree is published before the first frame is drawn.
+                    delay(APP_RENDER_SETTLE_MS)
+                    return
+                }
+            }
+            delay(APP_RENDER_POLL_MS)
+        }
     }
 
     private suspend fun dispatchGesture(stroke: GestureDescription.StrokeDescription): Boolean {
@@ -553,6 +580,10 @@ class ActionEngine(
 
     companion object {
         private const val TAG = "CoatiAction"
+        private const val APP_RENDER_TIMEOUT_MS = 4_000L
+        private const val APP_RENDER_POLL_MS = 200L
+        private const val APP_RENDER_SETTLE_MS = 300L
+        private const val MIN_RENDERED_NODES = 5
 
         /**
          * A tap is a short press, like adb's `input tap`. Some views drop a longer press: right after
