@@ -67,6 +67,35 @@ class OpponentTests(unittest.TestCase):
         midscene.write_text(json.dumps({"modelEvents": [{"status": 400}]}))
         self.assertEqual(successful_model_calls(midscene), 0)
 
+    def test_the_handoff_rebinds_only_the_observer(self):
+        from opponent_agent import refresh_official_after_driver
+
+        class Observer:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        class Controller:
+            def __init__(self):
+                self.env = Observer()
+
+            def refresh_env(self):
+                self.env = Observer()
+
+        class Env:
+            def __init__(self):
+                self.controller, self.interaction_cache = Controller(), "3"
+
+        env = Env()
+        old = env.controller.env
+        refresh_official_after_driver(env)
+        self.assertTrue(old.closed)
+        self.assertIsNot(env.controller.env, old)
+        env.controller.refresh_env = lambda: setattr(env, "interaction_cache", "")
+        with self.assertRaises(EnvironmentFailure):
+            refresh_official_after_driver(env)
+
     def test_native_history_moves_next_to_the_result(self):
         path = self.root / "x.worker.json"
         path.write_text(json.dumps({"status": "completed", "native_result": {"steps": [1, 2]}}))

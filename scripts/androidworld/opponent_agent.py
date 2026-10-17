@@ -254,6 +254,21 @@ class Opponent:
         return result
 
 
+def refresh_official_after_driver(env):
+    """Rebinds the official observer after FinalRun's UiAutomation instrumentation exits.
+
+    The instrumentation disturbs AW's accessibility forwarder (EXP9 phase handoff): the episode, its
+    controller and the answer cache must stay the same, only the observer is reconnected.
+    """
+    controller = env.controller
+    previous = controller.env
+    answer = env.interaction_cache
+    controller.refresh_env()
+    previous.close()
+    if env.controller is not controller or env.interaction_cache != answer:
+        raise EnvironmentFailure("official_handoff_episode_identity_changed")
+
+
 def kill_group(process):
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
@@ -306,6 +321,11 @@ class OpponentAgent(base_agent.EnvironmentInteractingAgent):
             self.env_failure = type(error).__name__ + ": " + str(error)
         finally:
             self.wall_s = self.clock() - start
+        if self.opponent.name == "finalrun":
+            try:
+                refresh_official_after_driver(self.env)
+            except Exception as error:
+                self.env_failure = self.env_failure or ("official_handoff_failed: " + type(error).__name__ + ": " + str(error))
         if self.env_failure is None and self.question:
             answer = self.result.get("answer")
             if answer is not None and answer.strip():
