@@ -417,7 +417,8 @@ class JevStepExecutor(
             val verdict = preCommit.check(task, label, context.screenshotJpeg)
             Log.i(TAG, "Pre-commit check for '$label': ready=${verdict?.ready} missing=${verdict?.missing}")
             if (verdict?.ready == false) {
-                return escalate("before '$label' the screen is not ready: ${verdict.missing ?: "a required value is missing"}")
+                // Told only what was missing, the Reasoning model sometimes saved anyway (Yudou, ColorOS).
+                return escalate(preCommitEscalation(label, verdict.missing))
             }
         }
         if (!confirmer.confirm(context.appPackage, actionName(chosen.action), label, baseSafetyLevel(chosen.action))) {
@@ -776,6 +777,10 @@ class JevStepExecutor(
     private fun newScope() = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     companion object {
+        internal fun preCommitEscalation(label: String, missing: String?): String =
+            "before '$label' the screen is not ready: ${missing ?: "a required value is missing"}. " +
+                "Look at the hidden or missing fields again before saving; do not submit until they are checked."
+
         /** Opening or returning to another app from inside an app; launching from a home screen is not a switch. */
         internal fun isAppSwitch(action: CandidateAction, onHomeScreen: Boolean): Boolean =
             !onHomeScreen && (action is CandidateAction.OpenApp || action is CandidateAction.ReturnToApp)

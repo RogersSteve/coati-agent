@@ -60,4 +60,12 @@ class JevEscalationRulesTest {
         assertFalse(RoutingPolicy.of(RoutingMode.ACCURATE).fastTextInput)
         assertFalse(RoutingPolicy.custom(0.7, 1.01).fastTextInput)
     }
+
+    @Test
+    fun `a not-ready pre-commit check asks to re-check fields before saving`() {
+        val hint = JevStepExecutor.preCommitEscalation("Save", "postal code")
+        assertTrue(hint.startsWith("before 'Save' the screen is not ready: postal code."))
+        assertTrue(hint.contains("do not submit until they are checked"))
+        assertTrue(JevStepExecutor.preCommitEscalation("Save", null).contains("a required value is missing"))
+    }
 }
