@@ -68,6 +68,17 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             parameter_evidence(object())
 
+    def test_image_parameter_recorded_by_digest(self):
+        from PIL import Image
+        from protocol import parameter_evidence
+        image = Image.new("RGB", (2, 1), (255, 0, 0))
+        evidence = parameter_evidence({"receipt_image": image})["receipt_image"]
+        self.assertEqual(evidence["mode"], "RGB")
+        self.assertEqual(evidence["size"], [2, 1])
+        self.assertEqual(evidence, parameter_evidence(image.copy()))
+        image.putpixel((1, 0), (0, 0, 0))
+        self.assertNotEqual(evidence["sha256"], parameter_evidence(image)["sha256"])
+
     def test_goal_filled_by_official_initialization_is_dispatched(self):
         from unittest.mock import Mock
         from agent import CoatiAgent

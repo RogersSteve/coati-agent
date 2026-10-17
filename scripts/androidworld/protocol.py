@@ -372,6 +372,7 @@ def parameter_evidence(value):
     """Known AW row dataclasses only; never mutate official task parameters."""
     import math
     import dataclasses
+    import hashlib
     if value is None or type(value) in (str, bool, int):
         return value
     if type(value) is float:
@@ -398,6 +399,12 @@ def parameter_evidence(value):
             raise TypeError("Unexpected official row type")
         return {"__aw_row_type__": typename,
                 "fields": {field.name: parameter_evidence(getattr(value, field.name)) for field in dataclasses.fields(value)}}
+    # SaveCopyOfReceiptTaskEval passes the generated receipt; record its exact pixels by digest.
+    if type(value).__module__.startswith("PIL."):
+        from PIL import Image
+        if isinstance(value, Image.Image):
+            return {"__aw_image__": typename, "mode": value.mode, "size": list(value.size),
+                    "sha256": hashlib.sha256(value.tobytes()).hexdigest()}
     raise TypeError("Unsupported task parameter type: "+typename)
 
 
