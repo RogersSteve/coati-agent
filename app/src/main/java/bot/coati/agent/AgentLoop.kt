@@ -312,7 +312,8 @@ class AgentLoop(
                         lastAuditDecision = decision.takeIf { verifyEnabled }
                         if (decision != CompletionAuditDecision.REJECT) {
                             finalAnswer = audit?.taskAnswer
-                            acceptCompletion(task, finalAnswer ?: outcome.summary.ifBlank { "Task complete" })
+                            acceptCompletion(task, completionSummary(
+                                finalAnswer ?: outcome.summary.ifBlank { "Task complete" }, lastAuditDecision))
                             return
                         }
                         fast.doneRejected()
@@ -536,11 +537,7 @@ class AgentLoop(
                 )
                 if (auditDecision != CompletionAuditDecision.REJECT) {
                     if (auditDecision == CompletionAuditDecision.UNAVAILABLE) {
-                        Log.w(
-                            TAG,
-                            "Independent completion audit unavailable; accepting the reasoning " +
-                                "model's current-screen completion evidence",
-                        )
+                        Log.w(TAG, "Independent completion audit unavailable; completing as unverified")
                     }
                     val elapsed = System.currentTimeMillis() - taskStartTime
                     Log.i(TAG, "Task complete at step $stepCount in ${elapsed}ms")
@@ -563,7 +560,7 @@ class AgentLoop(
                     manualRuntime?.completeTask()
                     overlayManager.awaitTaskComplete(
                         taskName = task,
-                        summary = finalAnswer ?: response.statusUpdate,
+                        summary = completionSummary(finalAnswer ?: response.statusUpdate, lastAuditDecision),
                         steps = stepCount,
                         durationMs = elapsed,
                     )
@@ -1134,8 +1131,13 @@ class AgentLoop(
         }
         // An audit normally answers in about 5 s; one stalled call (47 s on the board) must not hold a
         // finished task for the gateway's full limit, so a slow attempt is retried.
-        for (attempt in 1..AUDIT_ATTEMPTS) {
-            val result = withTimeoutOrNull(AUDIT_ATTEMPT_TIMEOUT_MS) {
+        val images = earlier.size + 1
+        val (attempts, timeoutMs) = completionAuditBudget(images)
+        for (attempt in 1..attempts) {
+            val started = System.currentTimeMillis()
+            Log.i(TAG, "Completion audit starting: attempt=$attempt images=$images " +
+                "bytes=${earlier.sumOf { it.jpeg.size } + context.screenshotJpeg.size} budgetMs=$timeoutMs")
+            val result = withTimeoutOrNull(timeoutMs) {
                 withContext(ModelCallPurpose.COMPLETION_AUDIT) {
                     // Page learning was already handled by the current Reasoning response; the audit
                     // stays compact and single-purpose.
@@ -1146,6 +1148,8 @@ class AgentLoop(
                     }
                 }
             }
+            Log.i(TAG, "Completion audit finished: attempt=$attempt elapsedMs=${System.currentTimeMillis() - started} " +
+                "returned=${result != null}")
             if (result == null) {
                 Log.w(TAG, "Task completion audit attempt $attempt timed out")
                 continue
@@ -1256,6 +1260,27 @@ class AgentLoop(
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
         private const val AUDIT_ATTEMPTS = 2
         private const val AUDIT_ATTEMPT_TIMEOUT_MS = 20_000L
+        private const val MULTI_IMAGE_AUDIT_TIMEOUT_MS = 60_000L
+
+        /**
+         * Attempts and per-attempt limit of a completion audit. A multi-image (cross-app) audit gets one
+         * 60 s attempt: on a ColorOS phone both 20 s attempts of a 5-screenshot audit timed out in 2 of 2
+         * runs, each restart discarding a request that was nearly done (found by Yudou).
+         */
+        internal fun completionAuditBudget(images: Int): Pair<Int, Long> =
+            if (images > 1) 1 to MULTI_IMAGE_AUDIT_TIMEOUT_MS else AUDIT_ATTEMPTS to AUDIT_ATTEMPT_TIMEOUT_MS
+
+        internal const val UNVERIFIED_COMPLETION_NOTE =
+            "Done, but the result could not be independently verified. Please check it before relying on it."
+
+        /**
+         * The completion summary shown to the user. When the audit was unavailable the task still ends
+         * as completed (the result may well be saved, and retrying could duplicate it) but never
+         * reads as verified: it used to show a plain "Task complete" (2 of 116 formal AndroidWorld
+         * episodes and both of Yudou's National Museum runs).
+         */
+        internal fun completionSummary(summary: String, decision: CompletionAuditDecision?): String =
+            if (decision == CompletionAuditDecision.UNAVAILABLE) "$UNVERIFIED_COMPLETION_NOTE\n$summary" else summary
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
         /** Model-facing explanation for a rejected spatial action, or null when [message] is not a binding guard. */

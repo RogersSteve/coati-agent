@@ -325,4 +325,20 @@ class AgentLoopTest {
             children = children,
         )
     }
+
+    @Test
+    fun `an unavailable audit completes the task as unverified, never as plainly complete`() {
+        val unverified = AgentLoop.completionSummary("Event created", CompletionAuditDecision.UNAVAILABLE)
+        assertTrue(unverified.startsWith(AgentLoop.UNVERIFIED_COMPLETION_NOTE))
+        assertTrue(unverified.endsWith("Event created"))
+        assertEquals("Event created", AgentLoop.completionSummary("Event created", CompletionAuditDecision.ACCEPT))
+        // Verification off: no audit ran, nothing to flag.
+        assertEquals("Event created", AgentLoop.completionSummary("Event created", null))
+    }
+
+    @Test
+    fun `a multi-image audit gets one longer attempt and a single-screen audit keeps two short ones`() {
+        assertEquals(2 to 20_000L, AgentLoop.completionAuditBudget(1))
+        assertEquals(1 to 60_000L, AgentLoop.completionAuditBudget(5))
+    }
 }

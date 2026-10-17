@@ -1,5 +1,6 @@
 package bot.coati.model
 
+import android.util.Log
 import kotlinx.coroutines.currentCoroutineContext
 import okhttp3.Call
 import org.json.JSONObject
@@ -170,7 +171,19 @@ object ModelUsageMeter {
 /** [awaitResponseBody] for model endpoints: also meters the request under the caller's purpose. */
 internal suspend fun Call.awaitModelResponseBody(): HttpResponseBody {
     val purpose = currentCoroutineContext()[ModelCallPurpose] ?: ModelCallPurpose.UNLABELED
-    val response = awaitResponseBody()
+    // Audit timing on devices: request size and how each call ended, never its content.
+    val audit = purpose == ModelCallPurpose.COMPLETION_AUDIT
+    val started = System.nanoTime()
+    if (audit) Log.i(TAG, "Completion audit HTTP starting: bodyBytes=${request().body?.contentLength()}")
+    val response = try {
+        awaitResponseBody()
+    } catch (e: Exception) {
+        if (audit) Log.w(TAG, "Completion audit HTTP interrupted: elapsedMs=${(System.nanoTime() - started) / 1_000_000} type=${e.javaClass.simpleName}")
+        throw e
+    }
+    if (audit) Log.i(TAG, "Completion audit HTTP completed: status=${response.code} elapsedMs=${(System.nanoTime() - started) / 1_000_000}")
     ModelUsageMeter.recordRequest(purpose, if (response.isSuccessful) ModelUsageParser.parse(response.body) else null)
     return response
 }
+
+private const val TAG = "CoatiModel"
