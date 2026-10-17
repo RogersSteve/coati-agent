@@ -37,6 +37,9 @@ def registry_and_plan(aw, names, count, index):
 def run_episode_record(task, agent, spec, store, bridge, settings, reserved=False):
     from android_world import constants, episode_runner, suite_utils
     stage = "initialize_task"
+    # Opponents keep their own artifacts and record key; Coati's are unchanged.
+    agent_key = getattr(agent, "record_key", "coati")
+    capture = getattr(agent, "capture", bridge.capture)
     raw = None
     env_failure = None
     artifacts_done = False
@@ -57,9 +60,9 @@ def run_episode_record(task, agent, spec, store, bridge, settings, reserved=Fals
             start_on_home_screen=current.start_on_home_screen)
         if settings.phase == "learn" and agent.result and agent.result.get("status") == "completed":
             bridge.wait_manual_update()
-        bridge.capture(store.path(spec))
+        capture(store.path(spec))
         artifacts_done = True
-        ocr_state = bridge.ocr_evidence(settings)
+        ocr_state = bridge.ocr_evidence(settings) if agent_key == "coati" else None
         answer_cache_before_score = agent.env.interaction_cache
         stage = "official_score"
         return result
@@ -71,7 +74,7 @@ def run_episode_record(task, agent, spec, store, bridge, settings, reserved=Fals
         if agent.env_failure:
             env_failure = agent.env_failure
         log_path = store.path(spec).with_suffix(".log")
-        transport_failure = evidenced_environment_failure(agent.result,log_path.read_text() if log_path.exists() else "",spec["run_id"])
+        transport_failure = evidenced_environment_failure(agent.result,log_path.read_text() if log_path.exists() else "",spec["run_id"]) if agent_key == "coati" else None
         if transport_failure:
             env_failure = transport_failure
         if settings.manual == "READ_ONLY" and digest(bridge.manual_files()) != spec["protocol"]["experiment"]["manual_files_sha256"]:
@@ -81,7 +84,7 @@ def run_episode_record(task, agent, spec, store, bridge, settings, reserved=Fals
     finally:
         if not artifacts_done:
             try:
-                bridge.capture(store.path(spec))
+                capture(store.path(spec))
             except Exception as error:
                 env_failure = (env_failure or "") + "; artifact_capture:" + type(error).__name__
         # Official _run_task tears down on success, but skips it on exceptions.
@@ -93,8 +96,8 @@ def run_episode_record(task, agent, spec, store, bridge, settings, reserved=Fals
     score = raw.get(constants.EpisodeConstants.IS_SUCCESSFUL) if raw and not env_failure else None
     if score is not None and (not isinstance(score, (int, float)) or not 0 <= score <= 1):
         env_failure, score = "invalid_official_score", None
-    record = bridge.json_safe({"success": score, "coati": agent.result,
-        "wall_s": time.monotonic()-start, "coati_host_wall_s": agent.wall_s,
+    record = bridge.json_safe({"success": score, agent_key: agent.result,
+        "wall_s": time.monotonic()-start, agent_key + "_host_wall_s": agent.wall_s,
         "ocr": ocr_state,
         "manual_inventory": spec["protocol"]["experiment"].get("manual_inventory"),
         "host_monotonic_window": [start, time.monotonic()],
@@ -291,6 +294,12 @@ def main():
     parser.add_argument("--allow-cold-restart", action="store_true")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--max-new-episodes", type=int, help="Dispatch cap only; does not change the full experiment identity")
+    parser.add_argument("--agent", choices=["coati", "midscene", "finalrun"], default="coati",
+                        help="Agent under test. Opponents run one native worker per episode on the same model, "
+                        "emulator setup, task instances and official scorer; Coati stays installed and idle")
+    parser.add_argument("--opponent-checkout", help="Opponent checkout with its AndroidWorld worker")
+    parser.add_argument("--node", help="Node executable for opponent workers")
+    parser.add_argument("--finalrun-driver-apks", help="JSON file {apk path: sha256} for FinalRun's driver APK pair")
     parser.add_argument("--android-id", required=True)
     parser.add_argument("--apk-sha256", required=True)
     args = parser.parse_args()
@@ -319,6 +328,14 @@ def main():
         # Only when given, so experiments that predate routing keep their identity.
         experiment["routing"] = args.routing
     experiment["transport"] = transport
+    opponent = None
+    if args.agent != "coati":
+        from opponent_agent import Opponent
+        if args.provider != "google" or not args.opponent_checkout or not args.node or args.perturbation:
+            raise ValueError("Opponents need the google provider, a checkout and Node, and no perturbation")
+        drivers = json.loads(Path(args.finalrun_driver_apks).read_text()) if args.finalrun_driver_apks else None
+        opponent = Opponent(args.agent, args.opponent_checkout, args.node, c, drivers)
+        experiment["agent"] = opponent.identity()
     from android_world import suite_utils
     budgets = {n:{"complexity":classes[n].complexity,
                   "official_max_steps":suite_utils._allocate_step_budget(classes[n].complexity),
@@ -402,6 +419,8 @@ def main():
         bridge.configure(settings, frozen)
         env = connect(c)
         bridge.check_bindings()
+        if opponent is not None:
+            opponent.deploy()
         from android_world import suite_utils
         # Restrict registry first: official create_suite otherwise generates all tasks.
         suite = suite_utils.create_suite({n:classes[n] for n in selected}, args.variants,
@@ -433,7 +452,12 @@ def main():
                 env = restart_connection(previous, bridge, c, settings, frozen, args.android_id, args.apk_sha256)
                 ledger.restart_verified()
             bridge.check_bindings()
-            agent = CoatiAgent(env, bridge, spec, bench.PERTURB)
+            if opponent is None:
+                agent = CoatiAgent(env, bridge, spec, bench.PERTURB)
+            else:
+                from opponent_agent import OpponentAgent, answer_required
+                agent = OpponentAgent(env, opponent, bridge, spec, credentials["llm_key"],
+                                      answer_required(classes[name]), store.path(spec))
             reserve_before_start(store, ledger, spec)
             try:
                 record = run_episode_record(task, agent, spec, store, bridge, settings, reserved=True)
