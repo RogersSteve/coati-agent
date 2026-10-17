@@ -14,6 +14,20 @@ data class ModelResponse(
     val manualObservation: ManualPageObservation? = null,
     /** The answer when the task asks for information; set on the completing response only. */
     val answer: String? = null,
+    /** A repetitive sub-task handed to the fast executor (routed runs only); null otherwise. */
+    val loop: LoopPlan? = null,
+)
+
+/**
+ * A loop of many similar simple actions, planned once by the Reasoning model and executed item by
+ * item on the fast path: [each] is the per-item action, and the loop ends after [count] items, when
+ * [until] holds, or (with [scope]) when no matching item is left anywhere in the list.
+ */
+data class LoopPlan(
+    val each: String,
+    val count: Int? = null,
+    val until: String? = null,
+    val scope: String? = null,
 )
 
 /**

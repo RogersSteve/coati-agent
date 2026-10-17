@@ -176,4 +176,18 @@ class GatewayUtilsTest {
         assertEquals("42", result.taskAnswer)
         assertNull(GatewayUtils.parseQuickCheckResponse("""{"answer":true,"confidence":0.9}""").taskAnswer)
     }
+
+    @Test
+    fun `a loop plan is parsed when it names a per-item action`() {
+        val loop = GatewayUtils.parseLoopPlan(org.json.JSONObject(
+            """{"loop": {"each": "tap Favorite on the next listing", "count": "10", "until": null, "scope": ""}}""",
+        ))!!
+        assertEquals("tap Favorite on the next listing", loop.each)
+        assertEquals(10, loop.count)
+        assertNull(loop.until)
+        assertNull(loop.scope)
+        assertNull(GatewayUtils.parseLoopPlan(org.json.JSONObject("""{"loop": {"count": 3}}""")))
+        assertNull(GatewayUtils.parseLoopPlan(org.json.JSONObject("""{"action": "tap"}""")))
+        assertNull(GatewayUtils.parseLoopPlan(org.json.JSONObject("""{"loop": {"each": "tap", "count": 0}}"""))!!.count)
+    }
 }

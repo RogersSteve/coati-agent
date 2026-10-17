@@ -371,6 +371,7 @@ class AgentLoop(
 
             val response = handleModelResult(result, task)
             if (response == null) continue
+            response.loop?.let { plan -> fastExecutor?.takeIf { it.activeForTask }?.startLoop(plan) }
             manualRuntime?.recordAttribution(renderedManual, response.usedManualHeadings)
             val transition = pendingManualTransition
                 ?.takeIf { it.destinationPackage == screenContext.appPackage }
@@ -892,6 +893,10 @@ class AgentLoop(
         if (learningObservationInstruction != null) {
             sb.append("\n\n$learningObservationInstruction")
         }
+        // Routed runs only: the classic flow never sees the loop field.
+        if (fastExecutor?.activeForTask == true && fastExecutor.loopActive.not()) {
+            sb.append("\n\n$FAST_LOOP_INSTRUCTION")
+        }
         return sb.toString()
     }
 
@@ -1125,7 +1130,11 @@ class AgentLoop(
      */
     private suspend fun requestCompletionAudit(task: String, context: ScreenContext): QuickCheckResult? {
         val earlier = appFrames.evidenceFor(context.appPackage, stepCount)
-        val question = buildTaskCompletionAuditQuestion(task, earlier.map { it.packageName to it.step })
+        val question = buildTaskCompletionAuditQuestion(
+            task,
+            earlier.map { it.packageName to it.step },
+            fastExecutor?.loopEvidence(),
+        )
         if (earlier.isNotEmpty()) {
             Log.i(TAG, "Completion audit includes earlier screens ${earlier.map { "${it.packageName}@${it.step}" }}")
         }
@@ -1259,6 +1268,19 @@ class AgentLoop(
         private const val TARGET_CELL = 40
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
         private const val AUDIT_ATTEMPTS = 2
+
+        /**
+         * Handing a repetition to the fast executor. Per-step routing alone failed loops of simple
+         * steps on Car Market (rows skipped, one of six items handled, scrolling instead of refreshing).
+         */
+        internal const val FAST_LOOP_INSTRUCTION =
+            "[FAST LOOP] For a repetitive sub-task of many similar simple actions in one list or page " +
+                "(the same kind of button on many items, refreshing until something changes), hand the " +
+                "repetition to the fast executor: add \"loop\": {\"each\": \"<the action for one item>\", " +
+                "\"count\": <how many items, or null>, \"until\": \"<a visible stop condition, or null>\", " +
+                "\"scope\": \"<which items, when the task says every or all; else null>\"} and set action to " +
+                "\"wait\". It acts on each item, keeps count, and reports back with [LOOP DONE] and the items it " +
+                "handled. Never use it for typing text or switching apps, or for fewer than three items."
         private const val AUDIT_ATTEMPT_TIMEOUT_MS = 20_000L
         private const val MULTI_IMAGE_AUDIT_TIMEOUT_MS = 60_000L
 
@@ -1302,8 +1324,27 @@ class AgentLoop(
         internal fun buildTaskCompletionAuditQuestion(
             task: String,
             earlierScreens: List<Pair<String, Int>> = emptyList(),
+            loopRecord: String? = null,
         ): String {
-            if (earlierScreens.isNotEmpty()) return buildCrossAppCompletionAuditQuestion(task, earlierScreens)
+            val question = if (earlierScreens.isNotEmpty()) {
+                buildCrossAppCompletionAuditQuestion(task, earlierScreens)
+            } else {
+                buildSingleScreenCompletionAuditQuestion(task)
+            }
+            return if (loopRecord == null) question else question + "\n\n" + loopEvidence(loopRecord)
+        }
+
+        /**
+         * A loop over list items ends on a screen that shows only the last rows: the record of what
+         * the host saw change is the evidence for the rest, and an "every item" loop that never reached
+         * the end of the list leaves rows below unchecked (one of six Sold listings hidden, accepted).
+         */
+        private fun loopEvidence(record: String): String = """
+            |The fast executor repeated an action over list items during this task. Host record (not the agent's claims): $record
+            |Use it as evidence for items no longer on screen. If the task covers every matching item and the record says the loop did not reach the end of the list, answer false unless a screenshot shows the remaining items handled.
+        """.trimMargin()
+
+        private fun buildSingleScreenCompletionAuditQuestion(task: String): String {
             return """
                 Independently audit whether the CURRENT screenshot visibly satisfies every explicit requirement of this original Android task:
                 $task

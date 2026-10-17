@@ -82,4 +82,23 @@ class A11yScreenParserTest {
             A11yScreenParser.labelledBounds(screen, 1080, 2400),
         )
     }
+
+    @Test
+    fun `a row's buttons carry the texts of their row`() {
+        val row = node(bounds = rect(0, 400, 1080, 640), children = listOf(
+            node("TextView", "Audi A6 Sedan", bounds = rect(40, 410, 700, 460)),
+            node("TextView", "\$41,900 · SOLD", bounds = rect(40, 470, 700, 520)),
+            node("Button", "Hide", desc = "Hide CM-3305 (Hide)", bounds = rect(800, 540, 1040, 620), clickable = true),
+        ))
+        val root = node(bounds = rect(0, 0, 1080, 2400), children = listOf(
+            node("RecyclerView", bounds = rect(0, 200, 1080, 2200), scrollable = true, children = listOf(row)),
+            node("Button", "Refresh", bounds = rect(800, 100, 1040, 180), clickable = true),
+            node("Button", "Back", bounds = rect(40, 100, 200, 180), clickable = true),
+        ))
+
+        val screen = A11yScreenParser.parse(root, "bot.coati.fixture.marketplace", 1080, 2400)
+
+        assertEquals("Audi A6 Sedan · \$41,900 · SOLD", screen.elements.first { it.text.startsWith("Hide") }.context)
+        assertEquals("", screen.elements.first { it.text == "Refresh" }.context)
+    }
 }
