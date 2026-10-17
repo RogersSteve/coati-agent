@@ -3,7 +3,7 @@
 An offline, deterministic used-car marketplace for long tasks made of many simple repeated steps:
 scroll the list, open a listing, read its fields, go back, remember the matches. It is a separate
 installable application, never packaged into the Coati APK. The tasks and the answer checker are
-in `scripts/device_bench/marketplace.py` (tasks M1-M5).
+in `scripts/device_bench/marketplace.py` (tasks M1-M5, and R1-R4 in repeat mode below).
 
 - Application ID: `bot.coati.fixture.marketplace`, launcher label `Car Market`
 - Activities: `.MainActivity` (list), `.DetailActivity` (not exported)
@@ -56,3 +56,14 @@ Matches that need care: CM-1586 has 49,800 mi and a minor accident (excluded by 
   process at the top of the list. `pm clear bot.coati.fixture.marketplace` does the same.
 - Events are logged under `CoatiMarket` (`detail opened id=... view=N`, `promo shown`,
   `promo dismissed via ...`), so a run log shows which listings the agent opened.
+
+## Repeat mode
+
+Launched with `--ez repeat true` (persisted until `pm clear` or `--ez reset true`), the list page
+shows the listing ID on every row, a SOLD badge on the six listings in `src/main/assets/repeat.json`,
+Favorite / Compare / Hide buttons on each row (content descriptions such as `Favorite CM-2048
+(Favorite)`), a Refresh button and a "Favorites: n · Compare: n · Refreshed n times" line. The
+watched listing's price drops below $40,000 from the configured refresh on, on its row and its
+detail page. Favorites, compare list, hidden listings and the refresh count are stored in
+`shared_prefs/market_session.xml`, which the checker reads with `run-as`. The default page, the
+detail page outside repeat mode and tasks M1-M5 do not change.

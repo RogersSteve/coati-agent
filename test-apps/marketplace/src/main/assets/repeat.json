@@ -1,0 +1,7 @@
+{
+  "comment": "Repeat mode (launch with --ez repeat true): loops of simple steps for tasks R1-R4. Shown only in repeat mode; the default list and tasks M1-M5 never read this file. scripts/device_bench/marketplace.py scores against the same file.",
+  "favorite_count": 10,
+  "compare": ["CM-3305", "CM-8821", "CM-5561", "CM-7035", "CM-6809", "CM-1438"],
+  "sold": ["CM-6610", "CM-6375", "CM-2583", "CM-8457", "CM-9512", "CM-4904"],
+  "watch": {"id": "CM-9338", "drop_at_refresh": 5, "new_price_usd": 38450, "threshold_usd": 40000}
+}

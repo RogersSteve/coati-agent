@@ -110,6 +110,7 @@ Defined in `tasks.py`; most have an automatic check against the app's UI or save
 | G2 | Flutter Gallery | Flutter settings panel, option behind another control |
 | B1-B3 | bilibili | real app; checked by hand from the final screenshot |
 | M1-M5 | Car Market | long loop of open detail, read, go back over 40 listings; scored from the answer |
+| R1-R4 | Car Market (repeat mode) | loops of one tap or one glance: favorites, compare list, hide sold, price watch |
 
 Canvas Workbench and Mixed Order store their outcome in the lab app's `manual_lab_state`
 preferences, which `tasks.py` reads with `run-as`.
@@ -130,4 +131,17 @@ BENCH_RUN_TIMEOUT=1800 python run_app_bench.py <out_dir> M1,M2,M3,M4 classic,jev
 python marketplace.py summary <out_dir>   # success, recall, precision, wall, steps, model calls
 python marketplace.py expected            # task texts and expected answers
 python marketplace.py score M1 "CM-3417 $41,900, ..."
+```
+
+R1-R4 run the same app in repeat mode (`--ez repeat true`, set by `tasks.py` SETUP): the listing ID
+is on every row, six rows carry a SOLD badge, each row has Favorite / Compare / Hide buttons and the
+page has a Refresh button. Every step is one tap or one glance, repeated: R1 favorites the first 10
+listings, R2 adds 6 given IDs to the compare list, R3 hides the 6 sold listings, R4 refreshes until a
+watched price drops (on the 5th refresh) and reports it. They are checked from the app's persisted
+state (`shared_prefs/market_session.xml`, read with `run-as`; R4 also needs the reported price), not
+from the completion audit:
+
+```sh
+python run_app_bench.py <out_dir> R1,R2,R3,R4 classic,jev 5
+python marketplace.py repeat-summary <out_dir>   # success, wall, steps, seconds per item, tokens
 ```
