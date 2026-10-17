@@ -61,6 +61,7 @@ class AgentLoop(
         val statusUpdate: String,
         val screenSignature: String,
         val outcome: VerifyOutcome,
+        val target: String = "",
     )
 
     /**
@@ -610,7 +611,8 @@ class AgentLoop(
                 replanHint = null
                 lastStepFeedback = null
                 pendingManualTransition = null
-                actionHistory.add(ActionRecord(response.action, response.statusUpdate, screenSig, VerifyOutcome.UNKNOWN))
+                actionHistory.add(ActionRecord(response.action, response.statusUpdate, screenSig, VerifyOutcome.UNKNOWN,
+                    actionTarget(response.x, response.y, response.params)))
             }
             verifyLoop@ while (verifyEnabled) {
                 delay(randomDelay())
@@ -668,6 +670,7 @@ class AgentLoop(
                     statusUpdate = response.statusUpdate,
                     screenSignature = screenSig,
                     outcome = verifyResult.outcome,
+                    target = actionTarget(response.x, response.y, response.params),
                 ))
 
                 when (verifyResult.outcome) {
@@ -701,16 +704,10 @@ class AgentLoop(
                     }
                     VerifyOutcome.FAILED -> {
                         lastStepFeedback = null
-                        val sameActionFailCount = actionHistory.count {
-                            matchesIneffectiveAttempt(
-                                recordedAction = it.action,
-                                currentAction = response.action,
-                                recordedScreenSignature = it.screenSignature,
-                                currentScreenSignature = screenSig,
-                                outcome = it.outcome,
-                            )
-                        }
-                        if (sameActionFailCount >= MAX_VERIFY_RETRIES) {
+                        val sameActionFailCount = consecutiveIneffectiveAttempts(actionHistory.map {
+                            Attempt(it.action, it.screenSignature, it.target, it.outcome)
+                        })
+                        if (sameActionFailCount >= MAX_INEFFECTIVE_ATTEMPTS) {
                             updateTaskStatus("failed", "Action repeatedly ineffective: ${verifyResult.reason}")
                             val retry = overlayManager.awaitTaskFailed(
                                 taskName = task,
@@ -726,7 +723,7 @@ class AgentLoop(
                                 reason = verifyResult.reason,
                             )
                         } else {
-                            "Previous action FAILED (attempt $sameActionFailCount/$MAX_VERIFY_RETRIES): " +
+                            "Previous action FAILED (attempt $sameActionFailCount/$MAX_INEFFECTIVE_ATTEMPTS): " +
                                 "${verifyResult.reason}. The screen did not change. Re-observe and try a different approach."
                         }
                         carryOverContext = afterContext
@@ -734,16 +731,10 @@ class AgentLoop(
                     }
                     VerifyOutcome.DRIFTED -> {
                         lastStepFeedback = null
-                        val sameActionFailCount = actionHistory.count {
-                            matchesIneffectiveAttempt(
-                                recordedAction = it.action,
-                                currentAction = response.action,
-                                recordedScreenSignature = it.screenSignature,
-                                currentScreenSignature = screenSig,
-                                outcome = it.outcome,
-                            )
-                        }
-                        if (sameActionFailCount >= MAX_VERIFY_RETRIES) {
+                        val sameActionFailCount = consecutiveIneffectiveAttempts(actionHistory.map {
+                            Attempt(it.action, it.screenSignature, it.target, it.outcome)
+                        })
+                        if (sameActionFailCount >= MAX_INEFFECTIVE_ATTEMPTS) {
                             updateTaskStatus("failed", "Action repeatedly drifted: ${verifyResult.reason}")
                             val retry = overlayManager.awaitTaskFailed(
                                 taskName = task,
@@ -759,7 +750,7 @@ class AgentLoop(
                                 reason = verifyResult.reason,
                             )
                         } else {
-                            "Previous action DRIFTED (attempt $sameActionFailCount/$MAX_VERIFY_RETRIES): " +
+                            "Previous action DRIFTED (attempt $sameActionFailCount/$MAX_INEFFECTIVE_ATTEMPTS): " +
                                 "${verifyResult.reason}. The screen changed to an unexpected state. " +
                                 "Assess current screen and decide how to recover."
                         }
@@ -1248,7 +1239,20 @@ class AgentLoop(
         const val MAX_STEPS = 200
         private const val MAX_REFUNDED_STEPS = 20
         private const val MAX_CONSECUTIVE_FAILURES = 3
-        private const val MAX_VERIFY_RETRIES = 2
+        /**
+         * Consecutive failures of one action on one target and screen before the task is failed. The
+         * former gate (2 failures of the same action type anywhere on a screen, counted over the whole
+         * task, waits included) ended 14 of 32 failed AndroidWorld episodes, most with budget left:
+         * two taps on different buttons, or two waits for an app to render, were "the same action".
+         */
+        private const val MAX_INEFFECTIVE_ATTEMPTS = 3
+
+        /** Actions whose unchanged screen is expected: they neither count nor break a failure run. */
+        private val NEUTRAL_ACTIONS = setOf("wait", "screenshot")
+        private val INEFFECTIVE_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+
+        /** Coordinates within one cell (4% of the 0..1000 model space) count as the same target. */
+        private const val TARGET_CELL = 40
         private const val MAX_TASK_COMPLETION_AUDIT_REJECTS = 3
         private const val AUDIT_ATTEMPTS = 2
         private const val AUDIT_ATTEMPT_TIMEOUT_MS = 20_000L
@@ -1363,16 +1367,35 @@ class AgentLoop(
             return "${actionName.lowercase()}:$capability"
         }
 
-        internal fun matchesIneffectiveAttempt(
-            recordedAction: String,
-            currentAction: String,
-            recordedScreenSignature: String,
-            currentScreenSignature: String,
-            outcome: VerifyOutcome,
-        ): Boolean {
-            return recordedAction.equals(currentAction, ignoreCase = true) &&
-                recordedScreenSignature == currentScreenSignature &&
-                outcome in setOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+        internal data class Attempt(
+            val action: String,
+            val screenSignature: String,
+            val target: String,
+            val outcome: VerifyOutcome,
+        )
+
+        /** What an action acted on: its coordinate cell, or its parameters for non-spatial actions. */
+        internal fun actionTarget(x: Int?, y: Int?, params: Map<String, Any>): String =
+            if (x != null && y != null) "${x / TARGET_CELL},${y / TARGET_CELL}"
+            else params.toSortedMap().toString().take(120)
+
+        /**
+         * How many times in a row the latest attempt's action failed on the same target and screen.
+         * A success ends the run; waits and screenshots are skipped; failures of other actions in
+         * between neither count nor end it.
+         */
+        internal fun consecutiveIneffectiveAttempts(history: List<Attempt>): Int {
+            val current = history.lastOrNull() ?: return 0
+            if (current.action.lowercase() in NEUTRAL_ACTIONS) return 0
+            var count = 0
+            for (attempt in history.asReversed()) {
+                if (attempt.action.lowercase() in NEUTRAL_ACTIONS) continue
+                if (attempt.outcome !in INEFFECTIVE_OUTCOMES) break
+                if (attempt.action.equals(current.action, ignoreCase = true) &&
+                    attempt.screenSignature == current.screenSignature && attempt.target == current.target
+                ) count++
+            }
+            return count
         }
     }
 }

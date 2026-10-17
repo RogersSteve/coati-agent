@@ -226,85 +226,60 @@ class AgentLoopTest {
 
     // ─── ActionRecord and retry counting ───
 
+    private fun attempt(action: String, target: String, outcome: VerifyOutcome, screen: String = "sig") =
+        AgentLoop.Companion.Attempt(action, screen, target, outcome)
+
     @Test
-    fun `same action and screen count despite different status wording`() {
-        data class ActionRecord(
-            val action: String,
-            val statusUpdate: String,
-            val screenSignature: String,
-            val outcome: VerifyOutcome,
+    fun `repeated failures of one action on one target and screen are counted in a row`() {
+        val history = listOf(
+            attempt("tap", "5,30", VerifyOutcome.FAILED),
+            attempt("TAP", "5,30", VerifyOutcome.DRIFTED),
+            attempt("tap", "5,30", VerifyOutcome.FAILED),
         )
-
-        val history = mutableListOf(
-            ActionRecord("tap", "Trying body start", "abc123", VerifyOutcome.FAILED),
-            ActionRecord("TAP", "Relocating the caret", "abc123", VerifyOutcome.DRIFTED),
-        )
-
-        val failCount = history.count {
-            AgentLoop.matchesIneffectiveAttempt(
-                recordedAction = it.action,
-                currentAction = "tap",
-                recordedScreenSignature = it.screenSignature,
-                currentScreenSignature = "abc123",
-                outcome = it.outcome,
-            )
-        }
-        assertEquals(2, failCount)
+        assertEquals(3, AgentLoop.consecutiveIneffectiveAttempts(history))
     }
 
     @Test
-    fun `same action different screen is not retry - delete multiple files scenario`() {
-        data class ActionRecord(
-            val action: String,
-            val statusUpdate: String,
-            val screenSignature: String,
-            val outcome: VerifyOutcome,
+    fun `taps on different targets or screens are different attempts`() {
+        // SimpleCalendarAddRepeatingEvent failed at step 4/34: two taps 70 px apart were "the same action".
+        val calendar = listOf(
+            attempt("tap", AgentLoop.actionTarget(178, 694, emptyMap()), VerifyOutcome.FAILED),
+            attempt("tap", AgentLoop.actionTarget(178, 656, emptyMap()), VerifyOutcome.FAILED),
         )
-
-        // Each delete happens on a different screen (different file list)
-        val history = mutableListOf(
-            ActionRecord("tap", "Tap confirm delete", "screen_a", VerifyOutcome.SUCCESS),
-            ActionRecord("tap", "Tap confirm delete", "screen_b", VerifyOutcome.SUCCESS),
-            ActionRecord("tap", "Tap confirm delete", "screen_c", VerifyOutcome.FAILED),
+        assertEquals(1, AgentLoop.consecutiveIneffectiveAttempts(calendar))
+        // Deleting several files: the same button on successive screens.
+        val deletes = listOf(
+            attempt("tap", "9,40", VerifyOutcome.FAILED, screen = "a"),
+            attempt("tap", "9,40", VerifyOutcome.FAILED, screen = "b"),
         )
-
-        // Count failures for "Tap confirm delete" on screen_c
-        val failCount = history.count {
-            AgentLoop.matchesIneffectiveAttempt(
-                recordedAction = it.action,
-                currentAction = "tap",
-                recordedScreenSignature = it.screenSignature,
-                currentScreenSignature = "screen_c",
-                outcome = it.outcome,
-            )
-        }
-        assertEquals(1, failCount) // Only 1, not 3 — different screens don't count
+        assertEquals(1, AgentLoop.consecutiveIneffectiveAttempts(deletes))
     }
 
     @Test
-    fun `DRIFTED and FAILED both count toward same limit`() {
-        data class ActionRecord(
-            val action: String,
-            val statusUpdate: String,
-            val screenSignature: String,
-            val outcome: VerifyOutcome,
+    fun `a success ends the run and waits neither count nor end it`() {
+        val afterSuccess = listOf(
+            attempt("tap", "5,30", VerifyOutcome.FAILED),
+            attempt("tap", "5,30", VerifyOutcome.SUCCESS),
+            attempt("tap", "5,30", VerifyOutcome.FAILED),
         )
-
-        val history = mutableListOf(
-            ActionRecord("tap", "Tapping button", "sig1", VerifyOutcome.FAILED),
-            ActionRecord("tap", "Tapping button", "sig1", VerifyOutcome.DRIFTED),
+        assertEquals(1, AgentLoop.consecutiveIneffectiveAttempts(afterSuccess))
+        val withWaits = listOf(
+            attempt("tap", "5,30", VerifyOutcome.FAILED),
+            attempt("wait", "{}", VerifyOutcome.FAILED),
+            attempt("tap", "5,30", VerifyOutcome.FAILED),
         )
+        assertEquals(2, AgentLoop.consecutiveIneffectiveAttempts(withWaits))
+        // An app that has not rendered yet: waiting on an unchanged screen is not ineffective.
+        val waits = listOf(attempt("wait", "{}", VerifyOutcome.FAILED), attempt("wait", "{}", VerifyOutcome.FAILED))
+        assertEquals(0, AgentLoop.consecutiveIneffectiveAttempts(waits))
+    }
 
-        val failCount = history.count {
-            AgentLoop.matchesIneffectiveAttempt(
-                recordedAction = it.action,
-                currentAction = "tap",
-                recordedScreenSignature = it.screenSignature,
-                currentScreenSignature = "sig1",
-                outcome = it.outcome,
-            )
-        }
-        assertEquals(2, failCount)
+    @Test
+    fun `non-spatial actions are told apart by their parameters`() {
+        val back = AgentLoop.actionTarget(null, null, mapOf("key" to "BACK"))
+        val enter = AgentLoop.actionTarget(null, null, mapOf("key" to "ENTER"))
+        val history = listOf(attempt("pressKey", back, VerifyOutcome.FAILED), attempt("pressKey", enter, VerifyOutcome.FAILED))
+        assertEquals(1, AgentLoop.consecutiveIneffectiveAttempts(history))
     }
 
     @Test
