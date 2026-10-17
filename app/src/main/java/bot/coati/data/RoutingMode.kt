@@ -6,9 +6,14 @@ package bot.coati.data
  * choices and explorations of an unfamiliar screen. Faster modes run more steps on the fast path
  * (about 2 s instead of 10 s each on AndroidWorld) at the price of more wrong moves.
  */
-enum class RoutingMode(val minGoalConfidence: Double, val minExploreConfidence: Double) {
-    /** Fast path for every goal-directed choice; explorations below 0.4 escalate. */
-    FAST(0.0, 0.4),
+enum class RoutingMode(
+    val minGoalConfidence: Double,
+    val minExploreConfidence: Double,
+    /** Whether the fast path also types text; otherwise every text entry goes to the Reasoning model. */
+    val fastTextInput: Boolean = false,
+) {
+    /** Fast path for every goal-directed choice, text entry included; explorations below 0.4 escalate. */
+    FAST(0.0, 0.4, fastTextInput = true),
 
     /** Fast path for every goal-directed choice; explorations below 0.6 escalate. */
     BALANCED(0.0, 0.6),
@@ -18,7 +23,12 @@ enum class RoutingMode(val minGoalConfidence: Double, val minExploreConfidence: 
 }
 
 /** The thresholds in effect, from a [RoutingMode] or set explicitly for an experiment. */
-data class RoutingPolicy(val minGoalConfidence: Double, val minExploreConfidence: Double, val label: String) {
+data class RoutingPolicy(
+    val minGoalConfidence: Double,
+    val minExploreConfidence: Double,
+    val label: String,
+    val fastTextInput: Boolean = false,
+) {
     /** Whether a non-final choice should go to the Reasoning model instead of the fast path. */
     fun escalates(explored: Boolean, confidence: Double): Boolean =
         confidence < if (explored) minExploreConfidence else minGoalConfidence
@@ -26,7 +36,8 @@ data class RoutingPolicy(val minGoalConfidence: Double, val minExploreConfidence
     companion object {
         val DEFAULT_MODE = RoutingMode.BALANCED
 
-        fun of(mode: RoutingMode) = RoutingPolicy(mode.minGoalConfidence, mode.minExploreConfidence, mode.name)
+        fun of(mode: RoutingMode) =
+            RoutingPolicy(mode.minGoalConfidence, mode.minExploreConfidence, mode.name, mode.fastTextInput)
 
         fun custom(minGoalConfidence: Double, minExploreConfidence: Double) =
             RoutingPolicy(minGoalConfidence, minExploreConfidence, "CUSTOM($minGoalConfidence,$minExploreConfidence)")
