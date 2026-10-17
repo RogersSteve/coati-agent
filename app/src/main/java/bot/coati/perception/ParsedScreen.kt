@@ -18,6 +18,8 @@ data class ScreenElement(
     val ops: List<ElementOp>,
     val state: String?,
     val bounds: PixelBounds,
+    /** Texts of the list row holding this element (tree parses only), e.g. a row's badge and price. */
+    val context: String = "",
 ) {
     val centerX: Int get() = (bounds.left + bounds.right) / 2
     val centerY: Int get() = (bounds.top + bounds.bottom) / 2

@@ -2,6 +2,7 @@ package bot.coati.jev
 
 import bot.coati.perception.ElementOp
 import bot.coati.perception.ParsedScreen
+import bot.coati.perception.ScreenElement
 import bot.coati.perception.ScrollAxis
 
 /** Everything the executor may do on one screen. JEV only ever returns one of these keys. */
@@ -51,6 +52,10 @@ object JevCandidates {
         apps: List<String>,
         canType: Boolean,
         returnTo: String? = null,
+        /** Show each element's list-row texts (loop mode: which row a "Hide" button belongs to). */
+        rowContext: Boolean = false,
+        /** Elements to leave out (loop mode: items the loop already acted on). */
+        skip: (ScreenElement) -> Boolean = { false },
     ): List<Candidate> {
         val here = screen.pageKey
         val out = mutableListOf<Candidate>()
@@ -67,14 +72,16 @@ object JevCandidates {
             if (deadEnd) deadEnds += candidate else out += candidate
         }
         for (e in screen.elements) {
+            if (skip(e)) continue
             for (op in e.ops) {
                 if (op == ElementOp.INPUT && !canType) continue
                 val state = e.state?.let { " [$it]" }.orEmpty()
                 val purpose = e.purpose.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
                 val recovery = if (op == ElementOp.TAP && isRecovery(e.text, e.purpose)) " [recovery]" else ""
+                val row = if (rowContext && e.context.isNotBlank()) " [row: ${e.context}]" else ""
                 add(
                     CandidateAction.Element(e.id, op),
-                    "${op.name} ${e.type} '${e.text.take(50)}'$state$purpose$recovery",
+                    "${op.name} ${e.type} '${e.text.take(50)}'$state$purpose$recovery$row",
                     identity(e.text, op.name),
                 )
             }

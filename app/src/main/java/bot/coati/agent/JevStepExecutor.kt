@@ -19,15 +19,18 @@ import bot.coati.jev.BackgroundAdvisor
 import bot.coati.jev.Candidate
 import bot.coati.jev.CandidateAction
 import bot.coati.jev.ExplorationMemory
+import bot.coati.jev.FastLoop
 import bot.coati.jev.HostVerdict
 import bot.coati.jev.JevCandidates
 import bot.coati.jev.JevDecisionEngine
+import bot.coati.jev.JevDecision
 import bot.coati.jev.JevStepInput
 import bot.coati.jev.PreCommitCheck
 import bot.coati.jev.PreviousStep
 import bot.coati.jev.StepOutcome
 import bot.coati.jev.StepRecord
 import bot.coati.jev.StepVerifier
+import bot.coati.model.LoopPlan
 import bot.coati.model.ManualPageObservation
 import bot.coati.model.ModelRouter
 import bot.coati.model.ScreenContext
@@ -151,6 +154,11 @@ class JevStepExecutor(
     private var previousLuma: LumaGrid? = null
     private val recentVerdicts = mutableListOf<HostVerdict>()
 
+    // A repetitive sub-task handed over by the Reasoning model, and the last one (for the audit).
+    private var loop: FastLoop? = null
+    private var lastLoop: FastLoop? = null
+    private var loopActionPending = false
+
     // The last native page OCR found free of painted content; later steps on it skip OCR.
     private var plainPage: Pair<String, Set<String>>? = null
 
@@ -204,7 +212,24 @@ class JevStepExecutor(
         plainPage = null
         hybridCache = null
         recentVerdicts.clear()
+        loop = null
+        lastLoop = null
+        loopActionPending = false
     }
+
+    /** The Reasoning model handed a repetitive sub-task to the fast path. */
+    fun startLoop(plan: LoopPlan) {
+        loop = FastLoop(plan).also { lastLoop = it }
+        loopActionPending = false
+        exploreStreak = 0
+        Log.i(TAG, "Loop started: each='${plan.each}' count=${plan.count} until=${plan.until} scope=${plan.scope}")
+    }
+
+    /** Whether a handed-over loop is still running. */
+    val loopActive: Boolean get() = loop != null
+
+    /** Host record of the task's last loop for the completion audit, or null when none ran. */
+    fun loopEvidence(): String? = lastLoop?.evidence()
 
     fun finishTask() {
         scope.cancel()
@@ -218,6 +243,7 @@ class JevStepExecutor(
             null -> null
         }
         history += StepRecord("reasoning: $label", outcome)
+        loopActionPending = false
         forgetPrevious()
         consecutiveBad = 0
         exploreStreak = 0
@@ -282,12 +308,33 @@ class JevStepExecutor(
         // Host evidence for the previous fast action: pixel diff, texts, target state (no model).
         val before = previousScreen
         val beforeAction = previousCandidate
+        var loopProgressed = false
         if (previous != null && before != null && beforeAction != null) {
             val observation = StepVerifier.observe(before, screen, beforeAction, previousTyped, visual)
             previous = previous!!.copy(observation = observation)
             recentVerdicts += observation.verdict
             if (recentVerdicts.size > PROGRESS_WINDOW) recentVerdicts.removeAt(0)
             Log.i(TAG, "Verify evidence (reusedParse=$reusedParse): ${observation.note}")
+            val active = loop
+            if (active != null && loopActionPending) {
+                loopProgressed = recordLoopOutcome(active, before, screen, beforeAction, observation.verdict)
+            }
+        }
+        loopActionPending = false
+        loop?.let { active ->
+            val until = active.plan.until
+            // Counts and scopes stop on their own; only a repeat-until loop needs the check.
+            val conditionMet = loopProgressed && until != null && active.checksUntil &&
+                untilHolds(active, until, context.screenshotJpeg)
+            val stop = when {
+                active.countReached -> FastLoop.Stop.COUNT_REACHED
+                active.stalled -> FastLoop.Stop.NO_PROGRESS
+                conditionMet -> FastLoop.Stop.CONDITION_MET
+                active.conditionUnseen -> FastLoop.Stop.CONDITION_NOT_VISIBLE
+                active.iterationLimitReached -> FastLoop.Stop.ITERATION_LIMIT
+                else -> null
+            }
+            if (stop != null) return endLoop(active, stop)
         }
         if (previousPage != null && previousIdentity != null) {
             memory.record(previousPage!!, previousIdentity!!, here, screen.summary.ifBlank { here.take(4).joinToString() })
@@ -300,16 +347,43 @@ class JevStepExecutor(
         val manual = manualRuntime?.promptFor(context.appPackage, context.uiTreeJson)
         // Typing is offered only when text exists or the plan that would provide it is pending.
         val canType = textValues.isNotEmpty() || !planReceived
+        val activeLoop = loop
+        // A loop repeats one kind of control: exploration memory would mark every copy a dead end
+        // after the first (labels are compared by their first 24 characters: "Favorite / Favorite CM-").
         val candidates = JevCandidates.build(
-            screen, memory, excluded, apps, canType = canType,
+            screen, memory.takeIf { activeLoop == null }, excluded, apps, canType = canType,
             returnTo = taskPackage.takeIf { strayed },
-        )
+            rowContext = activeLoop != null,
+            skip = { e ->
+                activeLoop != null && (activeLoop.isHandled(e.text) ||
+                    // A scoped loop chooses among the rows' copies of its control only.
+                    (!activeLoop.hostSelects && activeLoop.control != null && !activeLoop.isControl(e.text)))
+            },
+        ).let { all ->
+            // An in-order loop starts with the items in view: the selector scrolled past the first
+            // rows of "the first 10 listings" before acting on any of them.
+            if (activeLoop != null && activeLoop.hostSelects && activeLoop.control == null && activeLoop.scrolls == 0 &&
+                all.any { (it.action as? CandidateAction.Element)?.op == ElementOp.TAP }
+            ) all.filterNot { it.action is CandidateAction.Scroll } else all
+        }
         memory.recordOffered(here, JevCandidates.explorationIdentities(candidates, screen))
-        val decision = decisionEngine.decide(
+        val hostChoice = activeLoop?.let { hostLoopChoice(it, screen, candidates) }
+        if (activeLoop != null && hostChoice is LoopChoice.End) return endLoop(activeLoop, hostChoice.reason)
+        val decision = (hostChoice as? LoopChoice.Act)?.let { act ->
+            JevDecision(
+                candidate = act.candidate,
+                confidence = 1.0,
+                previousOutcome = previous?.observation?.verdict?.let { if (it == HostVerdict.NO_CHANGE) StepOutcome.NO_CHANGE else StepOutcome.SUCCESS },
+                textKey = null,
+                explored = false,
+                jevCalls = 0,
+                outcomeFromHost = true,
+            )
+        } ?: decisionEngine.decide(
             JevStepInput(
                 task = task,
-                subgoals = subgoals,
-                advisorHint = currentHint(currentPackage),
+                subgoals = activeLoop?.let { listOf(it.guidance()) } ?: subgoals,
+                advisorHint = if (activeLoop != null) null else currentHint(currentPackage),
                 appGuide = manual?.text,
                 history = history,
                 screen = screen,
@@ -344,9 +418,16 @@ class JevStepExecutor(
         adviseOnNewPage(stepNumber, task, context, tree, here, manual)
         exploreStreak = if (decision.explored) exploreStreak + 1 else 0
 
-        val chosen: Candidate = decision.candidate
+        var chosen: Candidate = decision.candidate
+        if (activeLoop != null) {
+            when (val next = loopChoice(activeLoop, chosen, candidates)) {
+                is LoopChoice.Act -> chosen = next.candidate
+                is LoopChoice.End -> return endLoop(activeLoop, next.reason)
+            }
+        }
         // A DONE claim is always audited first: a finished task naturally stops finding new pages.
-        val cycling = chosen.action !is CandidateAction.Done && !makingProgress() &&
+        // A loop stays on one page by design; its own stall limit replaces the cycle check.
+        val cycling = activeLoop == null && chosen.action !is CandidateAction.Done && !makingProgress() &&
             (memory.isCycling() || memory.isStagnant())
         when {
             chosen.action is CandidateAction.Escalate -> return escalate("JEV asked for the Reasoning model")
@@ -356,7 +437,8 @@ class JevStepExecutor(
             // screen and the plan. On AndroidWorld, ~600 fast steps failed (no effect or drifted) at 7%
             // for goal-directed choices at confidence >= 0.8, 20-25% below it, and 18-38% for
             // explorations; under budgets of 10-20 steps one wrong move often decided the task.
-            chosen.action !is CandidateAction.Done && routing.escalates(decision.explored, decision.confidence) -> {
+            activeLoop == null && chosen.action !is CandidateAction.Done &&
+                routing.escalates(decision.explored, decision.confidence) -> {
                 exploreStreak = 0
                 return escalate(
                     "the selector is not sure enough for ${routing.label} routing (confidence " +
@@ -366,7 +448,7 @@ class JevStepExecutor(
             // Every new page resets the cycle check, so blind exploration through a large app never
             // escalates on its own: after a long streak without one confident choice, the task has
             // usually left its target page. One Reasoning step reorients; JEV keeps its memory.
-            chosen.action !is CandidateAction.Done && exploreStreak >= MAX_EXPLORE_STREAK -> {
+            activeLoop == null && chosen.action !is CandidateAction.Done && exploreStreak >= MAX_EXPLORE_STREAK -> {
                 exploreStreak = 0
                 return escalate("$MAX_EXPLORE_STREAK exploratory steps in a row without a confident choice")
             }
@@ -451,8 +533,103 @@ class JevStepExecutor(
         previousKey = chosen.key
         previousAction = action
         previousTree = tree
+        loopActionPending = activeLoop != null
         delay(SETTLE_MS)
         return FastStep.Acted
+    }
+
+    /**
+     * The next item of a loop the host runs itself, or null when the selector must choose: the
+     * topmost copy of the control on an item not yet handled, else a scroll down, else the end.
+     */
+    private fun hostLoopChoice(active: FastLoop, screen: ParsedScreen, candidates: List<Candidate>): LoopChoice? {
+        if (active.control == null) return null
+        // A scope the host can read (a badge, given IDs) is walked like an in-order loop over its items.
+        if (!active.hostSelects && active.scopeKeywords.isEmpty()) return null
+        val next = candidates.filter { candidate ->
+            val element = (candidate.action as? CandidateAction.Element)?.takeIf { it.op == ElementOp.TAP }
+                ?.let { screen.element(it.elementId) }
+            element != null && active.isControl(element.text) &&
+                (active.hostSelects || active.matchesScope(element.text, element.context))
+        }.minByOrNull { screen.element((it.action as CandidateAction.Element).elementId)!!.centerY }
+        if (next != null) return LoopChoice.Act(next)
+        if (!active.hostSelects && !active.scopeMatched) return null // the keywords never matched: the selector decides
+        if (!active.itemLoop) return null // the control left the screen; the selector finds it again
+        if (active.reachedEnd) return LoopChoice.End(FastLoop.Stop.END_OF_LIST)
+        return candidates.firstOrNull { (it.action as? CandidateAction.Scroll)?.direction == "DOWN" }
+            ?.let { LoopChoice.Act(it) } ?: LoopChoice.End(FastLoop.Stop.END_OF_LIST)
+    }
+
+    private sealed interface LoopChoice {
+        data class Act(val candidate: Candidate) : LoopChoice
+        data class End(val reason: FastLoop.Stop) : LoopChoice
+    }
+
+    /**
+     * What the loop does with the selector's choice. Finishing is the host's call: a "done" or a
+     * scroll past the end ends the loop, and a loop over every matching item first scrolls down to
+     * make sure nothing is left below (one Sold listing hidden, then "done", was accepted before).
+     */
+    private fun loopChoice(active: FastLoop, chosen: Candidate, candidates: List<Candidate>): LoopChoice {
+        val action = chosen.action
+        val finished = action is CandidateAction.Done || action is CandidateAction.Escalate ||
+            (action is CandidateAction.Scroll && action.direction == "DOWN" && active.reachedEnd)
+        if (!finished) return LoopChoice.Act(chosen)
+        if (active.scoped && !active.reachedEnd) {
+            candidates.firstOrNull { (it.action as? CandidateAction.Scroll)?.direction == "DOWN" }
+                ?.let { return LoopChoice.Act(it) }
+            active.recordEndOfList()
+        }
+        return LoopChoice.End(
+            if (active.scoped && active.reachedEnd) FastLoop.Stop.END_OF_LIST else FastLoop.Stop.SELECTOR_FINISHED,
+        )
+    }
+
+    /** Books the previous loop action; true when it handled one more item. */
+    private fun recordLoopOutcome(
+        active: FastLoop,
+        before: ParsedScreen,
+        after: ParsedScreen,
+        action: CandidateAction,
+        verdict: HostVerdict,
+    ): Boolean {
+        when (action) {
+            is CandidateAction.Scroll -> if (action.direction == "DOWN") {
+                if (verdict == HostVerdict.NO_CHANGE) active.recordEndOfList() else active.recordScrolled()
+            }
+            is CandidateAction.Element -> {
+                // Leaving the list (a row opened instead of its button) is not an item handled.
+                val stayed = before.packageName == after.packageName && ParsedScreen.samePage(before.pageKey, after.pageKey)
+                if (verdict != HostVerdict.NO_CHANGE && stayed) {
+                    active.recordProgress(before.element(action.elementId)?.text.orEmpty())
+                    return true
+                }
+                active.recordNoProgress()
+            }
+            else -> active.recordNoProgress()
+        }
+        return false
+    }
+
+    /** Whether the loop's stop condition visibly holds, by one compact check of the current screen. */
+    private suspend fun untilHolds(active: FastLoop, condition: String, screenshot: ByteArray): Boolean {
+        val result = modelRouter.fast.quickCheck(
+            screenshot,
+            "Does the current screenshot visibly show that this condition holds: $condition? " +
+                "Answer true only when it is clearly shown. If the screenshot does not show the thing the " +
+                "condition is about at all, answer false with category \"$NOT_VISIBLE\".",
+        ).getOrNull()
+        Log.i(TAG, "Loop stop condition '$condition': answer=${result?.answer} confidence=${result?.confidence} category=${result?.category}")
+        if (result != null && result.isValid) active.recordConditionVisible(result.category != NOT_VISIBLE)
+        return result != null && result.isValid && result.answer && result.confidence >= UNTIL_MIN_CONFIDENCE
+    }
+
+    private fun endLoop(active: FastLoop, reason: FastLoop.Stop): FastStep {
+        active.finish(reason)
+        loop = null
+        loopActionPending = false
+        Log.i(TAG, "Loop ended: ${active.summary()}")
+        return escalate(active.summary())
     }
 
     /**
@@ -604,6 +781,8 @@ class JevStepExecutor(
         }
         textValues.putAll(guidance.textValues)
         guidance.apps.filterNot(apps::contains).forEach(apps::add)
+        // Only the first planned loop: a later plan that still describes it must not restart the count.
+        guidance.loop?.takeIf { loop == null && lastLoop == null }?.let(::startLoop)
         Log.i(TAG, "Guidance(step=${guidance.forStep}, app=${guidance.forPackage}): subgoals=${subgoals.size}, texts=${textValues.keys}, hint=${hint?.take(60)}")
     }
 
@@ -807,6 +986,8 @@ class JevStepExecutor(
         private const val SLOW_OCR_MS = 3_000L
         private const val MAX_SLOW_OCR_CALLS = 2
         private const val STALE_COORDINATES = "stale_screenshot_coordinates"
+        private const val UNTIL_MIN_CONFIDENCE = 0.7f
+        private const val NOT_VISIBLE = "not_visible"
 
         /** Navigation is reversible; typing and long-press menus are standard interactions. */
         internal fun baseSafetyLevel(action: CandidateAction): String =

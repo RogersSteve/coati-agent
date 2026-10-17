@@ -4,6 +4,7 @@ import android.util.Log
 import bot.coati.agent.PromptBuilder
 import bot.coati.model.CloudModelGateway
 import bot.coati.model.GatewayUtils
+import bot.coati.model.LoopPlan
 import bot.coati.model.ManualPageObservation
 import bot.coati.model.ModelCallPurpose
 import bot.coati.model.StructuredTextRequest
@@ -25,6 +26,8 @@ data class Guidance(
     val forStep: Int = 0,
     /** The app on that screen; null for the task-wide plan. Its hint only applies inside that app. */
     val forPackage: String? = null,
+    /** A repetitive sub-task the plan hands to the fast path (see FastLoop). */
+    val loop: LoopPlan? = null,
 )
 
 /**
@@ -209,7 +212,20 @@ class BackgroundAdvisor(
             {"subgoals":["short ordered sub-goals"],"text_values":{"key":"exact text the executor must type"},"apps":["visible app names the task needs, besides the current one"]}
             text_values must contain every string that will have to be typed (search queries, messages).
             Sub-goals are hints only: when unsure where a control lives, say so (e.g. "find X, probably under settings").
+            $LOOP_PLAN_RULE
         """.trimIndent()
+
+        /**
+         * The plan is the only Reasoning call before the fast path's first step, so a loop must be
+         * planned here: without it the selector scrolled past the first rows of a "first 10" task.
+         */
+        private const val LOOP_PLAN_RULE =
+            "If the task is mainly a repetition of one simple action over many items of a list or page " +
+                "(the same kind of button on many rows, or refreshing until something changes), also add " +
+                "\"loop\":{\"each\":\"the action for one item\",\"count\":number of items or null," +
+                "\"until\":\"a visible stop condition or null\",\"scope\":\"which items, when they are not simply " +
+                "the next ones in list order (e.g. rows marked Sold, or given IDs), else null\"}. Omit loop otherwise, " +
+                "and never use it for typing text or switching apps."
 
         fun advisePrompt(
             task: String,
@@ -249,6 +265,7 @@ class BackgroundAdvisor(
                 apps = strings("apps").take(4),
                 manualObservation = GatewayUtils.parseManualObservation(json),
                 forStep = step,
+                loop = GatewayUtils.parseLoopPlan(json),
             )
         }
     }

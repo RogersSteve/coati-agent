@@ -341,4 +341,26 @@ class AgentLoopTest {
         assertEquals(2 to 20_000L, AgentLoop.completionAuditBudget(1))
         assertEquals(1 to 60_000L, AgentLoop.completionAuditBudget(5))
     }
+
+    @Test
+    fun `a loop record reaches both audits as host evidence`() {
+        val record = "Per-item action: tap Hide. Items the host saw change after the action (1): Hide CM-3305."
+        val single = AgentLoop.buildTaskCompletionAuditQuestion("Hide every listing marked Sold", loopRecord = record)
+        val crossApp = AgentLoop.buildTaskCompletionAuditQuestion(
+            "Hide every listing marked Sold", listOf("com.google.android.keep" to 3), record,
+        )
+        for (question in listOf(single, crossApp)) {
+            assertTrue(question.contains("Host record (not the agent's claims): $record"))
+            assertTrue(question.contains("did not reach the end of the list, answer false"))
+            assertTrue(question.contains("character by character"))
+        }
+        assertFalse(AgentLoop.buildTaskCompletionAuditQuestion("Turn on Wi-Fi").contains("Host record"))
+    }
+
+    @Test
+    fun `the fast-loop instruction asks for the loop object and a wait action`() {
+        assertTrue(AgentLoop.FAST_LOOP_INSTRUCTION.contains("\"loop\": {\"each\""))
+        assertTrue(AgentLoop.FAST_LOOP_INSTRUCTION.contains("set action to \"wait\""))
+        assertTrue(AgentLoop.FAST_LOOP_INSTRUCTION.contains("Never use it for typing text or switching apps"))
+    }
 }

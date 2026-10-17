@@ -96,7 +96,18 @@ object GatewayUtils {
             usedManualHeadings = usedManualHeadings,
             manualObservation = manualObservation,
             answer = json.answerText("answer"),
+            loop = parseLoopPlan(json),
         )
+    }
+
+    /** The optional "loop" object; null when absent, malformed, or without a per-item action. */
+    internal fun parseLoopPlan(json: JSONObject): LoopPlan? {
+        val loop = json.optJSONObject("loop") ?: return null
+        val each = loop.optString("each", "").trim().takeIf { it.isNotEmpty() } ?: return null
+        val count = loop.opt("count").let { (it as? Number)?.toInt() ?: (it as? String)?.trim()?.toIntOrNull() }
+            ?.takeIf { it > 0 }
+        fun text(key: String) = loop.optString(key, "").trim().takeIf { it.isNotEmpty() && it != "null" }
+        return LoopPlan(each = each, count = count, until = text("until"), scope = text("scope"))
     }
 
     private fun parseCoordinate(json: JSONObject, key: String): Int? {

@@ -25,6 +25,7 @@ object A11yScreenParser {
         }
         val elements = mutableListOf<ScreenElement>()
         val regions = mutableListOf<ScreenRegion>()
+        val parents = parentsOf(root)
         for (node in nodes) {
             val bounds = node.bounds.clampTo(displayWidth, displayHeight) ?: continue
             if (node.isScrollable) {
@@ -47,6 +48,7 @@ object A11yScreenParser {
                 ops = ops,
                 state = stateOf(node),
                 bounds = bounds,
+                context = rowContext(node, parents, displayWidth, displayHeight),
             )
         }
         val staticTexts = nodes.filter { !it.isActionable() }
@@ -93,6 +95,42 @@ object A11yScreenParser {
     }
 
     private fun UiTreeNode.isActionable() = isClickable || isEditable || isLongClickable
+
+    private fun parentsOf(root: UiTreeNode): Map<UiTreeNode, UiTreeNode> {
+        val out = java.util.IdentityHashMap<UiTreeNode, UiTreeNode>()
+        val stack = ArrayDeque<UiTreeNode>().apply { add(root) }
+        while (stack.isNotEmpty()) {
+            val node = stack.removeLast()
+            node.children.forEach { out[it] = node; stack.add(it) }
+        }
+        return out
+    }
+
+    /**
+     * The other texts of the list row that holds [node]: the nearest ancestor that is as wide as a
+     * row and no taller than one, with texts outside [node]. A row's own buttons ("Hide", "Favorite")
+     * say nothing about which item they act on; its badge, title and price do.
+     */
+    internal fun rowContext(node: UiTreeNode, parents: Map<UiTreeNode, UiTreeNode>, width: Int, height: Int): String {
+        // Identity set: UiTreeNode equality would hash android.graphics.Rect.
+        val own = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<UiTreeNode, Boolean>()).apply { addAll(flatten(node)) }
+        var current = parents[node]
+        while (current != null) {
+            val b = current.bounds
+            if (b.right - b.left >= width * ROW_MIN_WIDTH && b.bottom - b.top <= height * ROW_MAX_HEIGHT) {
+                val texts = flatten(current).filter { it !in own && it.isVisibleToUser && !it.isActionable() }
+                    .mapNotNull { (it.text ?: it.contentDescription)?.trim()?.takeIf(String::isNotBlank) }
+                    .distinct()
+                if (texts.size >= ROW_MIN_TEXTS) return texts.joinToString(" · ").take(MAX_ROW_CONTEXT)
+            }
+            if (b.bottom - b.top > height * ROW_MAX_HEIGHT) return ""
+            current = parents[current]
+        }
+        return ""
+    }
+
+    private fun android.graphics.Rect.width() = right - left
+    private fun android.graphics.Rect.height() = bottom - top
 
     private fun label(node: UiTreeNode): String {
         val own = listOfNotNull(node.text, node.contentDescription, node.hintText)
@@ -147,6 +185,10 @@ object A11yScreenParser {
     private fun PixelBounds.height() = bottom - top
 
     private const val MAX_LABELLED_AREA = 0.25
+    private const val ROW_MIN_WIDTH = 0.6
+    private const val ROW_MAX_HEIGHT = 0.3
+    private const val ROW_MIN_TEXTS = 2
+    private const val MAX_ROW_CONTEXT = 100
     private const val MIN_ACTIONABLE = 3
     private const val MIN_LABELLED_RATIO = 0.8
     private const val MAX_TEXT = 80
