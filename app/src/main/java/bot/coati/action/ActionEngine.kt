@@ -36,11 +36,12 @@ class ActionEngine(
             when (action) {
                 is AgentAction.Tap -> withClickFallback(action.x, action.y, longClick = false) {
                     executeTap(action.x, action.y)
-                }
+                }.withSliderSnap(action.x, action.y)
                 is AgentAction.LongPress -> withClickFallback(action.x, action.y, longClick = true) {
                     executeLongPress(action.x, action.y, action.durationMs)
                 }
                 is AgentAction.Swipe -> executeSwipe(action.x1, action.y1, action.x2, action.y2, action.durationMs)
+                    .withSliderSnap(action.x2, action.y2)
                 is AgentAction.InputText -> executeInputText(action.text, action.mode)
                 is AgentAction.FocusAndInputText -> executeFocusAndInputText(
                     action.x,
@@ -502,6 +503,13 @@ class ActionEngine(
                 )
             }
         }
+    }
+
+    /** A tap or drag that ended at the end of a slider also sets that slider to its extreme value. */
+    internal fun ActionResult.withSliderSnap(x: Int, y: Int): ActionResult {
+        if (!success) return this
+        val value = a11y.snapSliderAt(x, y) ?: return this
+        return copy(message = "$message; slider set to its end value $value")
     }
 
     private suspend fun launchApp(intent: Intent, packageName: String, appName: String?): ActionResult {
