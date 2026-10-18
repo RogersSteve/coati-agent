@@ -94,4 +94,24 @@ class FastLoopTest {
         assertFalse(FastLoop(LoopPlan(each = "tap Favorite", count = 10, until = "10 favorites")).checksUntil)
         assertFalse(FastLoop(LoopPlan(each = "tap Hide", until = "bottom", scope = "rows marked SOLD")).checksUntil)
     }
+
+    @Test
+    fun `a repeat-until loop that names the item it watches is not an item loop`() {
+        // R4 was planned with scope "car listing CM-9338" and run as an item loop over that one listing.
+        val loop = FastLoop(LoopPlan(each = "tap Refresh", until = "CM-9338 price drops below \$40,000", scope = "car listing CM-9338"))
+        assertFalse(loop.scoped)
+        assertFalse(loop.itemLoop)
+        assertTrue(FastLoop(LoopPlan(each = "tap Hide", scope = "rows marked SOLD")).scoped)
+    }
+
+    @Test
+    fun `actions that never handle an item stall the loop even when every one changes the screen`() {
+        val loop = FastLoop(LoopPlan(each = "tap Refresh", until = "CM-9338 price drops below \$40,000"))
+        repeat(7) { loop.recordAction(); loop.recordScrolled() }
+        assertFalse(loop.stalled)
+        loop.recordAction()
+        assertTrue(loop.stalled)
+        loop.recordProgress("Refresh")
+        assertFalse(loop.stalled)
+    }
 }
