@@ -7,7 +7,7 @@
 An AI agent you install on your Android phone. Describe the result you want; Coati operates your other
 apps to get there, and reports success only when it can show it.
 
-[Paper (WWW 2027 submission) — link coming soon](#citation) ·
+[Paper — link coming soon](#citation) ·
 [Demo](#demo) ·
 [Results](#results) ·
 [How it works](#how-it-works) ·
@@ -200,19 +200,27 @@ environment and credential rules.
 
 ## Citation
 
+Pu Shi and Yudou Ying contributed equally; Yuhua Zheng is the corresponding author.
+
 ```bibtex
-@inproceedings{coati2027,
-  title     = {Coati: Host-Grounded Execution for Installable Mobile GUI Agents},
-  author    = {{Coati Authors}},
-  booktitle = {Proceedings of the ACM Web Conference 2027 (WWW '27)},
-  year      = {2027},
-  note      = {To appear}
+@misc{shi2026coati,
+  title  = {Coati: Host-Grounded Execution for Installable Mobile GUI Agents},
+  author = {Pu Shi and Yudou Ying and Hanlei Shi and Yuhua Zheng},
+  year   = {2026},
+  note   = {Under review}
 }
 ```
 
 ## License
 
-License: TBD.
+Coati is free for **noncommercial use** under the
+[PolyForm Noncommercial License 1.0.0](LICENSE): personal use, research, education, and use by
+noncommercial organizations such as universities and public research institutions.
+
+**Commercial use requires a separate license.** This includes use inside a company, in a commercial
+product or service, or to provide services to others for a fee. Aspects of Coati are the subject of a
+patent application; for a commercial license, contact the patent holder identified by the patent
+number in [PATENTS.md](PATENTS.md).
 
 ## Acknowledgments
 
