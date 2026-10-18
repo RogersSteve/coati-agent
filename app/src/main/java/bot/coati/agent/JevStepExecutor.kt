@@ -593,6 +593,7 @@ class JevStepExecutor(
         action: CandidateAction,
         verdict: HostVerdict,
     ): Boolean {
+        active.recordAction()
         when (action) {
             is CandidateAction.Scroll -> if (action.direction == "DOWN") {
                 if (verdict == HostVerdict.NO_CHANGE) active.recordEndOfList() else active.recordScrolled()

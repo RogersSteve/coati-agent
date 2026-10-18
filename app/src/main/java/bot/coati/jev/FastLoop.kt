@@ -35,11 +35,19 @@ class FastLoop(val plan: LoopPlan) {
      */
     val hostSelects: Boolean get() = !scoped
 
+    // A repeat-until loop may name the item it watches ("refresh until CM-9338 drops below $40,000",
+    // planned with scope "car listing CM-9338"): taken as an item loop it tapped the listing, then
+    // scrolled up and down for 200 steps. A scope whose every keyword appears in the stop condition
+    // is that watched item, not the items to act on.
+
     /**
      * Whether the scope names which items (a badge, given IDs, a negated condition) rather than only
      * their order: "the first 10 listings in order" is an in-order loop.
      */
-    val scoped: Boolean = plan.scope?.let { keywordsOf(it).isNotEmpty() || isNegated(it) } ?: false
+    val scoped: Boolean = plan.scope?.let { scope ->
+        val keywords = keywordsOf(scope)
+        (keywords.isNotEmpty() || isNegated(scope)) && !watches(keywords, plan.until)
+    } ?: false
 
     /** The control the loop repeats ("Favorite", "Hide", "Refresh"), learned from its first success. */
     var control: String? = null
@@ -98,9 +106,15 @@ class FastLoop(val plan: LoopPlan) {
     fun recordProgress(label: String) {
         iterations++
         idle = 0
+        sinceProgress = 0
         if (control == null) control = controlOf(label).takeIf { it.isNotBlank() }
         val key = itemKey(label)
         if (!itemLoop || itemKeys.add(key)) itemLabels += label.lineSequence().first().take(LABEL_CHARS)
+    }
+
+    /** Any loop action, before its outcome is booked. */
+    fun recordAction() {
+        sinceProgress++
     }
 
     /** The previous loop action had no effect on its target (or opened something else). */
@@ -123,7 +137,13 @@ class FastLoop(val plan: LoopPlan) {
     fun isControl(label: String): Boolean = control?.equals(controlOf(label), ignoreCase = true) == true
 
     val countReached: Boolean get() = plan.count != null && itemLabels.size >= plan.count
-    val stalled: Boolean get() = idle >= MAX_IDLE
+    /**
+     * Scrolls change the screen, so they never counted as "no effect": a loop that only scrolled up
+     * and down ran to the 200-step task limit (R4, 3 of 5 runs). Any run of actions without an item
+     * handled now ends the loop as well.
+     */
+    val stalled: Boolean get() = idle >= MAX_IDLE || sinceProgress >= MAX_ACTIONS_WITHOUT_PROGRESS
+    private var sinceProgress = 0
 
     fun finish(reason: Stop) {
         stop = reason
@@ -161,6 +181,7 @@ class FastLoop(val plan: LoopPlan) {
 
     companion object {
         private const val MAX_IDLE = 3
+        private const val MAX_ACTIONS_WITHOUT_PROGRESS = 8
         private const val MAX_UNSEEN = 2
         /** Repeat-until loops only; a monitor that never sees its condition must not run forever. */
         private const val MAX_REPEATS = 30
@@ -197,6 +218,9 @@ class FastLoop(val plan: LoopPlan) {
          * dates, prices), which survive a control's state flipping ("Favorite" -> "Favorited");
          * without such tokens, the whole normalized label.
          */
+        internal fun watches(keywords: Set<String>, until: String?): Boolean =
+            until != null && keywords.isNotEmpty() && keywords.all { until.lowercase().contains(it) }
+
         fun itemKey(label: String): String {
             val tokens = label.split(TOKEN_SPLIT).map { it.trim('.', '-').lowercase() }
                 .filter { it.length >= 3 && it.any(Char::isDigit) }
