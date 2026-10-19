@@ -1,5 +1,6 @@
 package bot.coati.agent
 
+import android.os.SystemClock
 import android.util.Log
 import bot.coati.coordinates.DisplaySpaceReader
 import bot.coati.coordinates.ModelCoordinateAction
@@ -635,8 +636,10 @@ class AgentLoop(
                 actionHistory.add(ActionRecord(response.action, response.statusUpdate, screenSig, VerifyOutcome.UNKNOWN,
                     actionTarget(response.x, response.y, response.params)))
             }
+            var loadingRechecked = false
             verifyLoop@ while (verifyEnabled) {
-                delay(randomDelay())
+                val settled = UiSettle.await({ a11y.appScreenSnapshot() }, SystemClock::uptimeMillis)
+                if (!settled) Log.i(TAG, "Screen still changing after ${UiSettle.CAP_MS} ms; verifying anyway")
                 val afterContext = captureFrame()?.let { withCoordinateMapping(it) }
                     ?: throw Exception("Failed to capture verification screenshot")
                 val afterTree = if (treeWithheld) null else afterContext.uiTree ?: a11y.getUiTree()
@@ -679,6 +682,17 @@ class AgentLoop(
                 }
 
                 Log.i(TAG, "Verify: ${verifyResult.outcome} - ${verifyResult.reason}")
+
+                // An after-screen caught blank, on a splash screen or loading says nothing about the
+                // action yet: look once more instead of spending a model step on a wait.
+                if (!loadingRechecked && verifyResult.outcome in RECHECKABLE_OUTCOMES &&
+                    UiSettle.describesLoading(verifyResult.reason, verifyResult.observation)
+                ) {
+                    loadingRechecked = true
+                    Log.i(TAG, "Verify saw a loading screen; recapturing once before judging the action")
+                    delay(LOADING_RECHECK_DELAY_MS)
+                    continue@verifyLoop
+                }
 
                 // Record action history
                 actionHistory.add(ActionRecord(
@@ -1295,6 +1309,8 @@ class AgentLoop(
         private const val CAPTURE_RETRY_DELAY_MS = 1_000L
         private const val COORDINATE_RECAPTURES = 3
         private const val COORDINATE_RECAPTURE_DELAY_MS = 250L
+        private const val LOADING_RECHECK_DELAY_MS = 1_000L
+        private val RECHECKABLE_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.UNKNOWN, VerifyOutcome.DRIFTED)
         const val MAX_STEPS = 200
         private const val MAX_REFUNDED_STEPS = 20
         private const val MAX_CONSECUTIVE_FAILURES = 3

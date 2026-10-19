@@ -16,6 +16,7 @@ import bot.coati.service.DirectTextEditMode
 import bot.coati.service.DirectTextEditResult
 import bot.coati.service.DirectTextEditStatus
 import bot.coati.service.EditorInputProfile
+import bot.coati.service.UiTreeNode
 import bot.coati.service.allowsEmptySingleLineSetTextFallback
 import bot.coati.service.isObservablyEmptyEditor
 import kotlinx.coroutines.delay
@@ -541,7 +542,7 @@ class ActionEngine(
     }
 
     /**
-     * Waits until the launched app's window has content. 74 of 195 AndroidWorld app launches were
+     * Waits until the launched app's window has content, past its splash screen. 74 of 195 AndroidWorld app launches were
      * observed as a black or blank screen 500 ms after the intent; the model then spent steps on
      * waits that verification judged FAILED.
      */
@@ -551,7 +552,7 @@ class ActionEngine(
             val root = a11y.rootInActiveWindow
             if (root?.packageName?.toString() == packageName && root.childCount > 0) {
                 val tree = a11y.getUiTree()
-                if (tree != null && tree.flatCount() >= MIN_RENDERED_NODES) {
+                if (tree != null && isRendered(tree)) {
                     // The tree is published before the first frame is drawn.
                     delay(APP_RENDER_SETTLE_MS)
                     return
@@ -602,6 +603,18 @@ class ActionEngine(
         private const val APP_RENDER_POLL_MS = 200L
         private const val APP_RENDER_SETTLE_MS = 300L
         private const val MIN_RENDERED_NODES = 5
+
+        /**
+         * Whether a launched app shows its real first screen: enough nodes, and at least one with text
+         * or one the user can act on. A splash screen (a logo, perhaps described, and a progress bar)
+         * has neither, and a screenshot taken there was judged a failed launch.
+         */
+        internal fun isRendered(tree: UiTreeNode): Boolean =
+            tree.flatCount() >= MIN_RENDERED_NODES && tree.hasContent()
+
+        private fun UiTreeNode.hasContent(): Boolean =
+            !text.isNullOrBlank() || isClickable || isEditable ||
+                isScrollable || children.any { it.hasContent() }
 
         /**
          * A tap is a short press, like adb's `input tap`. Some views drop a longer press: right after

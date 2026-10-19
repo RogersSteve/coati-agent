@@ -1,6 +1,8 @@
 package bot.coati.action
 
+import bot.coati.service.UiTreeNode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -243,5 +245,19 @@ class ActionEngineTest {
         )
 
         assertNotEquals(r1, r2)
+    }
+
+    @Test
+    fun `a splash screen is not a rendered app`() {
+        fun node(text: String? = null, clickable: Boolean = false, children: List<UiTreeNode> = emptyList()) =
+            UiTreeNode(
+                className = "android.view.View", text = text, contentDescription = null, bounds = android.graphics.Rect(),
+                isClickable = clickable, isScrollable = false, viewIdResourceName = null, children = children,
+            )
+        val splash = node(children = listOf(node(), node(), node(), node(children = listOf(node()))))
+        assertFalse(ActionEngine.isRendered(splash))
+        val home = node(children = listOf(node(), node(text = "Recipes"), node(), node(clickable = true)))
+        assertTrue(ActionEngine.isRendered(home))
+        assertFalse(ActionEngine.isRendered(node(text = "Loading")))
     }
 }
