@@ -190,4 +190,22 @@ class GatewayUtilsTest {
         assertNull(GatewayUtils.parseLoopPlan(org.json.JSONObject("""{"action": "tap"}""")))
         assertNull(GatewayUtils.parseLoopPlan(org.json.JSONObject("""{"loop": {"each": "tap", "count": 0}}"""))!!.count)
     }
+
+    @Test
+    fun `notes parse from an array or one string and default to empty`() {
+        assertEquals(
+            listOf("Title: Pasta", "Servings: 4"),
+            GatewayUtils.parseNotes(org.json.JSONObject("""{"notes": ["Title: Pasta", " ", null, "Servings: 4"]}""")),
+        )
+        assertEquals(
+            listOf("Title: Pasta", "Servings: 4"),
+            GatewayUtils.parseNotes(org.json.JSONObject("""{"notes": "- Title: Pasta\n- Servings: 4\n"}""")),
+        )
+        assertEquals(emptyList<String>(), GatewayUtils.parseNotes(org.json.JSONObject("""{"notes": null}""")))
+        assertEquals(emptyList<String>(), GatewayUtils.parseNotes(org.json.JSONObject("""{"action": "tap"}""")))
+        val response = GatewayUtils.parseModelResponse(
+            """{"action": "tap", "x": 10, "y": 20, "notes": ["Due Monday: 3 tasks"]}""",
+        )
+        assertEquals(listOf("Due Monday: 3 tasks"), response.notes)
+    }
 }

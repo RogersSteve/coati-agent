@@ -84,6 +84,8 @@ class AgentLoop(
     private val autocompact = Autocompact()
     private val exceptionHandler = ExceptionHandler()
     private val capabilityFailureLedger = CapabilityFailureLedger()
+    // Kept outside conversationHistory, so Autocompact never summarizes them away.
+    private val taskNotes = TaskNotes()
     private val screenshotCache = mutableListOf<ByteArray>()
     private val appFrames = AppResultFrames()
     // Home screens and system chrome hold no task results.
@@ -128,6 +130,7 @@ class AgentLoop(
         emergencyStop = false
         exceptionHandler.reset()
         capabilityFailureLedger.reset()
+        taskNotes.clear()
         resumedFromPause = false
         replanHint = null
         lastStepFeedback = null
@@ -378,6 +381,10 @@ class AgentLoop(
             val response = handleModelResult(result, task)
             if (response == null) continue
             response.loop?.let { plan -> fastExecutor?.takeIf { it.activeForTask }?.startLoop(plan) }
+            if (response.notes.isNotEmpty()) {
+                val accepted = taskNotes.merge(response.notes)
+                Log.i(TAG, "Task notes: +$accepted, ${taskNotes.entries().size} kept")
+            }
             manualRuntime?.recordAttribution(renderedManual, response.usedManualHeadings)
             val transition = pendingManualTransition
                 ?.takeIf { it.destinationPackage == screenContext.appPackage }
@@ -898,6 +905,7 @@ class AgentLoop(
                 sb.append("\n- $constraint")
             }
         }
+        taskNotes.render()?.let { sb.append("\n\n").append(it) }
         if (manualSection != null) {
             sb.append("\n\n$manualSection")
         }
@@ -1169,6 +1177,7 @@ class AgentLoop(
             task,
             earlier.map { it.packageName to it.step },
             fastExecutor?.loopEvidence(),
+            taskNotes.entries(),
         )
         if (earlier.isNotEmpty()) {
             Log.i(TAG, "Completion audit includes earlier screens ${earlier.map { "${it.packageName}@${it.step}" }}")
@@ -1363,13 +1372,29 @@ class AgentLoop(
             task: String,
             earlierScreens: List<Pair<String, Int>> = emptyList(),
             loopRecord: String? = null,
+            notes: List<String> = emptyList(),
         ): String {
             val question = if (earlierScreens.isNotEmpty()) {
                 buildCrossAppCompletionAuditQuestion(task, earlierScreens)
             } else {
                 buildSingleScreenCompletionAuditQuestion(task)
             }
-            return if (loopRecord == null) question else question + "\n\n" + loopEvidence(loopRecord)
+            return buildString {
+                append(question)
+                if (loopRecord != null) append("\n\n").append(loopEvidence(loopRecord))
+                if (notes.isNotEmpty()) append("\n\n").append(notesEvidence(notes))
+            }
+        }
+
+        /**
+         * What the agent copied from screens no longer shown (a meeting time, the tracks it counted).
+         * The host kept the text verbatim, but the agent wrote it, so a screenshot wins over a note.
+         */
+        private fun notesEvidence(notes: List<String>): String = buildString {
+            append("Notes the agent recorded from screens it read earlier in this task (kept verbatim by the host, ")
+            append("written by the agent): use them as evidence for information that is no longer on screen, ")
+            append("but where a screenshot contradicts a note, the screenshot wins.")
+            notes.forEach { append("\n- ").append(it) }
         }
 
         /**

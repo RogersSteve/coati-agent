@@ -367,4 +367,19 @@ class AgentLoopTest {
         assertTrue(AgentLoop.FAST_LOOP_INSTRUCTION.contains("set action to \"wait\""))
         assertTrue(AgentLoop.FAST_LOOP_INSTRUCTION.contains("Never use it for typing text or switching apps"))
     }
+
+    @Test
+    fun `task notes reach the audit as host-kept evidence`() {
+        val notes = listOf("Meeting with Ana: 14:30", "Tracks counted: Morning Run, Evening Walk")
+        val single = AgentLoop.buildTaskCompletionAuditQuestion("When is my next meeting with Ana?", notes = notes)
+        val crossApp = AgentLoop.buildTaskCompletionAuditQuestion(
+            "Copy the recipe", listOf("com.example.notes" to 2), notes = notes,
+        )
+        for (question in listOf(single, crossApp)) {
+            assertTrue(question.contains("kept verbatim by the host"))
+            assertTrue(question.contains("- Meeting with Ana: 14:30"))
+            assertTrue(question.contains("the screenshot wins"))
+        }
+        assertFalse(AgentLoop.buildTaskCompletionAuditQuestion("Turn on Wi-Fi").contains("Notes the agent recorded"))
+    }
 }
