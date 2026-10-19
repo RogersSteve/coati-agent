@@ -382,4 +382,11 @@ class AgentLoopTest {
         }
         assertFalse(AgentLoop.buildTaskCompletionAuditQuestion("Turn on Wi-Fi").contains("Notes the agent recorded"))
     }
+
+    @Test
+    fun `the budget line counts the steps left after the current one`() {
+        assertEquals("[BUDGET] step 3 of 10, 7 left after this one.", AgentLoop.budgetLine(3, 10))
+        assertTrue(AgentLoop.budgetLine(9, 10).contains("Few steps remain"))
+        assertTrue(AgentLoop.budgetLine(12, 10).contains("0 left"))
+    }
 }

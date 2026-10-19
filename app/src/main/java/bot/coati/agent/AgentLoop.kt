@@ -906,6 +906,7 @@ class AgentLoop(
         learningObservationInstruction: String?,
     ): String {
         val sb = StringBuilder(task)
+        sb.append("\n\n").append(budgetLine(stepCount, maxSteps))
         if (lastStepFeedback != null) {
             sb.append("\n\n[LAST STEP] $lastStepFeedback")
         }
@@ -1311,6 +1312,7 @@ class AgentLoop(
         private const val COORDINATE_RECAPTURES = 3
         private const val COORDINATE_RECAPTURE_DELAY_MS = 250L
         private const val LOADING_RECHECK_DELAY_MS = 1_000L
+        private const val LOW_BUDGET_STEPS = 2
         private val RECHECKABLE_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.UNKNOWN, VerifyOutcome.DRIFTED)
         const val MAX_STEPS = 200
         private const val MAX_REFUNDED_STEPS = 20
@@ -1364,6 +1366,16 @@ class AgentLoop(
          * reads as verified: it used to show a plain "Task complete" (2 of 116 formal AndroidWorld
          * episodes and both of Yudou's National Museum runs).
          */
+        /**
+         * The step budget as the model sees it each step. AndroidWorld tasks allow 10 to 60 steps, and
+         * episodes ran out while reopening items a list already showed or redoing verified actions.
+         */
+        internal fun budgetLine(step: Int, maxSteps: Int): String {
+            val left = (maxSteps - step).coerceAtLeast(0)
+            val urgency = if (left <= LOW_BUDGET_STEPS) " Few steps remain: take only the actions the task still needs." else ""
+            return "[BUDGET] step $step of $maxSteps, $left left after this one.$urgency"
+        }
+
         internal fun completionSummary(summary: String, decision: CompletionAuditDecision?): String =
             if (decision == CompletionAuditDecision.UNAVAILABLE) "$UNVERIFIED_COMPLETION_NOTE\n$summary" else summary
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"

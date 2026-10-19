@@ -243,4 +243,11 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("\"currentStep\""))
     }
 
+    @Test
+    fun `reasoning prompt asks for an economical use of the step budget`() {
+        val prompt = PromptBuilder.buildReasoningSystemPrompt()
+        assertTrue(prompt.contains("[BUDGET]"))
+        assertTrue(prompt.contains("instead of opening every item"))
+        assertTrue(prompt.contains("Do not reopen, re-check or redo an action that was already verified"))
+    }
 }
