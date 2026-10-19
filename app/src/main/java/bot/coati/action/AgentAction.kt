@@ -20,7 +20,8 @@ sealed class AgentAction {
         val text: String,
     ) : AgentAction()
     data class PressKey(val keyCode: String) : AgentAction()
-    data class Scroll(val direction: String, val amount: Int = ScrollProtocol.DEFAULT_AMOUNT) : AgentAction() {
+    /** [amount] is finger travel in pixels; null scrolls most of the scrollable container (see ScrollProtocol). */
+    data class Scroll(val direction: String, val amount: Int? = null) : AgentAction() {
         init { ScrollProtocol.validate(direction, amount) }
     }
     data class Wait(val ms: Long) : AgentAction()

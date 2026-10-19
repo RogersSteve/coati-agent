@@ -288,6 +288,33 @@ class CoatiAccessibilityService : AccessibilityService() {
         return node
     }
 
+    /**
+     * Bounds of the largest visible scrollable node of the active window, longest along the scroll
+     * axis ([vertical] or horizontal): the view a plain "scroll down" browses. Null when there is none.
+     */
+    fun scrollableContainerBounds(vertical: Boolean): PixelBounds? {
+        val root = rootInActiveWindow ?: return null
+        val bounds = Rect()
+        var best: PixelBounds? = null
+        var bestLength = 0
+        var budget = MAX_SNAPSHOT_NODES
+        val stack = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+        while (stack.isNotEmpty() && budget-- > 0) {
+            val node = stack.removeLast()
+            if (!node.isVisibleToUser) continue
+            if (node.isScrollable) {
+                node.getBoundsInScreen(bounds)
+                val length = if (vertical) bounds.height() else bounds.width()
+                if (length > bestLength && bounds.width() > 0 && bounds.height() > 0) {
+                    best = PixelBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
+                    bestLength = length
+                }
+            }
+            for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let(stack::add)
+        }
+        return best
+    }
+
     /** Display size, density and the system navigation gesture insets (bottom bar, side back edges). */
     data class GestureArea(val width: Int, val height: Int, val density: Float, val insets: PixelBounds)
 

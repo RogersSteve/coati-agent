@@ -137,9 +137,9 @@ object PromptBuilder {
           type=verified current caret and is the default; replace=confirmed simple single-line whole field; append=verified document end
         - focusAndInputText: {"text": "string"}, with top-level x/y at the visible target caret location. The runtime taps, waits for a fresh same-package InputConnection with a stable collapsed caret, and immediately types without a model round trip. The accessibility node itself need not be marked editable when the real InputConnection evidence is valid.
         - pressKey: {"keyCode": "BACK|HOME|RECENTS|ENTER"}
-        - scroll: {"direction": "UP|DOWN|LEFT|RIGHT", "amount": int}
+        - scroll: {"direction": "UP|DOWN|LEFT|RIGHT"} or {"direction": "...", "amount": int}
           direction is content browsing: DOWN reveals lower content (finger moves up), UP reveals upper content (finger moves down), RIGHT reveals content to the right (finger moves left), LEFT reveals content to the left (finger moves right).
-          amount is the physical-pixel distance of finger travel, not dp, normalized units, image pixels or guaranteed content displacement. Omitted amount defaults to 500. It must be an integer from 1 through full display height minus 1 for UP/DOWN, or width minus 1 for LEFT/RIGHT. Invalid or oversized values fail; they are not clamped. Gesture duration is 400ms. Small gestures may be below the app touch-slop threshold; dispatch alone does not prove scrolling.
+          amount is the physical-pixel distance of finger travel, not dp, normalized units, image pixels or guaranteed content displacement. Omit amount for normal browsing: the default scrolls about three quarters of the scrollable list or page (most of a screenful, with a little overlap), so one scroll usually shows the next page. Give amount only for a precise short move. An explicit amount must be an integer from 1 through full display height minus 1 for UP/DOWN, or width minus 1 for LEFT/RIGHT. Invalid or oversized values fail; they are not clamped. Gesture duration is 400ms. Small gestures may be below the app touch-slop threshold; dispatch alone does not prove scrolling.
         - wait: {"ms": int}
         - screenshot: {}
         - openApp: {"packageName": "com.example.app"} OR {"appName": "visible app name, such as 天气/日历/地图/时钟/笔记"}. Prefer appName when packageName is uncertain.

@@ -442,7 +442,13 @@ class ActionEngine(
         // their own binding once; never substitute current metrics for an existing model binding.
         val bound = coordinates ?: bot.coati.model.ScreenContext.capture(a11y)?.coordinates
             ?: return ActionResult(false, "missing_screenshot_coordinates")
-        val swipe = ModelCoordinateAction.scrollGesture(action, bound)
+        // A scroll without an explicit distance travels most of the view being scrolled.
+        val container = if (action.amount == null) {
+            a11y.scrollableContainerBounds(ScrollProtocol.isVertical(action.direction))
+        } else {
+            null
+        }
+        val swipe = ModelCoordinateAction.scrollGesture(action, bound, container)
         return bound.dispatch({ bot.coati.coordinates.DisplaySpaceReader.read(a11y) }) {
             executeSwipe(swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.durationMs)
         }

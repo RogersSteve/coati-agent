@@ -47,8 +47,8 @@ object ModelCoordinateAction {
             else -> error("unsupported_spatial_action")
         }
     }
-    fun scrollGesture(action: AgentAction.Scroll, space: ScreenshotCoordinates): AgentAction.Swipe {
-        val swipe = ScrollProtocol.gesture(action, space.rawWidth, space.rawHeight)
+    fun scrollGesture(action: AgentAction.Scroll, space: ScreenshotCoordinates, container: PixelBounds? = null): AgentAction.Swipe {
+        val swipe = ScrollProtocol.gesture(action, space.rawWidth, space.rawHeight, container)
         space.absolute(swipe.x1, swipe.y1); space.absolute(swipe.x2, swipe.y2)
         return swipe
     }

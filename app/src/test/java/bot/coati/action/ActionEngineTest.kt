@@ -111,7 +111,7 @@ class ActionEngineTest {
         assertTrue(action is AgentAction.Scroll)
         val scroll = action as AgentAction.Scroll
         assertEquals("UP", scroll.direction)
-        assertEquals(500, scroll.amount)
+        assertEquals(null, scroll.amount)
     }
 
     @Test
