@@ -517,7 +517,11 @@ class ActionEngine(
         // Relaunching the app already in front only costs a home round trip (AndroidWorld: openApp in
         // Broccoli while Broccoli was open, then a wait on the unchanged screen).
         if (a11y.rootInActiveWindow?.packageName?.toString() == packageName) {
-            return ActionResult(success = true, message = "$packageName$label is already open; continue within it")
+            return ActionResult(
+                success = true,
+                message = "$packageName$label is already open; continue within it",
+                noOp = true,
+            )
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         // Return to home screen before launching to avoid cross-app permission dialogs

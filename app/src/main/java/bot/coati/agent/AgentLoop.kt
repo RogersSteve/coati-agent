@@ -237,7 +237,13 @@ class AgentLoop(
             // Hide overlay before capturing so the Coati UI doesn't appear in the screenshot
             // sent to the model (BUG-5). Same alpha/updateViewLayout pattern as gesture
             // passthrough; 50ms gives the compositor time to re-render without the overlay.
-            val screenContext: ScreenContext = (carryOverContext.also { carryOverContext = null }
+            // A carried-over frame without a coordinate mapping is never reused: the model would be
+            // shown a screen it cannot tap, and every spatial answer would be rejected unexecuted.
+            val carried = carryOverContext.also { carryOverContext = null }
+            if (carried != null && carried.coordinates == null) {
+                Log.i(TAG, "Carried-over frame has no coordinate mapping; capturing a fresh one")
+            }
+            val screenContext: ScreenContext = (carried?.takeIf { it.coordinates != null }
                 ?: captureScreen()
                 ?: throw Exception("Failed to capture screen"))
                 .let { if (treeWithheld) it.copy(uiTreeJson = "") else it }
@@ -515,6 +521,16 @@ class AgentLoop(
                 }
             }
 
+            if (actionResult.noOp) {
+                // openApp of the app already in front changes nothing: no verify call, no step charged,
+                // and the unchanged frame is observed again.
+                refundStep()
+                lastStepFeedback = "openApp did nothing: ${actionResult.message}. The current screen already " +
+                    "belongs to that app; continue from it with taps, scrolls or BACK instead of opening it again."
+                carryOverContext = screenContext.takeIf { it.coordinates != null }
+                continue
+            }
+
             // Check task complete. Completion is only accepted when action == "screenshot",
             // which means the model already saw the post-action state and confirmed the result.
             // Any other action + isTaskComplete=true is intercepted: the action executes normally
@@ -614,13 +630,8 @@ class AgentLoop(
             }
             verifyLoop@ while (verifyEnabled) {
                 delay(randomDelay())
-                overlayManager.hideForScreenshot()
-                delay(50)
-                val afterContext = try {
-                    ScreenContext.capture(a11y)
-                } finally {
-                    overlayManager.showAfterScreenshot()
-                } ?: throw Exception("Failed to capture verification screenshot")
+                val afterContext = captureFrame()?.let { withCoordinateMapping(it) }
+                    ?: throw Exception("Failed to capture verification screenshot")
                 val afterTree = if (treeWithheld) null else afterContext.uiTree ?: a11y.getUiTree()
                 val afterScreenSig = RuleEngine.buildScreenSignature(afterTree)
                 pendingManualTransition = if (shouldAttachManualTransition(
@@ -1015,16 +1026,40 @@ class AgentLoop(
                 Log.w(TAG, "Screen capture failed, retrying (${attempt + 1}/$CAPTURE_ATTEMPTS)")
                 delay(CAPTURE_RETRY_DELAY_MS)
             }
-            overlayManager.hideForScreenshot()
-            delay(50)
-            val context = try {
-                ScreenContext.capture(a11y)
-            } finally {
-                overlayManager.showAfterScreenshot()
-            }
-            if (context != null) return context
+            val context = captureFrame()
+            if (context != null) return withCoordinateMapping(context)
         }
         return null
+    }
+
+    /** One overlay-free capture. */
+    private suspend fun captureFrame(): ScreenContext? {
+        overlayManager.hideForScreenshot()
+        delay(50)
+        return try {
+            ScreenContext.capture(a11y)
+        } finally {
+            overlayManager.showAfterScreenshot()
+        }
+    }
+
+    /**
+     * Recaptures a frame whose coordinate mapping is missing. The display or window reading changes
+     * while a toast, keyboard or transition is settling (typically on the screenshot right after a
+     * save or BACK), and such a frame makes every tap fail closed: one AndroidWorld episode paid 17
+     * steps for waits and openApp calls of the app already in front. The settled screen almost
+     * always binds within a few hundred milliseconds.
+     */
+    private suspend fun withCoordinateMapping(first: ScreenContext): ScreenContext {
+        var context = first
+        var attempt = 0
+        while (context.coordinates == null && attempt < COORDINATE_RECAPTURES) {
+            attempt++
+            delay(COORDINATE_RECAPTURE_DELAY_MS)
+            Log.i(TAG, "Frame has no coordinate mapping; recapturing ($attempt/$COORDINATE_RECAPTURES)")
+            context = captureFrame() ?: return context
+        }
+        return context
     }
 
     /**
@@ -1249,6 +1284,8 @@ class AgentLoop(
         private const val SECURITY_DIALOG_POLL_MS = 1_000L
         private const val CAPTURE_ATTEMPTS = 3
         private const val CAPTURE_RETRY_DELAY_MS = 1_000L
+        private const val COORDINATE_RECAPTURES = 3
+        private const val COORDINATE_RECAPTURE_DELAY_MS = 250L
         const val MAX_STEPS = 200
         private const val MAX_REFUNDED_STEPS = 20
         private const val MAX_CONSECUTIVE_FAILURES = 3
@@ -1308,12 +1345,13 @@ class AgentLoop(
         /** Model-facing explanation for a rejected spatial action, or null when [message] is not a binding guard. */
         internal fun coordinateFailureFeedback(message: String?): String? = when (message) {
             "missing_screenshot_coordinates" ->
-                "the current window (for example a dialog, popup or split screen) cannot be mapped to screen " +
-                    "coordinates, so taps and swipes are unavailable. Use a non-spatial action such as " +
-                    "pressKey BACK, wait, or openApp, or wait for a full-screen page."
+                "the screenshot was taken while the screen was still changing (a toast, keyboard or transition), " +
+                    "so its coordinates could not be mapped. Nothing happened on the device and this step was not " +
+                    "counted. A fresh screenshot follows: choose the same kind of action again on it. Do not " +
+                    "wait, reopen the app or go back because of this."
             "stale_screenshot_coordinates" ->
-                "the screen changed between the screenshot and the action. Re-observe the current screen " +
-                    "before choosing again."
+                "the screen changed between the screenshot and the action. Nothing happened on the device. " +
+                    "Re-observe the current screen and choose again on it."
             else -> null
         }
 

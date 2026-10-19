@@ -16,7 +16,11 @@ class AgentLoopTest {
 
     @Test
     fun `coordinate guard rejections become model feedback instead of task failures`() {
-        assertTrue(AgentLoop.coordinateFailureFeedback("missing_screenshot_coordinates")!!.contains("pressKey BACK"))
+        val missing = AgentLoop.coordinateFailureFeedback("missing_screenshot_coordinates")!!
+        assertTrue(missing.contains("not counted"))
+        // The feedback once sent the model to wait and reopen the app already in front, paying steps.
+        assertFalse(missing.contains("openApp"))
+        assertFalse(missing.contains("pressKey BACK"))
         assertTrue(AgentLoop.coordinateFailureFeedback("stale_screenshot_coordinates")!!.contains("Re-observe"))
         // Other argument errors (malformed model output, unsupported actions) keep failing loudly.
         assertNull(AgentLoop.coordinateFailureFeedback("normalized_coordinate_out_of_range"))

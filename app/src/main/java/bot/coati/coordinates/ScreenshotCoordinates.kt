@@ -44,6 +44,15 @@ data class ScreenshotCoordinates(
             return try { ScreenshotCoordinates(before, rawWidth, rawHeight, imageWidth, imageHeight) }
             catch (_: IllegalArgumentException) { null }
         }
+
+        /** Pixel -> 0..1000 for a frame of [rawWidth] x [rawHeight] that could not be bound (prompt text only). */
+        fun frameNormalizer(rawWidth: Int, rawHeight: Int): ((Int, Int) -> Pair<Int, Int>)? {
+            if (rawWidth <= 0 || rawHeight <= 0) return null
+            return { x, y ->
+                (x.toLong() * 1000 / rawWidth).toInt().coerceIn(0, 1000) to
+                    (y.toLong() * 1000 / rawHeight).toInt().coerceIn(0, 1000)
+            }
+        }
     }
     fun requireCurrent(current: DisplaySpace?) {
         require(current == display) { "stale_screenshot_coordinates" }

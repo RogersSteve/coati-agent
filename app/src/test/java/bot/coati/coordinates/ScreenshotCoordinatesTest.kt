@@ -85,4 +85,10 @@ class ScreenshotCoordinatesTest {
         assertThrows(IllegalArgumentException::class.java) { space().absolute(1080,0) }
         assertEquals(756 to 2232,space().absolute(756,2232))
     }
+    @Test fun `unbound frame still describes its tree in the 0-1000 space`() {
+        val normalize=ScreenshotCoordinates.frameNormalizer(1080,2400)!!
+        assertEquals(space().toNormalized(964,2220),normalize(964,2220))
+        assertEquals(1000 to 1000,normalize(5000,5000))
+        assertNull(ScreenshotCoordinates.frameNormalizer(0,2400))
+    }
 }
