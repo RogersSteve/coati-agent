@@ -78,4 +78,24 @@ class AppResolverTest {
         assertFalse(AppResolver.looksLikePackageName("Calendar"))
         assertFalse(AppResolver.looksLikePackageName("Hema App"))
     }
+
+    @Test
+    fun `a tie between same-label apps goes to the one covering the leftover query words`() {
+        val calendars = listOf(
+            LaunchableApp("Calendar", "com.google.android.calendar", "LaunchActivity"),
+            LaunchableApp("Calendar", "com.simplemobiletools.calendar.pro", "SplashActivity"),
+        )
+        val result = AppResolver.resolve("Simple Calendar Pro", calendars)
+        assertTrue(result is Result.Resolved)
+        assertEquals("com.simplemobiletools.calendar.pro", (result as Result.Resolved).app.packageName)
+
+        // Nothing beyond the shared label: still ambiguous, never a guess.
+        assertTrue(AppResolver.resolve("Calendar", calendars) is Result.Ambiguous)
+        // Both cover the leftover word equally: still ambiguous.
+        val twins = listOf(
+            LaunchableApp("Notes", "com.alpha.pro.notes", "A"),
+            LaunchableApp("Notes", "com.beta.pro.notes", "B"),
+        )
+        assertTrue(AppResolver.resolve("Pro Notes", twins) is Result.Ambiguous)
+    }
 }
