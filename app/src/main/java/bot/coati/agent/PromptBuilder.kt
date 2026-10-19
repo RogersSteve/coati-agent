@@ -28,7 +28,7 @@ object PromptBuilder {
         10. Before entering text, check the "[Input focus]" line and the visible target. If directInput=true and inputSelection is a collapsed caret in the intended editor, use inputText directly even when a custom-rendered app exposes only a generic accessibility View with editable=false. If a visible target field/paragraph must be focused first and the text is ready, use focusAndInputText so the runtime taps and types atomically; do not split this into a tap step and a later inputText step. Use a standalone tap only when you need to inspect the resulting UI before deciding what text to enter. An icon beside an input control usually describes the mode it will switch to, not necessarily the current mode; determine the current mode from the main input control, its visible label/placeholder, and keyboard state before tapping a mode switch.
         11. inputText never uses the Android clipboard. Choose its mode by editing intent:
             - mode="type" (default): type at the current verified collapsed caret, like a keyboard. Use it for normal text entry, multiline text, and rich editors because it preserves existing editor structure and formatting.
-            - mode="replace": replace the complete field. Use only when the user clearly intends replacement and metadata identifies a simple single-line field. Never use it in multiline, WebView, note, or rich-text editors.
+            - mode="replace": replace the field's entire existing content with the text. Use it when the user clearly intends replacement (renaming, changing a value, rewriting the whole content of a field or note) after focusing that field. The runtime sets a short one-line field directly and otherwise selects all and types over it. Never use it when only part of the text should change, or in WebView or rich-text editors whose formatting must be kept.
             - mode="append": append only after the runtime verifies the real document end. If rejected, do not retry with replace, select-all, or guessed cursor coordinates.
         12. Separate content intent from UI mechanics. Do not invent a title merely because an app shows a title placeholder. If the user did not request or imply a title, focus the body and type the requested content there when possible.
         13. For an explicit title/body task:
@@ -134,7 +134,7 @@ object PromptBuilder {
         - longpress: {"x": int, "y": int, "durationMs": int}
         - swipe: {"x1": int, "y1": int, "x2": int, "y2": int, "durationMs": int} (normalized 0-1000)
         - inputText: {"text": "string", "mode": "type|replace|append"}
-          type=verified current caret and is the default; replace=confirmed simple single-line whole field; append=verified document end
+          type=verified current caret and is the default; replace=the focused field's entire content; append=verified document end
         - focusAndInputText: {"text": "string"}, with top-level x/y at the visible target caret location. The runtime taps, waits for a fresh same-package InputConnection with a stable collapsed caret, and immediately types without a model round trip. The accessibility node itself need not be marked editable when the real InputConnection evidence is valid.
         - pressKey: {"keyCode": "BACK|HOME|RECENTS|ENTER"}
         - scroll: {"direction": "UP|DOWN|LEFT|RIGHT"} or {"direction": "...", "amount": int}

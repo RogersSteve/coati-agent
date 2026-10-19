@@ -1270,7 +1270,8 @@ class AgentLoop(
 
     private fun buildTextInputReplanHint(outcome: String, reason: String): String {
         return "Previous inputText $outcome: $reason. Re-observe the focused editor metadata. " +
-            "Do not recover by selecting all, guessing offsets, or replacing multiline/rich text. " +
+            "Do not recover by guessing offsets or by replacing rich text; use mode=replace only to replace " +
+            "a field's entire content. " +
             "Use mode=type only after focusing the intended caret. For separate visible title/body fields, " +
             "focus and fill each once. If caret input or append was blocked, do not repeat the same input " +
             "strategy on the unchanged editor; choose a non-destructive alternative or stop."
@@ -1279,8 +1280,8 @@ class AgentLoop(
     private fun capabilityConstraint(failureCode: ActionFailureCode): String {
         return when (failureCode) {
             ActionFailureCode.TEXT_REPLACE_UNSAFE ->
-                "The current editor is not a confirmed simple single-line field. Do not use whole-field " +
-                    "replacement; preserve its structure and use mode=type only at a verified caret."
+                "The current editor cannot be replaced safely (web content, or no direct input connection). Do " +
+                    "not use whole-field replacement; preserve its structure and use mode=type only at a verified caret."
             ActionFailureCode.TEXT_DIRECT_INPUT_UNAVAILABLE,
             ActionFailureCode.TEXT_LEGACY_UNSUPPORTED,
             -> "This app does not currently expose the safe direct-input backend. Do not retry " +

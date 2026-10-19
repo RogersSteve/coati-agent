@@ -3,6 +3,9 @@ package bot.coati.service
 enum class DirectTextEditMode {
     CARET,
     APPEND,
+
+    /** Select the whole document through the InputConnection, then type over the selection. */
+    REPLACE_ALL,
 }
 
 enum class DirectTextEditStatus {
@@ -162,7 +165,35 @@ data class EditorInputProfile(
 
     val allowsWholeFieldReplace: Boolean
         get() = kind == EditorInputKind.SIMPLE_SINGLE_LINE && supportsSetText
+
+    private val isWebContent: Boolean
+        get() = hasWebViewAncestor || className == "android.webkit.WebView"
+
+    /**
+     * An explicit whole-field replacement through ACTION_SET_TEXT of a field Android flags multiline
+     * but whose [currentText] is short and on one line: a rename or title field. Markor's file-name
+     * field is multiline-capable, and refusing it there wasted the last step of a rename task.
+     */
+    fun allowsShortPlainReplace(currentText: CharSequence?): Boolean =
+        isEditable && supportsSetText && !isWebContent && kind != EditorInputKind.UNKNOWN &&
+            (currentText?.length ?: 0) <= SHORT_PLAIN_REPLACE_MAX_CHARS && currentText?.contains('\n') != true
+
+    /** An explicit whole-content replacement by select-all and typing, through the real InputConnection. */
+    val allowsSelectAllReplace: Boolean
+        get() = isEditable && hasDirectInput && !isWebContent
+
+    companion object {
+        const val SHORT_PLAIN_REPLACE_MAX_CHARS = 120
+    }
 }
+
+/**
+ * Whether a select-all left the whole document selected: the selection of the current session
+ * starts at the document start and is not collapsed, unless the document is empty.
+ */
+internal fun confirmsSelectAll(selection: EditorSelectionState?, sessionId: Long, documentEmpty: Boolean): Boolean =
+    selection != null && selection.sessionId == sessionId && selection.isKnown && selection.selectionStart == 0 &&
+        (selection.selectionEnd > 0 || documentEmpty)
 
 data class ConnectionSelectionEvidence(
     val relativeStart: Int,

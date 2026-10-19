@@ -165,7 +165,7 @@ class ActionEngine(
         return executeWholeFieldReplace(text)
     }
 
-    private fun executeWholeFieldReplace(text: String): ActionResult {
+    private suspend fun executeWholeFieldReplace(text: String): ActionResult {
         val focusedNode = findFocusedNode()
             ?: return ActionResult(
                 success = false,
@@ -205,18 +205,29 @@ class ActionEngine(
                 "webViewAncestor=${profile.hasWebViewAncestor}, directInput=${profile.hasDirectInput}",
         )
 
-        val result = if (!profile.allowsWholeFieldReplace || text.contains('\n')) {
-            ActionResult(
+        val currentText = if (focusedNode.isShowingHintText) "" else focusedNode.text
+        val setTextAllowed = profile.allowsWholeFieldReplace || profile.allowsShortPlainReplace(currentText)
+        val expectedPackage = focusedNode.packageName?.toString()
+        val result = when {
+            setTextAllowed && !text.contains('\n') -> replaceNodeText(focusedNode, text)
+            // Longer or multiline content the model explicitly replaces: select all and type over it,
+            // as a user would. A newline is only typed into a field that accepts several lines.
+            profile.allowsSelectAllReplace && (focusedNode.isMultiLine || !text.contains('\n')) -> null
+            else -> ActionResult(
                 success = false,
-                message = "Whole-field replacement is allowed only for a confirmed simple " +
-                    "single-line field; focus the intended caret and use mode=type",
+                message = "Whole-field replacement is allowed only for a plain field with a direct input " +
+                    "connection; focus the intended caret and use mode=type",
                 failureCode = ActionFailureCode.TEXT_REPLACE_UNSAFE,
             )
-        } else {
-            replaceNodeText(focusedNode, text)
         }
         focusedNode.recycle()
-        return result
+        if (result != null) return result
+        Log.i(TAG, "Text route selected: backend=input_connection, mode=replace_all, expectedPackage=$expectedPackage")
+        return a11y.commitTextThroughInputConnection(
+            text = text,
+            mode = DirectTextEditMode.REPLACE_ALL,
+            expectedPackage = expectedPackage,
+        ).toActionResult(InputTextMode.REPLACE)
     }
 
     /**

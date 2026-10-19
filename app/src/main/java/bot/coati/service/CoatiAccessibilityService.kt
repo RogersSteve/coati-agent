@@ -420,6 +420,23 @@ class CoatiAccessibilityService : AccessibilityService() {
             val sessionId = editor.currentSessionId()
 
             when (mode) {
+                DirectTextEditMode.REPLACE_ALL -> {
+                    val baseline = editor.currentSelection()
+                    connection.performContextMenuAction(android.R.id.selectAll)
+                    val selected = awaitSelectionAfter(
+                        editor = editor,
+                        sessionId = sessionId,
+                        sequence = baseline?.sequence ?: -1L,
+                    ) ?: baseline
+                    val documentEmpty = readConnectionCaret(connection)?.surroundingTextLength == 0
+                    if (!confirmsSelectAll(selected, sessionId, documentEmpty)) {
+                        return DirectTextEditResult(
+                            DirectTextEditStatus.SELECTION_NOT_CONFIRMED,
+                            "Editor did not confirm select-all (selection=${selected?.selectionStart}.." +
+                                "${selected?.selectionEnd}); no text was committed",
+                        )
+                    }
+                }
                 DirectTextEditMode.CARET -> {
                     val selection = confirmStableCollapsedSelection(editor, connection)
                         ?: return DirectTextEditResult(
