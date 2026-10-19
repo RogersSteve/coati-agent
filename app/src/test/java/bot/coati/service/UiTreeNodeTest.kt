@@ -119,4 +119,28 @@ class UiTreeNodeTest {
         actions = actions,
         children = children,
     )
+
+    @Test
+    fun `pruned keeps actionable and text nodes and lifts them out of plain layouts`() {
+        val tree = createNode(
+            "FrameLayout",
+            children = listOf(
+                createNode(
+                    "LinearLayout",
+                    children = listOf(
+                        createNode("ImageView"),
+                        createNode("Button", text = "Save", isClickable = true),
+                        createNode("RecyclerView", isScrollable = true, children = listOf(
+                            createNode("LinearLayout", children = listOf(createNode("TextView", text = "Buy milk"))),
+                        )),
+                    ),
+                ),
+            ),
+        )
+        val pruned = tree.pruned()
+        assertEquals("FrameLayout", pruned.className)
+        assertEquals(listOf("Button", "RecyclerView"), pruned.children.map { it.className })
+        assertEquals(listOf("TextView"), pruned.children[1].children.map { it.className })
+        assertEquals(4, pruned.flatCount())
+    }
 }

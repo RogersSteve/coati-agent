@@ -413,7 +413,12 @@ class GeminiGateway(
     }
 
     private fun extractResponseText(body: String): String {
-        val candidate = JSONObject(body).getJSONArray("candidates").getJSONObject(0)
+        val json = JSONObject(body)
+        val candidate = firstAnsweringCandidate(json) ?: run {
+            val detail = emptyResponseDetail(json)
+            Log.w(TAG, "Response without an answer: $detail")
+            throw EmptyModelResponseException(detail)
+        }
         candidate.optString("finishReason").takeIf { it.isNotEmpty() && it != "STOP" }?.let {
             Log.w(TAG, "Response ended with finishReason=$it; the answer may be cut off")
         }
@@ -435,6 +440,26 @@ class GeminiGateway(
         internal const val THINKING_HEADROOM_TOKENS = 12_288
 
         internal fun withThinking(answerTokens: Int): Int = answerTokens + THINKING_HEADROOM_TOKENS
+
+        /** The first candidate that carries content parts, or null when the body holds none. */
+        internal fun firstAnsweringCandidate(json: JSONObject): JSONObject? =
+            json.optJSONArray("candidates")?.optJSONObject(0)
+                ?.takeIf { it.optJSONObject("content")?.optJSONArray("parts") != null }
+
+        /**
+         * Why a body has no answer: the prompt feedback (a block reason) and the first candidate's
+         * finish reason. A 206k-character request once came back with no candidates at all, and the
+         * log only said "No value for candidates".
+         */
+        internal fun emptyResponseDetail(json: JSONObject): String {
+            val feedback = json.optJSONObject("promptFeedback")
+            val blockReason = feedback?.optString("blockReason")?.takeIf { it.isNotEmpty() }
+            val finishReason = json.optJSONArray("candidates")?.optJSONObject(0)?.optString("finishReason")
+                ?.takeIf { it.isNotEmpty() }
+            val promptTokens = json.optJSONObject("usageMetadata")?.optInt("promptTokenCount", -1)?.takeIf { it >= 0 }
+            return "no candidate content (blockReason=${blockReason ?: "none"}, finishReason=${finishReason ?: "none"}, " +
+                "promptTokens=${promptTokens ?: "unknown"}, promptFeedback=${feedback ?: "none"})"
+        }
 
         /** The answer is every non-thought text part in order, not just the first part. */
         internal fun extractAnswerText(candidate: JSONObject): String {

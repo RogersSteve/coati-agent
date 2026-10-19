@@ -11,6 +11,7 @@ import bot.coati.action.AgentAction
 import bot.coati.action.toLogSummary
 import bot.coati.data.SafetyMode
 import bot.coati.experience.AppManualRuntime
+import bot.coati.model.EmptyModelResponseException
 import bot.coati.model.Message
 import bot.coati.model.ModelCallPurpose
 import bot.coati.model.MODEL_REQUEST_TIMEOUT_MS
@@ -375,13 +376,23 @@ class AgentLoop(
                 learningObservationInstruction,
             )
 
-            val result = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
+            suspend fun analyze(uiTreeHint: String) = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
                 modelRouter.reasoning.analyzeScreen(
                     screenshot = screenContext.screenshotJpeg,
-                    uiTreeHint = screenContext.uiTreeJson,
+                    uiTreeHint = uiTreeHint,
                     taskDescription = taskDescriptionWithContext,
                     conversationHistory = conversationHistory,
                 )
+            }
+
+            var result = analyze(screenContext.uiTreeJson)
+            // A response without any content (seen on a 206k-character request) is retried once with
+            // only the nodes the model can act on or read.
+            if (result?.exceptionOrNull() is EmptyModelResponseException && uiTree != null) {
+                val prunedHint = prunedTreeHint(screenContext, uiTree)
+                Log.w(TAG, "Reasoning returned no content (${result?.exceptionOrNull()?.message}); retrying " +
+                    "with a pruned tree (${screenContext.uiTreeJson.length} -> ${prunedHint.length} chars)")
+                result = analyze(prunedHint)
             }
 
             val response = handleModelResult(result, task)
@@ -1075,6 +1086,13 @@ class AgentLoop(
             if (context != null) return withCoordinateMapping(context)
         }
         return null
+    }
+
+    /** [context]'s tree hint with only actionable or text nodes, keeping its input-focus line. */
+    private fun prunedTreeHint(context: ScreenContext, tree: UiTreeNode): String {
+        val focusLine = context.uiTreeJson.lineSequence().firstOrNull()
+            ?.takeIf { it.startsWith("[Input focus") }?.let { "$it\n" }.orEmpty()
+        return focusLine + tree.pruned().toSimpleString(toNormalized = context.coordinates?.let { it::toNormalized })
     }
 
     /** One overlay-free capture. */
