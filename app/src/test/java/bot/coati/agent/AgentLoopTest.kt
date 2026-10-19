@@ -389,4 +389,46 @@ class AgentLoopTest {
         assertTrue(AgentLoop.budgetLine(9, 10).contains("Few steps remain"))
         assertTrue(AgentLoop.budgetLine(12, 10).contains("0 left"))
     }
+
+    @Test
+    fun `a completion claim needs the last effectful action proven`() {
+        fun attempt(action: String, outcome: VerifyOutcome) = AgentLoop.Companion.Attempt(action, "sig", "t", outcome)
+        // Shutter taps the verifier called FAILED, then a screenshot: not proven.
+        val camera = listOf(
+            attempt("openApp", VerifyOutcome.SUCCESS),
+            attempt("tap", VerifyOutcome.FAILED),
+            attempt("tap", VerifyOutcome.FAILED),
+            attempt("screenshot", VerifyOutcome.UNKNOWN),
+        )
+        assertEquals(2, AgentLoop.unprovenLastAction(camera))
+        assertEquals(1, AgentLoop.unprovenLastAction(listOf(camera[0], attempt("tap", VerifyOutcome.UNKNOWN))))
+        // A later success (a wait that showed the result) proves it.
+        assertNull(AgentLoop.unprovenLastAction(camera + attempt("wait", VerifyOutcome.SUCCESS)))
+        assertNull(AgentLoop.unprovenLastAction(listOf(attempt("tap", VerifyOutcome.SUCCESS))))
+        assertNull(AgentLoop.unprovenLastAction(listOf(attempt("tap", VerifyOutcome.UNEXPECTED))))
+        assertNull(AgentLoop.unprovenLastAction(listOf(attempt("tap", VerifyOutcome.DRIFTED))))
+        assertNull(AgentLoop.unprovenLastAction(emptyList()))
+        assertNull(AgentLoop.unprovenLastAction(listOf(attempt("wait", VerifyOutcome.FAILED))))
+    }
+
+    @Test
+    fun `recent verify verdicts reach the audit`() {
+        val question = AgentLoop.buildTaskCompletionAuditQuestion(
+            "Take a photo",
+            recentVerdicts = listOf("Tap shutter: FAILED - screen unchanged"),
+        )
+        assertTrue(question.contains("- Tap shutter: FAILED - screen unchanged"))
+        assertTrue(question.contains("judged FAILED or UNKNOWN and no screenshot shows that result, answer false"))
+        assertFalse(AgentLoop.buildTaskCompletionAuditQuestion("Take a photo").contains("step verifier"))
+    }
+
+    @Test
+    fun `navigation after the result-producing action is not what the gate judges`() {
+        val saved = AgentLoop.Companion.Attempt("tap", "sig", "22,23", VerifyOutcome.SUCCESS)
+        val back = AgentLoop.Companion.Attempt("pressKey", "sig", "{keyCode=BACK}", VerifyOutcome.UNKNOWN)
+        val reopen = AgentLoop.Companion.Attempt("openApp", "sig", "{packageName=x}", VerifyOutcome.FAILED)
+        assertNull(AgentLoop.unprovenLastAction(listOf(saved, back, reopen)))
+        val enter = AgentLoop.Companion.Attempt("pressKey", "sig", "{keyCode=ENTER}", VerifyOutcome.FAILED)
+        assertEquals(1, AgentLoop.unprovenLastAction(listOf(saved, enter)))
+    }
 }

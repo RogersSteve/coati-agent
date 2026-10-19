@@ -63,6 +63,7 @@ class AgentLoop(
         val screenSignature: String,
         val outcome: VerifyOutcome,
         val target: String = "",
+        val verifyReason: String = "",
     )
 
     /**
@@ -108,6 +109,8 @@ class AgentLoop(
     private var treeWithheld = false
     private var finalAnswer: String? = null
     private var refundedSteps = 0
+    // A fast-path action since the last Reasoning action: actionHistory no longer ends with the latest action.
+    private var fastActedSinceReasoning = false
 
     @Volatile
     var emergencyStop = false
@@ -139,6 +142,7 @@ class AgentLoop(
         doneClaims = 0
         finalAnswer = null
         refundedSteps = 0
+        fastActedSinceReasoning = false
         lastAuditDecision = null
         fastSteps = 0
         escalations = 0
@@ -303,6 +307,7 @@ class AgentLoop(
                 when (outcome) {
                     FastStep.Acted -> {
                         fastSteps++
+                        fastActedSinceReasoning = true
                         recordStepProgress(screenContext.appPackage)
                         continue
                     }
@@ -551,8 +556,23 @@ class AgentLoop(
                 if (!verifyEnabled) Log.i(TAG, "Verification off: accepting the completion claim without an audit")
                 // screenshot is a read-only completion action, so the current overlay-free OBSERVE
                 // frame is the authoritative final state.
-                val audit = if (verifyEnabled) requestCompletionAudit(task, screenContext) else null
-                val auditDecision = classifyTaskCompletionAudit(audit)
+                // An action task is not done while the action that should have produced its result was
+                // judged FAILED or UNKNOWN and nothing since succeeded: a camera task was accepted after
+                // shutter taps the verifier called FAILED.
+                val unproven = if (verifyEnabled && response.answer == null && !fastActedSinceReasoning) {
+                    unprovenLastAction(actionHistory.map { Attempt(it.action, it.screenSignature, it.target, it.outcome) })
+                        ?.let { index -> actionHistory[index] }
+                } else {
+                    null
+                }
+                val unprovenReason = unproven?.let {
+                    "the last action (${it.statusUpdate.ifBlank { it.action }}) was verified ${it.outcome}" +
+                        it.verifyReason.takeIf(String::isNotBlank)?.let { reason -> " ($reason)" }.orEmpty() +
+                        " and no later step shows its result"
+                }
+                if (unprovenReason != null) Log.i(TAG, "Completion claim rejected without an audit: $unprovenReason")
+                val audit = if (verifyEnabled && unproven == null) requestCompletionAudit(task, screenContext) else null
+                val auditDecision = if (unproven != null) CompletionAuditDecision.REJECT else classifyTaskCompletionAudit(audit)
                 lastAuditDecision = auditDecision.takeIf { verifyEnabled }
                 Log.i(
                     TAG,
@@ -595,7 +615,7 @@ class AgentLoop(
                 }
 
                 taskCompletionAuditRejects++
-                val auditReason = audit?.category ?: "completion evidence unavailable"
+                val auditReason = unprovenReason ?: audit?.category ?: "completion evidence unavailable"
                 lastStepFeedback = "Task completion audit REJECTED: $auditReason. " +
                     "The current screen does not yet prove every explicit user requirement."
                 replanHint = "Re-check the original task against the current screenshot. Fix only the " +
@@ -701,7 +721,9 @@ class AgentLoop(
                     screenSignature = screenSig,
                     outcome = verifyResult.outcome,
                     target = actionTarget(response.x, response.y, response.params),
+                    verifyReason = verifyResult.reason,
                 ))
+                fastActedSinceReasoning = false
 
                 when (verifyResult.outcome) {
                     VerifyOutcome.SUCCESS -> {
@@ -1193,6 +1215,10 @@ class AgentLoop(
             earlier.map { it.packageName to it.step },
             fastExecutor?.loopEvidence(),
             taskNotes.entries(),
+            actionHistory.takeLast(AUDIT_VERDICTS).map { record ->
+                "${record.statusUpdate.ifBlank { record.action }}: ${record.outcome}" +
+                    record.verifyReason.takeIf(String::isNotBlank)?.let { " - $it" }.orEmpty()
+            },
         )
         if (earlier.isNotEmpty()) {
             Log.i(TAG, "Completion audit includes earlier screens ${earlier.map { "${it.packageName}@${it.step}" }}")
@@ -1328,6 +1354,10 @@ class AgentLoop(
         /** Actions whose unchanged screen is expected: they neither count nor break a failure run. */
         private val NEUTRAL_ACTIONS = setOf("wait", "screenshot")
         private val INEFFECTIVE_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+        private val UNPROVEN_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.UNKNOWN)
+
+        /** Verify verdicts of the latest actions shown to the completion audit. */
+        private const val AUDIT_VERDICTS = 4
 
         /** Coordinates within one cell (4% of the 0..1000 model space) count as the same target. */
         private const val TARGET_CELL = 40
@@ -1402,6 +1432,7 @@ class AgentLoop(
             earlierScreens: List<Pair<String, Int>> = emptyList(),
             loopRecord: String? = null,
             notes: List<String> = emptyList(),
+            recentVerdicts: List<String> = emptyList(),
         ): String {
             val question = if (earlierScreens.isNotEmpty()) {
                 buildCrossAppCompletionAuditQuestion(task, earlierScreens)
@@ -1412,6 +1443,7 @@ class AgentLoop(
                 append(question)
                 if (loopRecord != null) append("\n\n").append(loopEvidence(loopRecord))
                 if (notes.isNotEmpty()) append("\n\n").append(notesEvidence(notes))
+                if (recentVerdicts.isNotEmpty()) append("\n\n").append(verdictEvidence(recentVerdicts))
             }
         }
 
@@ -1419,6 +1451,31 @@ class AgentLoop(
          * What the agent copied from screens no longer shown (a meeting time, the tracks it counted).
          * The host kept the text verbatim, but the agent wrote it, so a screenshot wins over a note.
          */
+        private fun verdictEvidence(verdicts: List<String>): String = buildString {
+            append("The agent's last actions, oldest first, with the step verifier's verdict on each (host record; the ")
+            append("verifier compared screenshots before and after each action and can be wrong):")
+            verdicts.forEach { append("\n- ").append(it) }
+            append("\nIf the action that should have produced the requested result was judged FAILED or UNKNOWN and no ")
+            append("screenshot shows that result, answer false.")
+        }
+
+        /**
+         * Index in [history] of the last effectful action when it was judged FAILED or UNKNOWN and no
+         * later attempt succeeded; null when it was proven or there is none. Waits, screenshots and
+         * navigation (openApp, keys other than ENTER) produce no result of their own and are skipped.
+         */
+        internal fun unprovenLastAction(history: List<Attempt>): Int? {
+            val last = history.indexOfLast { attempt ->
+                val action = attempt.action.lowercase()
+                val navigation = action in setOf("openapp", "open_app") ||
+                    (action in setOf("presskey", "press_key") && !attempt.target.contains("ENTER", ignoreCase = true))
+                action !in NEUTRAL_ACTIONS && !navigation
+            }
+            if (last < 0 || history[last].outcome !in UNPROVEN_OUTCOMES) return null
+            val provenLater = history.subList(last + 1, history.size).any { it.outcome == VerifyOutcome.SUCCESS }
+            return last.takeUnless { provenLater }
+        }
+
         private fun notesEvidence(notes: List<String>): String = buildString {
             append("Notes the agent recorded from screens it read earlier in this task (kept verbatim by the host, ")
             append("written by the agent): use them as evidence for information that is no longer on screen, ")
