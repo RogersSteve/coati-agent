@@ -106,6 +106,22 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `both audits require full enumeration for list and count tasks`() {
+        val single = AgentLoop.buildTaskCompletionAuditQuestion(
+            "How many running activities did I do this week?",
+        )
+        val crossApp = AgentLoop.buildTaskCompletionAuditQuestion(
+            "List all completed tasks for October 16",
+            listOf("org.tasks" to 8),
+        )
+
+        for (question in listOf(single, crossApp)) {
+            assertTrue(question.contains("incomplete_enumeration"))
+            assertTrue(question.contains("superlative"))
+        }
+    }
+
+    @Test
     fun `a cross-app audit accepts a requirement proven by any app's last screen`() {
         val question = AgentLoop.buildTaskCompletionAuditQuestion(
             "Save the address in a Keep note, then create a Calendar event",
