@@ -1351,6 +1351,7 @@ class AgentLoop(
 
                 Return answer=true only when the result itself is visibly complete and correctly structured. Do not trust the agent's status, history, or claim of completion.
                 $EXACT_VALUES_RULE
+                $ENUMERATION_RULE
                 If the task specifies a title and body, require a genuinely distinct rendered title region/style and the body in its body region. Text merely appearing as the first line of the body does not count as a title. A still-visible empty title placeholder means failure.
                 If the task specifies multiple lines, require the exact visible line structure; collapsed, missing, duplicated, or misplaced text means failure.
                 Use category to name the missing or incorrect requirement briefly.
@@ -1372,6 +1373,7 @@ class AgentLoop(
                 |A requirement is satisfied when any screenshot visibly shows it done. Do not fail it only because a later screen (another app, a list, a calendar view) does not show it: not visible is not missing. A later screenshot of the same app overrides an earlier one only where they contradict. A value entered in a form counts when a later screenshot shows that item saved (for example in a list); a form that was left without saving does not count.
                 |Return answer=true only when every result itself is visibly complete and correctly structured. Do not trust the agent's status, history, or claim of completion.
                 |$EXACT_VALUES_RULE
+                |$ENUMERATION_RULE
                 |If the task specifies a title and body, require a genuinely distinct rendered title region/style and the body in its body region. Text merely appearing as the first line of the body does not count as a title. A still-visible empty title placeholder means failure.
                 |If the task specifies multiple lines, require the exact visible line structure; collapsed, missing, duplicated, or misplaced text means failure.
                 |Use category to name the missing or incorrect requirement briefly.
@@ -1387,6 +1389,19 @@ class AgentLoop(
             "Compare every value the task specifies (names, addresses with house numbers and postal codes, numbers, " +
                 "dates, times, amounts) character by character with the value the result shows; a different digit or " +
                 "a suggestion that replaced the requested text means failure."
+
+        /**
+         * The audit used to accept a "list all"/"how many" answer taken from a list the agent had only
+         * partially scrolled (e.g. answering after one scroll), silently undercounting. For enumeration and
+         * aggregation goals the audit must require evidence the full list was examined end to end.
+         */
+        private const val ENUMERATION_RULE =
+            "If the task asks to list ALL items matching a condition, or to count how many items match " +
+                "(how many, number of), answer=true only when the full matching set was examined — a scrollable " +
+                "list seen to its end, or a list that already fits on one screen. If only a partial list is visible and " +
+                "more matching items could lie beyond it, return answer=false with category \"incomplete_enumeration\". " +
+                "This does NOT apply to a single-item superlative (the longest, highest, largest, earliest, latest or " +
+                "most), which a sorted or summary view can answer without scrolling the whole list."
 
         internal fun classifyTaskCompletionAudit(result: QuickCheckResult?): CompletionAuditDecision {
             if (result == null || !result.isValid || result.confidence < 0.7f) {
