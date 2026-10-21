@@ -189,24 +189,77 @@ class CoatiAccessibilityService : AccessibilityService() {
      */
     fun snapSliderAt(x: Int, y: Int): Float? {
         val bounds = Rect()
-        var node: AccessibilityNodeInfo? = deepestNodeAt(x, y) ?: return null
-        val setProgress = AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id
-        while (node != null && !(node.rangeInfo != null && node.actionList.any { it.id == setProgress })) {
-            node = node.parent
+        val slack = (SLIDER_SLACK_DP * resources.displayMetrics.density).toInt()
+        val slider = sliderNear(x, y, slack) ?: run {
+            Log.d(TAG, "No slider at ($x, $y)")
+            return null
         }
-        val slider = node ?: return null
         val range = slider.rangeInfo ?: return null
         slider.getBoundsInScreen(bounds)
-        val horizontal = bounds.width() >= bounds.height()
-        val fraction = if (horizontal) (x - bounds.left).toFloat() / bounds.width().coerceAtLeast(1)
-        else (bounds.bottom - y).toFloat() / bounds.height().coerceAtLeast(1)
-        val value = when {
-            fraction >= 1f - SLIDER_END_FRACTION -> range.max
-            fraction <= SLIDER_END_FRACTION -> range.min
-            else -> return null
+        val value = sliderEndValue(bounds.left, bounds.top, bounds.right, bounds.bottom, x, y, range.min, range.max)
+            ?: return null
+        val setProgress = AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id
+        if (slider.actionList.any { it.id == setProgress }) {
+            val args = Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value) }
+            if (slider.performAction(setProgress, args)) return value
         }
-        val args = Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value) }
-        return value.takeIf { slider.performAction(setProgress, args) }
+        // Sliders without SET_PROGRESS still step with the scroll actions TalkBack uses.
+        val step = if (value == range.max) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        repeat(MAX_SLIDER_SCROLL_STEPS) {
+            slider.refresh()
+            if (slider.rangeInfo?.current == value) return value
+            if (!slider.performAction(step)) {
+                Log.i(TAG, "Slider at ($x, $y) stopped stepping toward $value at ${slider.rangeInfo?.current}")
+                return null
+            }
+        }
+        slider.refresh()
+        return value.takeIf { slider.rangeInfo?.current == value }
+    }
+
+    /**
+     * The smallest visible range node (slider, seek bar) of the topmost app or system window under
+     * (x, y) whose bounds, widened by [slack] pixels, contain the point. The whole window is searched:
+     * in the Quick Settings shade the deepest node under a tap at the end of the brightness slider is
+     * not inside the slider, so walking up from it never found one (0 of 6 runs snapped there), and a
+     * tap at the very end of a track often lands just past its bounds.
+     */
+    private fun sliderNear(x: Int, y: Int, slack: Int): AccessibilityNodeInfo? {
+        val bounds = Rect()
+        val candidates = try {
+            windows.sortedByDescending { it.layer }.filter { window ->
+                window.getBoundsInScreen(bounds)
+                window.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY &&
+                    window.type != AccessibilityWindowInfo.TYPE_INPUT_METHOD &&
+                    bounds.contains(x, y) && window.root?.packageName?.toString() != packageName
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Window list unavailable: ${e.message}")
+            return null
+        }
+        for (window in candidates) {
+            val root = window.root ?: continue
+            var best: AccessibilityNodeInfo? = null
+            var bestArea = Long.MAX_VALUE
+            var budget = MAX_SNAPSHOT_NODES
+            val stack = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+            while (stack.isNotEmpty() && budget-- > 0) {
+                val node = stack.removeLast()
+                if (!node.isVisibleToUser) continue
+                if (node.rangeInfo != null) {
+                    node.getBoundsInScreen(bounds)
+                    val area = bounds.width().toLong() * bounds.height()
+                    if (area in 1 until bestArea && sliderReaches(bounds.left, bounds.top, bounds.right, bounds.bottom, x, y, slack)) {
+                        best = node
+                        bestArea = area
+                    }
+                }
+                for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let(stack::add)
+            }
+            if (best != null) return best
+        }
+        return null
     }
 
     /** The deepest visible node of the topmost app window under (x, y); never Coati's own windows or the keyboard. */
@@ -233,6 +286,33 @@ class CoatiAccessibilityService : AccessibilityService() {
             node = child
         }
         return node
+    }
+
+    /**
+     * Bounds of the largest visible scrollable node of the active window, longest along the scroll
+     * axis ([vertical] or horizontal): the view a plain "scroll down" browses. Null when there is none.
+     */
+    fun scrollableContainerBounds(vertical: Boolean): PixelBounds? {
+        val root = rootInActiveWindow ?: return null
+        val bounds = Rect()
+        var best: PixelBounds? = null
+        var bestLength = 0
+        var budget = MAX_SNAPSHOT_NODES
+        val stack = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+        while (stack.isNotEmpty() && budget-- > 0) {
+            val node = stack.removeLast()
+            if (!node.isVisibleToUser) continue
+            if (node.isScrollable) {
+                node.getBoundsInScreen(bounds)
+                val length = if (vertical) bounds.height() else bounds.width()
+                if (length > bestLength && bounds.width() > 0 && bounds.height() > 0) {
+                    best = PixelBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
+                    bestLength = length
+                }
+            }
+            for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let(stack::add)
+        }
+        return best
     }
 
     /** Display size, density and the system navigation gesture insets (bottom bar, side back edges). */
@@ -340,6 +420,23 @@ class CoatiAccessibilityService : AccessibilityService() {
             val sessionId = editor.currentSessionId()
 
             when (mode) {
+                DirectTextEditMode.REPLACE_ALL -> {
+                    val baseline = editor.currentSelection()
+                    connection.performContextMenuAction(android.R.id.selectAll)
+                    val selected = awaitSelectionAfter(
+                        editor = editor,
+                        sessionId = sessionId,
+                        sequence = baseline?.sequence ?: -1L,
+                    ) ?: baseline
+                    val documentEmpty = readConnectionCaret(connection)?.surroundingTextLength == 0
+                    if (!confirmsSelectAll(selected, sessionId, documentEmpty)) {
+                        return DirectTextEditResult(
+                            DirectTextEditStatus.SELECTION_NOT_CONFIRMED,
+                            "Editor did not confirm select-all (selection=${selected?.selectionStart}.." +
+                                "${selected?.selectionEnd}); no text was committed",
+                        )
+                    }
+                }
                 DirectTextEditMode.CARET -> {
                     val selection = confirmStableCollapsedSelection(editor, connection)
                         ?: return DirectTextEditResult(
@@ -1014,6 +1111,38 @@ class CoatiAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val SLIDER_END_FRACTION = 0.05f
+
+        /** How far past a track's bounds a tap or drag still counts as reaching its end. */
+        private const val SLIDER_SLACK_DP = 24f
+        private const val MAX_SLIDER_SCROLL_STEPS = 100
+
+        /**
+         * Whether (x, y) lies on a slider with bounds [left, top, right, bottom] widened by [slack]: along
+         * the track by the full slack, across it by half.
+         */
+        internal fun sliderReaches(left: Int, top: Int, right: Int, bottom: Int, x: Int, y: Int, slack: Int): Boolean {
+            val horizontal = right - left >= bottom - top
+            val along = if (horizontal) slack else slack / 2
+            val across = if (horizontal) slack / 2 else slack
+            return x in (left - along) until (right + along) && y in (top - across) until (bottom + across)
+        }
+
+        /**
+         * [max] when (x, y) is within the outer 5% of the track at its high end (right, or top for a
+         * vertical slider) or past it, [min] at the low end, null in between.
+         */
+        internal fun sliderEndValue(left: Int, top: Int, right: Int, bottom: Int, x: Int, y: Int, min: Float, max: Float): Float? {
+            val width = right - left
+            val height = bottom - top
+            val fraction = if (width >= height) (x - left).toFloat() / width.coerceAtLeast(1)
+            else (bottom - y).toFloat() / height.coerceAtLeast(1)
+            return when {
+                fraction >= 1f - SLIDER_END_FRACTION -> max
+                fraction <= SLIDER_END_FRACTION -> min
+                else -> null
+            }
+        }
+
         private const val TAG = "CoatiA11y"
         private const val SCREENSHOT_TIMEOUT_MS = 5_000L
         private const val SELECTION_CONTEXT_CHARS = 64

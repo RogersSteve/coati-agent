@@ -1,5 +1,6 @@
 package bot.coati.agent
 
+import android.os.SystemClock
 import android.util.Log
 import bot.coati.coordinates.DisplaySpaceReader
 import bot.coati.coordinates.ModelCoordinateAction
@@ -10,6 +11,7 @@ import bot.coati.action.AgentAction
 import bot.coati.action.toLogSummary
 import bot.coati.data.SafetyMode
 import bot.coati.experience.AppManualRuntime
+import bot.coati.model.EmptyModelResponseException
 import bot.coati.model.Message
 import bot.coati.model.ModelCallPurpose
 import bot.coati.model.MODEL_REQUEST_TIMEOUT_MS
@@ -62,6 +64,7 @@ class AgentLoop(
         val screenSignature: String,
         val outcome: VerifyOutcome,
         val target: String = "",
+        val verifyReason: String = "",
     )
 
     /**
@@ -84,6 +87,8 @@ class AgentLoop(
     private val autocompact = Autocompact()
     private val exceptionHandler = ExceptionHandler()
     private val capabilityFailureLedger = CapabilityFailureLedger()
+    // Kept outside conversationHistory, so Autocompact never summarizes them away.
+    private val taskNotes = TaskNotes()
     private val screenshotCache = mutableListOf<ByteArray>()
     private val appFrames = AppResultFrames()
     // Home screens and system chrome hold no task results.
@@ -105,6 +110,8 @@ class AgentLoop(
     private var treeWithheld = false
     private var finalAnswer: String? = null
     private var refundedSteps = 0
+    // A fast-path action since the last Reasoning action: actionHistory no longer ends with the latest action.
+    private var fastActedSinceReasoning = false
 
     @Volatile
     var emergencyStop = false
@@ -128,6 +135,7 @@ class AgentLoop(
         emergencyStop = false
         exceptionHandler.reset()
         capabilityFailureLedger.reset()
+        taskNotes.clear()
         resumedFromPause = false
         replanHint = null
         lastStepFeedback = null
@@ -135,6 +143,7 @@ class AgentLoop(
         doneClaims = 0
         finalAnswer = null
         refundedSteps = 0
+        fastActedSinceReasoning = false
         lastAuditDecision = null
         fastSteps = 0
         escalations = 0
@@ -237,7 +246,13 @@ class AgentLoop(
             // Hide overlay before capturing so the Coati UI doesn't appear in the screenshot
             // sent to the model (BUG-5). Same alpha/updateViewLayout pattern as gesture
             // passthrough; 50ms gives the compositor time to re-render without the overlay.
-            val screenContext: ScreenContext = (carryOverContext.also { carryOverContext = null }
+            // A carried-over frame without a coordinate mapping is never reused: the model would be
+            // shown a screen it cannot tap, and every spatial answer would be rejected unexecuted.
+            val carried = carryOverContext.also { carryOverContext = null }
+            if (carried != null && carried.coordinates == null) {
+                Log.i(TAG, "Carried-over frame has no coordinate mapping; capturing a fresh one")
+            }
+            val screenContext: ScreenContext = (carried?.takeIf { it.coordinates != null }
                 ?: captureScreen()
                 ?: throw Exception("Failed to capture screen"))
                 .let { if (treeWithheld) it.copy(uiTreeJson = "") else it }
@@ -293,6 +308,7 @@ class AgentLoop(
                 when (outcome) {
                     FastStep.Acted -> {
                         fastSteps++
+                        fastActedSinceReasoning = true
                         recordStepProgress(screenContext.appPackage)
                         continue
                     }
@@ -360,18 +376,32 @@ class AgentLoop(
                 learningObservationInstruction,
             )
 
-            val result = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
+            suspend fun analyze(uiTreeHint: String) = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
                 modelRouter.reasoning.analyzeScreen(
                     screenshot = screenContext.screenshotJpeg,
-                    uiTreeHint = screenContext.uiTreeJson,
+                    uiTreeHint = uiTreeHint,
                     taskDescription = taskDescriptionWithContext,
                     conversationHistory = conversationHistory,
                 )
             }
 
+            var result = analyze(screenContext.uiTreeJson)
+            // A response without any content (seen on a 206k-character request) is retried once with
+            // only the nodes the model can act on or read.
+            if (result?.exceptionOrNull() is EmptyModelResponseException && uiTree != null) {
+                val prunedHint = prunedTreeHint(screenContext, uiTree)
+                Log.w(TAG, "Reasoning returned no content (${result?.exceptionOrNull()?.message}); retrying " +
+                    "with a pruned tree (${screenContext.uiTreeJson.length} -> ${prunedHint.length} chars)")
+                result = analyze(prunedHint)
+            }
+
             val response = handleModelResult(result, task)
             if (response == null) continue
             response.loop?.let { plan -> fastExecutor?.takeIf { it.activeForTask }?.startLoop(plan) }
+            if (response.notes.isNotEmpty()) {
+                val accepted = taskNotes.merge(response.notes)
+                Log.i(TAG, "Task notes: +$accepted, ${taskNotes.entries().size} kept")
+            }
             manualRuntime?.recordAttribution(renderedManual, response.usedManualHeadings)
             val transition = pendingManualTransition
                 ?.takeIf { it.destinationPackage == screenContext.appPackage }
@@ -515,6 +545,16 @@ class AgentLoop(
                 }
             }
 
+            if (actionResult.noOp) {
+                // openApp of the app already in front changes nothing: no verify call, no step charged,
+                // and the unchanged frame is observed again.
+                refundStep()
+                lastStepFeedback = "openApp did nothing: ${actionResult.message}. The current screen already " +
+                    "belongs to that app; continue from it with taps, scrolls or BACK instead of opening it again."
+                carryOverContext = screenContext.takeIf { it.coordinates != null }
+                continue
+            }
+
             // Check task complete. Completion is only accepted when action == "screenshot",
             // which means the model already saw the post-action state and confirmed the result.
             // Any other action + isTaskComplete=true is intercepted: the action executes normally
@@ -527,8 +567,23 @@ class AgentLoop(
                 if (!verifyEnabled) Log.i(TAG, "Verification off: accepting the completion claim without an audit")
                 // screenshot is a read-only completion action, so the current overlay-free OBSERVE
                 // frame is the authoritative final state.
-                val audit = if (verifyEnabled) requestCompletionAudit(task, screenContext) else null
-                val auditDecision = classifyTaskCompletionAudit(audit)
+                // An action task is not done while the action that should have produced its result was
+                // judged FAILED or UNKNOWN and nothing since succeeded: a camera task was accepted after
+                // shutter taps the verifier called FAILED.
+                val unproven = if (verifyEnabled && response.answer == null && !fastActedSinceReasoning) {
+                    unprovenLastAction(actionHistory.map { Attempt(it.action, it.screenSignature, it.target, it.outcome) })
+                        ?.let { index -> actionHistory[index] }
+                } else {
+                    null
+                }
+                val unprovenReason = unproven?.let {
+                    "the last action (${it.statusUpdate.ifBlank { it.action }}) was verified ${it.outcome}" +
+                        it.verifyReason.takeIf(String::isNotBlank)?.let { reason -> " ($reason)" }.orEmpty() +
+                        " and no later step shows its result"
+                }
+                if (unprovenReason != null) Log.i(TAG, "Completion claim rejected without an audit: $unprovenReason")
+                val audit = if (verifyEnabled && unproven == null) requestCompletionAudit(task, screenContext) else null
+                val auditDecision = if (unproven != null) CompletionAuditDecision.REJECT else classifyTaskCompletionAudit(audit)
                 lastAuditDecision = auditDecision.takeIf { verifyEnabled }
                 Log.i(
                     TAG,
@@ -571,7 +626,7 @@ class AgentLoop(
                 }
 
                 taskCompletionAuditRejects++
-                val auditReason = audit?.category ?: "completion evidence unavailable"
+                val auditReason = unprovenReason ?: audit?.category ?: "completion evidence unavailable"
                 lastStepFeedback = "Task completion audit REJECTED: $auditReason. " +
                     "The current screen does not yet prove every explicit user requirement."
                 replanHint = "Re-check the original task against the current screenshot. Fix only the " +
@@ -612,15 +667,12 @@ class AgentLoop(
                 actionHistory.add(ActionRecord(response.action, response.statusUpdate, screenSig, VerifyOutcome.UNKNOWN,
                     actionTarget(response.x, response.y, response.params)))
             }
+            var loadingRechecked = false
             verifyLoop@ while (verifyEnabled) {
-                delay(randomDelay())
-                overlayManager.hideForScreenshot()
-                delay(50)
-                val afterContext = try {
-                    ScreenContext.capture(a11y)
-                } finally {
-                    overlayManager.showAfterScreenshot()
-                } ?: throw Exception("Failed to capture verification screenshot")
+                val settled = UiSettle.await({ a11y.appScreenSnapshot() }, SystemClock::uptimeMillis)
+                if (!settled) Log.i(TAG, "Screen still changing after ${UiSettle.CAP_MS} ms; verifying anyway")
+                val afterContext = captureFrame()?.let { withCoordinateMapping(it) }
+                    ?: throw Exception("Failed to capture verification screenshot")
                 val afterTree = if (treeWithheld) null else afterContext.uiTree ?: a11y.getUiTree()
                 val afterScreenSig = RuleEngine.buildScreenSignature(afterTree)
                 pendingManualTransition = if (shouldAttachManualTransition(
@@ -662,6 +714,17 @@ class AgentLoop(
 
                 Log.i(TAG, "Verify: ${verifyResult.outcome} - ${verifyResult.reason}")
 
+                // An after-screen caught blank, on a splash screen or loading says nothing about the
+                // action yet: look once more instead of spending a model step on a wait.
+                if (!loadingRechecked && verifyResult.outcome in RECHECKABLE_OUTCOMES &&
+                    UiSettle.describesLoading(verifyResult.reason, verifyResult.observation)
+                ) {
+                    loadingRechecked = true
+                    Log.i(TAG, "Verify saw a loading screen; recapturing once before judging the action")
+                    delay(LOADING_RECHECK_DELAY_MS)
+                    continue@verifyLoop
+                }
+
                 // Record action history
                 actionHistory.add(ActionRecord(
                     action = response.action,
@@ -669,7 +732,9 @@ class AgentLoop(
                     screenSignature = screenSig,
                     outcome = verifyResult.outcome,
                     target = actionTarget(response.x, response.y, response.params),
+                    verifyReason = verifyResult.reason,
                 ))
+                fastActedSinceReasoning = false
 
                 when (verifyResult.outcome) {
                     VerifyOutcome.SUCCESS -> {
@@ -874,6 +939,7 @@ class AgentLoop(
         learningObservationInstruction: String?,
     ): String {
         val sb = StringBuilder(task)
+        sb.append("\n\n").append(budgetLine(stepCount, maxSteps))
         if (lastStepFeedback != null) {
             sb.append("\n\n[LAST STEP] $lastStepFeedback")
         }
@@ -887,6 +953,7 @@ class AgentLoop(
                 sb.append("\n- $constraint")
             }
         }
+        taskNotes.render()?.let { sb.append("\n\n").append(it) }
         if (manualSection != null) {
             sb.append("\n\n$manualSection")
         }
@@ -1015,16 +1082,47 @@ class AgentLoop(
                 Log.w(TAG, "Screen capture failed, retrying (${attempt + 1}/$CAPTURE_ATTEMPTS)")
                 delay(CAPTURE_RETRY_DELAY_MS)
             }
-            overlayManager.hideForScreenshot()
-            delay(50)
-            val context = try {
-                ScreenContext.capture(a11y)
-            } finally {
-                overlayManager.showAfterScreenshot()
-            }
-            if (context != null) return context
+            val context = captureFrame()
+            if (context != null) return withCoordinateMapping(context)
         }
         return null
+    }
+
+    /** [context]'s tree hint with only actionable or text nodes, keeping its input-focus line. */
+    private fun prunedTreeHint(context: ScreenContext, tree: UiTreeNode): String {
+        val focusLine = context.uiTreeJson.lineSequence().firstOrNull()
+            ?.takeIf { it.startsWith("[Input focus") }?.let { "$it\n" }.orEmpty()
+        return focusLine + tree.pruned().toSimpleString(toNormalized = context.coordinates?.let { it::toNormalized })
+    }
+
+    /** One overlay-free capture. */
+    private suspend fun captureFrame(): ScreenContext? {
+        overlayManager.hideForScreenshot()
+        delay(50)
+        return try {
+            ScreenContext.capture(a11y)
+        } finally {
+            overlayManager.showAfterScreenshot()
+        }
+    }
+
+    /**
+     * Recaptures a frame whose coordinate mapping is missing. The display or window reading changes
+     * while a toast, keyboard or transition is settling (typically on the screenshot right after a
+     * save or BACK), and such a frame makes every tap fail closed: one AndroidWorld episode paid 17
+     * steps for waits and openApp calls of the app already in front. The settled screen almost
+     * always binds within a few hundred milliseconds.
+     */
+    private suspend fun withCoordinateMapping(first: ScreenContext): ScreenContext {
+        var context = first
+        var attempt = 0
+        while (context.coordinates == null && attempt < COORDINATE_RECAPTURES) {
+            attempt++
+            delay(COORDINATE_RECAPTURE_DELAY_MS)
+            Log.i(TAG, "Frame has no coordinate mapping; recapturing ($attempt/$COORDINATE_RECAPTURES)")
+            context = captureFrame() ?: return context
+        }
+        return context
     }
 
     /**
@@ -1134,6 +1232,11 @@ class AgentLoop(
             task,
             earlier.map { it.packageName to it.step },
             fastExecutor?.loopEvidence(),
+            taskNotes.entries(),
+            actionHistory.takeLast(AUDIT_VERDICTS).map { record ->
+                "${record.statusUpdate.ifBlank { record.action }}: ${record.outcome}" +
+                    record.verifyReason.takeIf(String::isNotBlank)?.let { " - $it" }.orEmpty()
+            },
         )
         if (earlier.isNotEmpty()) {
             Log.i(TAG, "Completion audit includes earlier screens ${earlier.map { "${it.packageName}@${it.step}" }}")
@@ -1212,7 +1315,8 @@ class AgentLoop(
 
     private fun buildTextInputReplanHint(outcome: String, reason: String): String {
         return "Previous inputText $outcome: $reason. Re-observe the focused editor metadata. " +
-            "Do not recover by selecting all, guessing offsets, or replacing multiline/rich text. " +
+            "Do not recover by guessing offsets or by replacing rich text; use mode=replace only to replace " +
+            "a field's entire content. " +
             "Use mode=type only after focusing the intended caret. For separate visible title/body fields, " +
             "focus and fill each once. If caret input or append was blocked, do not repeat the same input " +
             "strategy on the unchanged editor; choose a non-destructive alternative or stop."
@@ -1221,8 +1325,8 @@ class AgentLoop(
     private fun capabilityConstraint(failureCode: ActionFailureCode): String {
         return when (failureCode) {
             ActionFailureCode.TEXT_REPLACE_UNSAFE ->
-                "The current editor is not a confirmed simple single-line field. Do not use whole-field " +
-                    "replacement; preserve its structure and use mode=type only at a verified caret."
+                "The current editor cannot be replaced safely (web content, or no direct input connection). Do " +
+                    "not use whole-field replacement; preserve its structure and use mode=type only at a verified caret."
             ActionFailureCode.TEXT_DIRECT_INPUT_UNAVAILABLE,
             ActionFailureCode.TEXT_LEGACY_UNSUPPORTED,
             -> "This app does not currently expose the safe direct-input backend. Do not retry " +
@@ -1249,6 +1353,11 @@ class AgentLoop(
         private const val SECURITY_DIALOG_POLL_MS = 1_000L
         private const val CAPTURE_ATTEMPTS = 3
         private const val CAPTURE_RETRY_DELAY_MS = 1_000L
+        private const val COORDINATE_RECAPTURES = 3
+        private const val COORDINATE_RECAPTURE_DELAY_MS = 250L
+        private const val LOADING_RECHECK_DELAY_MS = 1_000L
+        private const val LOW_BUDGET_STEPS = 2
+        private val RECHECKABLE_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.UNKNOWN, VerifyOutcome.DRIFTED)
         const val MAX_STEPS = 200
         private const val MAX_REFUNDED_STEPS = 20
         private const val MAX_CONSECUTIVE_FAILURES = 3
@@ -1263,6 +1372,10 @@ class AgentLoop(
         /** Actions whose unchanged screen is expected: they neither count nor break a failure run. */
         private val NEUTRAL_ACTIONS = setOf("wait", "screenshot")
         private val INEFFECTIVE_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
+        private val UNPROVEN_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.UNKNOWN)
+
+        /** Verify verdicts of the latest actions shown to the completion audit. */
+        private const val AUDIT_VERDICTS = 4
 
         /** Coordinates within one cell (4% of the 0..1000 model space) count as the same target. */
         private const val TARGET_CELL = 40
@@ -1301,6 +1414,16 @@ class AgentLoop(
          * reads as verified: it used to show a plain "Task complete" (2 of 116 formal AndroidWorld
          * episodes and both of Yudou's National Museum runs).
          */
+        /**
+         * The step budget as the model sees it each step. AndroidWorld tasks allow 10 to 60 steps, and
+         * episodes ran out while reopening items a list already showed or redoing verified actions.
+         */
+        internal fun budgetLine(step: Int, maxSteps: Int): String {
+            val left = (maxSteps - step).coerceAtLeast(0)
+            val urgency = if (left <= LOW_BUDGET_STEPS) " Few steps remain: take only the actions the task still needs." else ""
+            return "[BUDGET] step $step of $maxSteps, $left left after this one.$urgency"
+        }
+
         internal fun completionSummary(summary: String, decision: CompletionAuditDecision?): String =
             if (decision == CompletionAuditDecision.UNAVAILABLE) "$UNVERIFIED_COMPLETION_NOTE\n$summary" else summary
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
@@ -1308,12 +1431,13 @@ class AgentLoop(
         /** Model-facing explanation for a rejected spatial action, or null when [message] is not a binding guard. */
         internal fun coordinateFailureFeedback(message: String?): String? = when (message) {
             "missing_screenshot_coordinates" ->
-                "the current window (for example a dialog, popup or split screen) cannot be mapped to screen " +
-                    "coordinates, so taps and swipes are unavailable. Use a non-spatial action such as " +
-                    "pressKey BACK, wait, or openApp, or wait for a full-screen page."
+                "the screenshot was taken while the screen was still changing (a toast, keyboard or transition), " +
+                    "so its coordinates could not be mapped. Nothing happened on the device and this step was not " +
+                    "counted. A fresh screenshot follows: choose the same kind of action again on it. Do not " +
+                    "wait, reopen the app or go back because of this."
             "stale_screenshot_coordinates" ->
-                "the screen changed between the screenshot and the action. Re-observe the current screen " +
-                    "before choosing again."
+                "the screen changed between the screenshot and the action. Nothing happened on the device. " +
+                    "Re-observe the current screen and choose again on it."
             else -> null
         }
 
@@ -1325,13 +1449,56 @@ class AgentLoop(
             task: String,
             earlierScreens: List<Pair<String, Int>> = emptyList(),
             loopRecord: String? = null,
+            notes: List<String> = emptyList(),
+            recentVerdicts: List<String> = emptyList(),
         ): String {
             val question = if (earlierScreens.isNotEmpty()) {
                 buildCrossAppCompletionAuditQuestion(task, earlierScreens)
             } else {
                 buildSingleScreenCompletionAuditQuestion(task)
             }
-            return if (loopRecord == null) question else question + "\n\n" + loopEvidence(loopRecord)
+            return buildString {
+                append(question)
+                if (loopRecord != null) append("\n\n").append(loopEvidence(loopRecord))
+                if (notes.isNotEmpty()) append("\n\n").append(notesEvidence(notes))
+                if (recentVerdicts.isNotEmpty()) append("\n\n").append(verdictEvidence(recentVerdicts))
+            }
+        }
+
+        /**
+         * What the agent copied from screens no longer shown (a meeting time, the tracks it counted).
+         * The host kept the text verbatim, but the agent wrote it, so a screenshot wins over a note.
+         */
+        private fun verdictEvidence(verdicts: List<String>): String = buildString {
+            append("The agent's last actions, oldest first, with the step verifier's verdict on each (host record; the ")
+            append("verifier compared screenshots before and after each action and can be wrong):")
+            verdicts.forEach { append("\n- ").append(it) }
+            append("\nIf the action that should have produced the requested result was judged FAILED or UNKNOWN and no ")
+            append("screenshot shows that result, answer false.")
+        }
+
+        /**
+         * Index in [history] of the last effectful action when it was judged FAILED or UNKNOWN and no
+         * later attempt succeeded; null when it was proven or there is none. Waits, screenshots and
+         * navigation (openApp, keys other than ENTER) produce no result of their own and are skipped.
+         */
+        internal fun unprovenLastAction(history: List<Attempt>): Int? {
+            val last = history.indexOfLast { attempt ->
+                val action = attempt.action.lowercase()
+                val navigation = action in setOf("openapp", "open_app") ||
+                    (action in setOf("presskey", "press_key") && !attempt.target.contains("ENTER", ignoreCase = true))
+                action !in NEUTRAL_ACTIONS && !navigation
+            }
+            if (last < 0 || history[last].outcome !in UNPROVEN_OUTCOMES) return null
+            val provenLater = history.subList(last + 1, history.size).any { it.outcome == VerifyOutcome.SUCCESS }
+            return last.takeUnless { provenLater }
+        }
+
+        private fun notesEvidence(notes: List<String>): String = buildString {
+            append("Notes the agent recorded from screens it read earlier in this task (kept verbatim by the host, ")
+            append("written by the agent): use them as evidence for information that is no longer on screen, ")
+            append("but where a screenshot contradicts a note, the screenshot wins.")
+            notes.forEach { append("\n- ").append(it) }
         }
 
         /**

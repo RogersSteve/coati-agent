@@ -20,6 +20,9 @@ internal fun compactJsonMaxTokens(withManualObservation: Boolean): Int = if (wit
 
 object GatewayUtils {
 
+    /** Entries one response may add to the task notes; the notes themselves are bounded in TaskNotes. */
+    private const val MAX_NOTES_PER_RESPONSE = 30
+
     /** @deprecated Use PromptBuilder.buildReasoningSystemPrompt() instead. */
     @Deprecated("Use PromptBuilder.buildReasoningSystemPrompt()", ReplaceWith("PromptBuilder.buildReasoningSystemPrompt()"))
     val SYSTEM_PROMPT: String get() = PromptBuilder.buildReasoningSystemPrompt()
@@ -97,7 +100,23 @@ object GatewayUtils {
             manualObservation = manualObservation,
             answer = json.answerText("answer"),
             loop = parseLoopPlan(json),
+            notes = parseNotes(json),
         )
+    }
+
+    /** The optional "notes": an array of entries, or one string with an entry per line. */
+    internal fun parseNotes(json: JSONObject): List<String> {
+        if (!json.has("notes") || json.isNull("notes")) return emptyList()
+        val values = when (val value = json.get("notes")) {
+            is JSONArray -> (0 until value.length()).mapNotNull { index ->
+                value.opt(index)?.takeUnless { it == JSONObject.NULL }?.toString()
+            }
+            is String -> value.lines()
+            else -> return emptyList()
+        }
+        return values.map { it.trim().removePrefix("- ").trim() }
+            .filter { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+            .take(MAX_NOTES_PER_RESPONSE)
     }
 
     /** The optional "loop" object; null when absent, malformed, or without a per-item action. */

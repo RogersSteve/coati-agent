@@ -78,7 +78,7 @@ class PromptBuilderTest {
         assertTrue(systemPrompt.contains("never uses the Android clipboard"))
         assertTrue(systemPrompt.contains("mode=\"type\" (default)"))
         assertTrue(systemPrompt.contains("current verified collapsed caret"))
-        assertTrue(systemPrompt.contains("Never use it in multiline, WebView, note, or rich-text editors"))
+        assertTrue(systemPrompt.contains("Never use it when only part of the text should change"))
         assertTrue(systemPrompt.contains("Do not invent a title"))
         assertTrue(systemPrompt.contains("mode=\"append\""))
         assertTrue(systemPrompt.contains("runtime verifies the real document end"))
@@ -243,4 +243,11 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("\"currentStep\""))
     }
 
+    @Test
+    fun `reasoning prompt asks for an economical use of the step budget`() {
+        val prompt = PromptBuilder.buildReasoningSystemPrompt()
+        assertTrue(prompt.contains("[BUDGET]"))
+        assertTrue(prompt.contains("instead of opening every item"))
+        assertTrue(prompt.contains("Do not reopen, re-check or redo an action that was already verified"))
+    }
 }

@@ -14,9 +14,29 @@ class ScrollProtocolTest {
     @Test fun `four browsing directions are opposite finger travel`() {
         val expected=mapOf("DOWN" to (0 to -500),"UP" to (0 to 500),"RIGHT" to (-500 to 0),"LEFT" to (500 to 0))
         for ((direction, delta) in expected) {
-            val g=ModelCoordinateAction.scrollGesture(AgentAction.Scroll(direction),space())
+            val g=ModelCoordinateAction.scrollGesture(AgentAction.Scroll(direction,500),space())
             assertEquals(delta,g.x2-g.x1 to g.y2-g.y1); assertEquals(400L,g.durationMs)
         }
+    }
+    @Test fun `a default scroll travels most of the scrollable container through its centre`() {
+        // A list from y=300 to y=2300 on a 1080x2400 display: 75% of its 2000 px.
+        val list=PixelBounds(0,300,1080,2300)
+        val down=ModelCoordinateAction.scrollGesture(AgentAction.Scroll("DOWN"),space(),list)
+        assertEquals(0 to -1500,down.x2-down.x1 to down.y2-down.y1)
+        assertEquals(540,down.x1)
+        assertTrue(down.y1<2300 && down.y2>=300)
+        assertEquals(1200L,down.durationMs) // the old default's finger speed
+        val up=ModelCoordinateAction.scrollGesture(AgentAction.Scroll("UP"),space(),list)
+        assertEquals(1500,up.y2-up.y1)
+        // No container: 60% of the display.
+        val screen=ModelCoordinateAction.scrollGesture(AgentAction.Scroll("DOWN"),space())
+        assertEquals(-1440,screen.y2-screen.y1)
+        val side=ModelCoordinateAction.scrollGesture(AgentAction.Scroll("RIGHT"),space())
+        assertEquals(-648,side.x2-side.x1)
+        // A tiny or off-screen container is ignored; an explicit amount ignores the container.
+        assertEquals(screen,ModelCoordinateAction.scrollGesture(AgentAction.Scroll("DOWN"),space(),PixelBounds(0,0,1080,100)))
+        assertEquals(ModelCoordinateAction.scrollGesture(AgentAction.Scroll("DOWN",500),space()),
+            ModelCoordinateAction.scrollGesture(AgentAction.Scroll("DOWN",500),space(),list))
     }
     @Test fun `odd distances and smallest and largest amounts remain exact and in bounds`() {
         for ((w,h) in listOf(1080 to 2400,1272 to 2772,2400 to 1080,3 to 5,2 to 2)) {
@@ -35,7 +55,7 @@ class ScrollProtocolTest {
         for (direction in listOf("up","Down","LEFT","right")) {
             val params=mapOf<String,Any>("direction" to direction)
             val old=AgentAction.fromMap("scroll",params) as AgentAction.Scroll
-            assertEquals(500,old.amount)
+            assertNull(old.amount)
             val model=ModelCoordinateAction.resolve("scroll",params,null,null,space()) as AgentAction.Scroll
             assertEquals(old,model)
             assertEquals(ScrollProtocol.gesture(old,1080,2400),ModelCoordinateAction.scrollGesture(model,space()))
@@ -62,7 +82,7 @@ class ScrollProtocolTest {
         val prompt=PromptBuilder.buildReasoningUserPrompt("", "test",1080,2400)
         for (term in listOf("DOWN reveals lower content (finger moves up)",
             "UP reveals upper content (finger moves down)", "RIGHT reveals content to the right (finger moves left)",
-            "LEFT reveals content to the left (finger moves right)", "physical-pixel", "defaults to 500", "not clamped",
+            "LEFT reveals content to the left (finger moves right)", "physical-pixel", "Omit amount for normal browsing", "not clamped",
             "explicit finger start/end positions")) assertTrue(term,prompt.contains(term))
     }
     @Test fun `stale scroll binding rejects before sink`() = runBlocking {

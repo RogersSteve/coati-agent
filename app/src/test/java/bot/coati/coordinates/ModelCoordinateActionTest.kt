@@ -37,7 +37,7 @@ class ModelCoordinateActionTest {
             assertThrows(IllegalArgumentException::class.java) { ModelCoordinateAction.resolve("tap",mapOf("x" to value,"y" to 930),null,null,space) }
     }
     @Test fun `scroll keeps pixel amount and validates full display endpoints`() {
-        val action=ModelCoordinateAction.resolve("scroll",mapOf("direction" to "UP"),null,null,space)
+        val action=ModelCoordinateAction.resolve("scroll",mapOf("direction" to "UP","amount" to 500),null,null,space)
         assertEquals(AgentAction.Scroll("UP",500),action)
         assertEquals(AgentAction.Swipe(540,949,540,1449,400),ModelCoordinateAction.scrollGesture(action as AgentAction.Scroll,space))
         assertThrows(IllegalArgumentException::class.java) { ModelCoordinateAction.resolve("scroll",mapOf("direction" to "UP","amount" to 5000),null,null,space) }

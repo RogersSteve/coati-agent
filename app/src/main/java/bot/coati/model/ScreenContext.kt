@@ -49,6 +49,8 @@ data class ScreenContext(
             val displayAfter = DisplaySpaceReader.read(a11y)
             // Compress the complete display frame, without cropping or removing system bars.
             val scaled = scaleToWidth(bitmap, TARGET_WIDTH)
+            val rawWidth = bitmap.width
+            val rawHeight = bitmap.height
             val coordinates = ScreenshotCoordinates.bind(displayBefore, displayAfter,
                 bitmap.width, bitmap.height, scaled.width, scaled.height)
             if (coordinates == null) Log.w(TAG, "Screenshot coordinate mapping unavailable; spatial actions will fail closed")
@@ -64,7 +66,11 @@ data class ScreenContext(
             val uiTree = a11y.getUiTree()
             // Bounds in the same 0..1000 space as the requested x/y: with pixel bounds the model
             // copied pixel values (y=1890 on a 1920 px screen) and every such answer was rejected.
-            val uiTreeStr = uiTree?.toSimpleString(toNormalized = coordinates?.let { it::toNormalized }) ?: ""
+            // Without a mapping the raw frame size still defines the 0..1000 space of this image; pixel
+            // bounds here made the model answer in pixels (y=1343), which the next step rejected.
+            val toNormalized = coordinates?.let { it::toNormalized }
+                ?: ScreenshotCoordinates.frameNormalizer(rawWidth, rawHeight)
+            val uiTreeStr = uiTree?.toSimpleString(toNormalized = toNormalized) ?: ""
             Log.i(TAG, "UI tree: ${uiTree?.flatCount() ?: 0} nodes")
 
             // Get current app package and input focus state

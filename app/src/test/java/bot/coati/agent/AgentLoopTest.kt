@@ -16,7 +16,11 @@ class AgentLoopTest {
 
     @Test
     fun `coordinate guard rejections become model feedback instead of task failures`() {
-        assertTrue(AgentLoop.coordinateFailureFeedback("missing_screenshot_coordinates")!!.contains("pressKey BACK"))
+        val missing = AgentLoop.coordinateFailureFeedback("missing_screenshot_coordinates")!!
+        assertTrue(missing.contains("not counted"))
+        // The feedback once sent the model to wait and reopen the app already in front, paying steps.
+        assertFalse(missing.contains("openApp"))
+        assertFalse(missing.contains("pressKey BACK"))
         assertTrue(AgentLoop.coordinateFailureFeedback("stale_screenshot_coordinates")!!.contains("Re-observe"))
         // Other argument errors (malformed model output, unsupported actions) keep failing loudly.
         assertNull(AgentLoop.coordinateFailureFeedback("normalized_coordinate_out_of_range"))
@@ -378,5 +382,69 @@ class AgentLoopTest {
         assertTrue(AgentLoop.FAST_LOOP_INSTRUCTION.contains("\"loop\": {\"each\""))
         assertTrue(AgentLoop.FAST_LOOP_INSTRUCTION.contains("set action to \"wait\""))
         assertTrue(AgentLoop.FAST_LOOP_INSTRUCTION.contains("Never use it for typing text or switching apps"))
+    }
+
+    @Test
+    fun `task notes reach the audit as host-kept evidence`() {
+        val notes = listOf("Meeting with Ana: 14:30", "Tracks counted: Morning Run, Evening Walk")
+        val single = AgentLoop.buildTaskCompletionAuditQuestion("When is my next meeting with Ana?", notes = notes)
+        val crossApp = AgentLoop.buildTaskCompletionAuditQuestion(
+            "Copy the recipe", listOf("com.example.notes" to 2), notes = notes,
+        )
+        for (question in listOf(single, crossApp)) {
+            assertTrue(question.contains("kept verbatim by the host"))
+            assertTrue(question.contains("- Meeting with Ana: 14:30"))
+            assertTrue(question.contains("the screenshot wins"))
+        }
+        assertFalse(AgentLoop.buildTaskCompletionAuditQuestion("Turn on Wi-Fi").contains("Notes the agent recorded"))
+    }
+
+    @Test
+    fun `the budget line counts the steps left after the current one`() {
+        assertEquals("[BUDGET] step 3 of 10, 7 left after this one.", AgentLoop.budgetLine(3, 10))
+        assertTrue(AgentLoop.budgetLine(9, 10).contains("Few steps remain"))
+        assertTrue(AgentLoop.budgetLine(12, 10).contains("0 left"))
+    }
+
+    @Test
+    fun `a completion claim needs the last effectful action proven`() {
+        fun attempt(action: String, outcome: VerifyOutcome) = AgentLoop.Companion.Attempt(action, "sig", "t", outcome)
+        // Shutter taps the verifier called FAILED, then a screenshot: not proven.
+        val camera = listOf(
+            attempt("openApp", VerifyOutcome.SUCCESS),
+            attempt("tap", VerifyOutcome.FAILED),
+            attempt("tap", VerifyOutcome.FAILED),
+            attempt("screenshot", VerifyOutcome.UNKNOWN),
+        )
+        assertEquals(2, AgentLoop.unprovenLastAction(camera))
+        assertEquals(1, AgentLoop.unprovenLastAction(listOf(camera[0], attempt("tap", VerifyOutcome.UNKNOWN))))
+        // A later success (a wait that showed the result) proves it.
+        assertNull(AgentLoop.unprovenLastAction(camera + attempt("wait", VerifyOutcome.SUCCESS)))
+        assertNull(AgentLoop.unprovenLastAction(listOf(attempt("tap", VerifyOutcome.SUCCESS))))
+        assertNull(AgentLoop.unprovenLastAction(listOf(attempt("tap", VerifyOutcome.UNEXPECTED))))
+        assertNull(AgentLoop.unprovenLastAction(listOf(attempt("tap", VerifyOutcome.DRIFTED))))
+        assertNull(AgentLoop.unprovenLastAction(emptyList()))
+        assertNull(AgentLoop.unprovenLastAction(listOf(attempt("wait", VerifyOutcome.FAILED))))
+    }
+
+    @Test
+    fun `recent verify verdicts reach the audit`() {
+        val question = AgentLoop.buildTaskCompletionAuditQuestion(
+            "Take a photo",
+            recentVerdicts = listOf("Tap shutter: FAILED - screen unchanged"),
+        )
+        assertTrue(question.contains("- Tap shutter: FAILED - screen unchanged"))
+        assertTrue(question.contains("judged FAILED or UNKNOWN and no screenshot shows that result, answer false"))
+        assertFalse(AgentLoop.buildTaskCompletionAuditQuestion("Take a photo").contains("step verifier"))
+    }
+
+    @Test
+    fun `navigation after the result-producing action is not what the gate judges`() {
+        val saved = AgentLoop.Companion.Attempt("tap", "sig", "22,23", VerifyOutcome.SUCCESS)
+        val back = AgentLoop.Companion.Attempt("pressKey", "sig", "{keyCode=BACK}", VerifyOutcome.UNKNOWN)
+        val reopen = AgentLoop.Companion.Attempt("openApp", "sig", "{packageName=x}", VerifyOutcome.FAILED)
+        assertNull(AgentLoop.unprovenLastAction(listOf(saved, back, reopen)))
+        val enter = AgentLoop.Companion.Attempt("pressKey", "sig", "{keyCode=ENTER}", VerifyOutcome.FAILED)
+        assertEquals(1, AgentLoop.unprovenLastAction(listOf(saved, enter)))
     }
 }

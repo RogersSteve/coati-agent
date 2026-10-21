@@ -50,6 +50,7 @@ class AppResolver(private val packageManager: PackageManager) {
 
     companion object {
         private val whitespaceRegex = Regex("\\s+")
+        private val nonWordRegex = Regex("[^\\p{L}\\p{N}]+")
 
         fun resolve(query: String, apps: List<LaunchableApp>): Result {
             val normalizedQuery = normalize(query)
@@ -85,9 +86,33 @@ class AppResolver(private val packageManager: PackageManager) {
             return when (matches.size) {
                 0 -> null
                 1 -> Result.Resolved(matches.first())
-                else -> Result.Ambiguous(query, matches)
+                else -> tieBreak(query, matches)?.let { Result.Resolved(it) } ?: Result.Ambiguous(query, matches)
             }
         }
+
+        /**
+         * Among several matches, the one whose package name or label covers the most query words its
+         * label leaves out, when exactly one covers the most. "Simple Calendar Pro" matched both apps
+         * labelled "Calendar" through the shared word; only com.simplemobiletools.calendar.pro also
+         * covers "simple" and "pro", and the ambiguity cost a step in every Simple Calendar episode.
+         */
+        internal fun tieBreak(query: String, matches: List<LaunchableApp>): LaunchableApp? {
+            val words = words(query)
+            if (words.isEmpty()) return null
+            val scored = matches.map { app ->
+                val labelWords = words(app.label).toSet()
+                val segments = app.packageName.lowercase(Locale.ROOT).split('.', '_')
+                app to words.count { word ->
+                    word !in labelWords && word.length >= 2 && segments.any { it.startsWith(word) }
+                }
+            }
+            val best = scored.maxOf { it.second }
+            if (best == 0) return null
+            return scored.singleOrNull { it.second == best }?.first
+        }
+
+        private fun words(value: String): List<String> =
+            value.lowercase(Locale.ROOT).split(nonWordRegex).filter { it.isNotBlank() }
 
         private fun normalize(value: String): String {
             return value

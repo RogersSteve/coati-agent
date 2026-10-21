@@ -20,7 +20,8 @@ sealed class AgentAction {
         val text: String,
     ) : AgentAction()
     data class PressKey(val keyCode: String) : AgentAction()
-    data class Scroll(val direction: String, val amount: Int = ScrollProtocol.DEFAULT_AMOUNT) : AgentAction() {
+    /** [amount] is finger travel in pixels; null scrolls most of the scrollable container (see ScrollProtocol). */
+    data class Scroll(val direction: String, val amount: Int? = null) : AgentAction() {
         init { ScrollProtocol.validate(direction, amount) }
     }
     data class Wait(val ms: Long) : AgentAction()
@@ -104,12 +105,14 @@ data class ActionResult(
     val message: String = "",
     val screenshotBytes: ByteArray? = null,
     val failureCode: ActionFailureCode? = null,
+    /** Nothing needed doing (openApp of the app already in front): the screen is unchanged by design. */
+    val noOp: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is ActionResult) return false
         return success == other.success && message == other.message &&
-            failureCode == other.failureCode &&
+            failureCode == other.failureCode && noOp == other.noOp &&
             screenshotBytes.contentEquals(other.screenshotBytes)
     }
 
@@ -118,6 +121,7 @@ data class ActionResult(
         result = 31 * result + message.hashCode()
         result = 31 * result + (screenshotBytes?.contentHashCode() ?: 0)
         result = 31 * result + (failureCode?.hashCode() ?: 0)
+        result = 31 * result + noOp.hashCode()
         return result
     }
 }

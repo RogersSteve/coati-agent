@@ -16,6 +16,8 @@ data class ModelResponse(
     val answer: String? = null,
     /** A repetitive sub-task handed to the fast executor (routed runs only); null otherwise. */
     val loop: LoopPlan? = null,
+    /** New or updated "label: value" facts to keep for the rest of the task; empty when nothing new. */
+    val notes: List<String> = emptyList(),
 )
 
 /**

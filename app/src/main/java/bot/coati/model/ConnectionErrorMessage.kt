@@ -39,3 +39,6 @@ fun userFacingConnectionError(error: Throwable?): String {
         }
     }
 }
+
+/** The model answered without any content (a blocked or empty response); [message] says why. */
+class EmptyModelResponseException(message: String) : Exception(message)

@@ -16,6 +16,7 @@ import bot.coati.service.DirectTextEditMode
 import bot.coati.service.DirectTextEditResult
 import bot.coati.service.DirectTextEditStatus
 import bot.coati.service.EditorInputProfile
+import bot.coati.service.UiTreeNode
 import bot.coati.service.allowsEmptySingleLineSetTextFallback
 import bot.coati.service.isObservablyEmptyEditor
 import kotlinx.coroutines.delay
@@ -164,7 +165,7 @@ class ActionEngine(
         return executeWholeFieldReplace(text)
     }
 
-    private fun executeWholeFieldReplace(text: String): ActionResult {
+    private suspend fun executeWholeFieldReplace(text: String): ActionResult {
         val focusedNode = findFocusedNode()
             ?: return ActionResult(
                 success = false,
@@ -204,18 +205,29 @@ class ActionEngine(
                 "webViewAncestor=${profile.hasWebViewAncestor}, directInput=${profile.hasDirectInput}",
         )
 
-        val result = if (!profile.allowsWholeFieldReplace || text.contains('\n')) {
-            ActionResult(
+        val currentText = if (focusedNode.isShowingHintText) "" else focusedNode.text
+        val setTextAllowed = profile.allowsWholeFieldReplace || profile.allowsShortPlainReplace(currentText)
+        val expectedPackage = focusedNode.packageName?.toString()
+        val result = when {
+            setTextAllowed && !text.contains('\n') -> replaceNodeText(focusedNode, text)
+            // Longer or multiline content the model explicitly replaces: select all and type over it,
+            // as a user would. A newline is only typed into a field that accepts several lines.
+            profile.allowsSelectAllReplace && (focusedNode.isMultiLine || !text.contains('\n')) -> null
+            else -> ActionResult(
                 success = false,
-                message = "Whole-field replacement is allowed only for a confirmed simple " +
-                    "single-line field; focus the intended caret and use mode=type",
+                message = "Whole-field replacement is allowed only for a plain field with a direct input " +
+                    "connection; focus the intended caret and use mode=type",
                 failureCode = ActionFailureCode.TEXT_REPLACE_UNSAFE,
             )
-        } else {
-            replaceNodeText(focusedNode, text)
         }
         focusedNode.recycle()
-        return result
+        if (result != null) return result
+        Log.i(TAG, "Text route selected: backend=input_connection, mode=replace_all, expectedPackage=$expectedPackage")
+        return a11y.commitTextThroughInputConnection(
+            text = text,
+            mode = DirectTextEditMode.REPLACE_ALL,
+            expectedPackage = expectedPackage,
+        ).toActionResult(InputTextMode.REPLACE)
     }
 
     /**
@@ -442,7 +454,13 @@ class ActionEngine(
         // their own binding once; never substitute current metrics for an existing model binding.
         val bound = coordinates ?: bot.coati.model.ScreenContext.capture(a11y)?.coordinates
             ?: return ActionResult(false, "missing_screenshot_coordinates")
-        val swipe = ModelCoordinateAction.scrollGesture(action, bound)
+        // A scroll without an explicit distance travels most of the view being scrolled.
+        val container = if (action.amount == null) {
+            a11y.scrollableContainerBounds(ScrollProtocol.isVertical(action.direction))
+        } else {
+            null
+        }
+        val swipe = ModelCoordinateAction.scrollGesture(action, bound, container)
         return bound.dispatch({ bot.coati.coordinates.DisplaySpaceReader.read(a11y) }) {
             executeSwipe(swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.durationMs)
         }
@@ -517,7 +535,11 @@ class ActionEngine(
         // Relaunching the app already in front only costs a home round trip (AndroidWorld: openApp in
         // Broccoli while Broccoli was open, then a wait on the unchanged screen).
         if (a11y.rootInActiveWindow?.packageName?.toString() == packageName) {
-            return ActionResult(success = true, message = "$packageName$label is already open; continue within it")
+            return ActionResult(
+                success = true,
+                message = "$packageName$label is already open; continue within it",
+                noOp = true,
+            )
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         // Return to home screen before launching to avoid cross-app permission dialogs
@@ -531,7 +553,7 @@ class ActionEngine(
     }
 
     /**
-     * Waits until the launched app's window has content. 74 of 195 AndroidWorld app launches were
+     * Waits until the launched app's window has content, past its splash screen. 74 of 195 AndroidWorld app launches were
      * observed as a black or blank screen 500 ms after the intent; the model then spent steps on
      * waits that verification judged FAILED.
      */
@@ -541,7 +563,7 @@ class ActionEngine(
             val root = a11y.rootInActiveWindow
             if (root?.packageName?.toString() == packageName && root.childCount > 0) {
                 val tree = a11y.getUiTree()
-                if (tree != null && tree.flatCount() >= MIN_RENDERED_NODES) {
+                if (tree != null && isRendered(tree)) {
                     // The tree is published before the first frame is drawn.
                     delay(APP_RENDER_SETTLE_MS)
                     return
@@ -592,6 +614,18 @@ class ActionEngine(
         private const val APP_RENDER_POLL_MS = 200L
         private const val APP_RENDER_SETTLE_MS = 300L
         private const val MIN_RENDERED_NODES = 5
+
+        /**
+         * Whether a launched app shows its real first screen: enough nodes, and at least one with text
+         * or one the user can act on. A splash screen (a logo, perhaps described, and a progress bar)
+         * has neither, and a screenshot taken there was judged a failed launch.
+         */
+        internal fun isRendered(tree: UiTreeNode): Boolean =
+            tree.flatCount() >= MIN_RENDERED_NODES && tree.hasContent()
+
+        private fun UiTreeNode.hasContent(): Boolean =
+            !text.isNullOrBlank() || isClickable || isEditable ||
+                isScrollable || children.any { it.hasContent() }
 
         /**
          * A tap is a short press, like adb's `input tap`. Some views drop a longer press: right after

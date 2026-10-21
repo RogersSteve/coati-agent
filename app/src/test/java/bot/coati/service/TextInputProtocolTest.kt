@@ -524,4 +524,33 @@ class TextInputProtocolTest {
         requestedBeforeLength = requestedBefore,
         requestedAfterLength = requestedAfter,
     )
+
+    @Test
+    fun `a short one-line value in a multiline-capable field may be replaced explicitly`() {
+        val renameField = profile(isMultiLine = true)
+        // Markor's file-name field: flagged multiline, holding "my_note.md".
+        assertTrue(renameField.allowsShortPlainReplace("my_note.md"))
+        assertTrue(renameField.allowsShortPlainReplace(null))
+        assertFalse(renameField.allowsShortPlainReplace("line one\nline two"))
+        assertFalse(renameField.allowsShortPlainReplace("x".repeat(EditorInputProfile.SHORT_PLAIN_REPLACE_MAX_CHARS + 1)))
+        assertFalse(profile(hasWebViewAncestor = true).allowsShortPlainReplace("short"))
+        assertFalse(renameField.copy(supportsSetText = false).allowsShortPlainReplace("short"))
+    }
+
+    @Test
+    fun `select-all replacement needs a direct input connection outside web content`() {
+        assertTrue(profile(isMultiLine = true).allowsSelectAllReplace)
+        assertFalse(profile(isMultiLine = true).copy(hasDirectInput = false).allowsSelectAllReplace)
+        assertFalse(profile(hasWebViewAncestor = true).allowsSelectAllReplace)
+    }
+
+    @Test
+    fun `select-all is confirmed only for a selection from the document start`() {
+        assertTrue(confirmsSelectAll(selection(session = 4, sequence = 9, start = 0, end = 120), 4, documentEmpty = false))
+        assertTrue(confirmsSelectAll(selection(session = 4, sequence = 9, start = 0, end = 0), 4, documentEmpty = true))
+        assertFalse(confirmsSelectAll(selection(session = 4, sequence = 9, start = 0, end = 0), 4, documentEmpty = false))
+        assertFalse(confirmsSelectAll(selection(session = 4, sequence = 9, start = 3, end = 120), 4, documentEmpty = false))
+        assertFalse(confirmsSelectAll(selection(session = 3, sequence = 9, start = 0, end = 120), 4, documentEmpty = false))
+        assertFalse(confirmsSelectAll(null, 4, documentEmpty = true))
+    }
 }

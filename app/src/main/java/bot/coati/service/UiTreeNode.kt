@@ -57,6 +57,20 @@ data class UiTreeNode(
 
     fun flatCount(): Int = 1 + children.sumOf { it.flatCount() }
 
+    /**
+     * This tree with only the nodes a model acts on or reads (clickable, long-clickable, editable,
+     * scrollable, or carrying text or a description); the children of dropped layout nodes move up to
+     * their nearest kept ancestor. The root is always kept.
+     */
+    fun pruned(): UiTreeNode = copy(children = children.flatMap { it.keptNodes() })
+
+    private fun keptNodes(): List<UiTreeNode> {
+        val kept = children.flatMap { it.keptNodes() }
+        val informative = isClickable || isLongClickable || isEditable || isScrollable ||
+            !text.isNullOrBlank() || !contentDescription.isNullOrBlank()
+        return if (informative) listOf(copy(children = kept)) else kept
+    }
+
     fun nodesWithText(): Int {
         val self = if (!text.isNullOrBlank()) 1 else 0
         return self + children.sumOf { it.nodesWithText() }
