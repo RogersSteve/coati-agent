@@ -127,6 +127,11 @@ data class ActionResult(
 }
 
 enum class ActionFailureCode {
+    SCROLL_UNVERIFIED,
+    SCROLL_NO_ACTION,
+    SCROLL_TARGET_CHANGED,
+    SCROLL_REJECTED,
+    SCROLL_NO_EFFECT,
     TEXT_NO_FOCUS,
     TEXT_NOT_EDITABLE,
     TEXT_REPLACE_UNSAFE,
