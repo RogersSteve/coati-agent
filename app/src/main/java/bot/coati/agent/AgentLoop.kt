@@ -505,7 +505,7 @@ class AgentLoop(
                 when {
                     shouldAbort -> {
                         val reason = if (capabilityDecision == CapabilityFailureDecision.ABORT) {
-                            "The same text-input capability failed repeatedly; stopped to avoid an action loop. " +
+                            "The same action capability failed repeatedly; stopped to avoid an action loop. " +
                                 actionResult.message
                         } else {
                             "Action failed: ${actionResult.message}"
@@ -1324,6 +1324,13 @@ class AgentLoop(
 
     private fun capabilityConstraint(failureCode: ActionFailureCode): String {
         return when (failureCode) {
+            ActionFailureCode.SCROLL_UNVERIFIED,
+            ActionFailureCode.SCROLL_NO_ACTION,
+            ActionFailureCode.SCROLL_TARGET_CHANGED,
+            ActionFailureCode.SCROLL_REJECTED,
+            ActionFailureCode.SCROLL_NO_EFFECT,
+            -> "Scrolling was not verified in the requested container/direction. Re-observe the screen; " +
+                "do not repeat the same scroll on an unchanged page. Check the boundary or use another visible navigation control."
             ActionFailureCode.TEXT_REPLACE_UNSAFE ->
                 "The current editor cannot be replaced safely (web content, or no direct input connection). Do " +
                     "not use whole-field replacement; preserve its structure and use mode=type only at a verified caret."
@@ -1603,6 +1610,12 @@ class AgentLoop(
             failureCode: ActionFailureCode,
         ): String {
             val capability = when (failureCode) {
+                ActionFailureCode.SCROLL_UNVERIFIED,
+                ActionFailureCode.SCROLL_NO_ACTION,
+                ActionFailureCode.SCROLL_TARGET_CHANGED,
+                ActionFailureCode.SCROLL_REJECTED,
+                ActionFailureCode.SCROLL_NO_EFFECT,
+                -> "scroll-not-verified"
                 ActionFailureCode.TEXT_DIRECT_INPUT_UNAVAILABLE,
                 ActionFailureCode.TEXT_LEGACY_UNSUPPORTED,
                 -> "direct-input-unavailable"

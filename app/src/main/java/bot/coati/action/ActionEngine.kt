@@ -41,8 +41,9 @@ class ActionEngine(
                 is AgentAction.LongPress -> withClickFallback(action.x, action.y, longClick = true) {
                     executeLongPress(action.x, action.y, action.durationMs)
                 }
-                is AgentAction.Swipe -> executeSwipe(action.x1, action.y1, action.x2, action.y2, action.durationMs)
-                    .withSliderSnap(action.x2, action.y2)
+                is AgentAction.Swipe -> withScrollFallback(action) {
+                    executeSwipe(action.x1, action.y1, action.x2, action.y2, action.durationMs)
+                }.withSliderSnap(action.x2, action.y2)
                 is AgentAction.InputText -> executeInputText(action.text, action.mode)
                 is AgentAction.FocusAndInputText -> executeFocusAndInputText(
                     action.x,
@@ -100,6 +101,51 @@ class ActionEngine(
         val stroke = GestureDescription.StrokeDescription(path, 0, TAP_DURATION_MS)
         val result = dispatchGesture(stroke)
         return ActionResult(success = result, message = if (result) "Tapped ($x, $y)" else "Tap failed")
+    }
+
+    /** A dispatched gesture is not proof of scrolling. Observe before trying one advertised action. */
+    internal suspend fun withScrollFallback(swipe: AgentAction.Swipe, gesture: suspend () -> ActionResult): ActionResult {
+        val session = a11y.prepareScroll(swipe)
+        // The caller may have just captured its model frame (including legacy Scroll callers).
+        // Accessibility screenshots reject captures less than 333 ms apart.
+        if (session != null) delay(SCROLL_OBSERVE_MS)
+        val before = session?.let { a11y.scrollEvidence(it) }
+        val result = gesture()
+        if (!result.success || session == null) return result
+        fun failed(code: ActionFailureCode, detail: String): ActionResult {
+            Log.i(TAG, "Scroll feedback: $code; window=${session.windowId}; action=${session.actionId}")
+            return ActionResult(false, detail, failureCode = code)
+        }
+        if (before == null) return failed(ActionFailureCode.SCROLL_UNVERIFIED, "Scroll could not be observed; no semantic action attempted")
+        // Screenshot API requires at least 333 ms between captures. Wait for delayed gesture reactions
+        // as well, so a handled gesture never receives a second, semantic scroll.
+        repeat(3) {
+            delay(SCROLL_OBSERVE_MS)
+            val after = a11y.scrollEvidence(session)
+                ?: return failed(ActionFailureCode.SCROLL_UNVERIFIED, "App window or scroll evidence changed; no semantic action attempted")
+            val moved = after.visualChangeFrom(before)
+                ?: return failed(ActionFailureCode.SCROLL_UNVERIFIED, "Scroll images are not comparable; no semantic action attempted")
+            if (moved || after.signature != before.signature) return result
+        }
+        if (session.actionId == null) return failed(ActionFailureCode.SCROLL_NO_ACTION,
+            "Screen did not scroll; no advertised action in the requested direction (possibly at boundary)")
+        when (a11y.performSemanticScroll(session)) {
+            null -> return failed(ActionFailureCode.SCROLL_TARGET_CHANGED, "Scroll target changed; semantic action not performed")
+            false -> return failed(ActionFailureCode.SCROLL_REJECTED, "Scroll action rejected or at boundary; screen did not scroll")
+            true -> Unit
+        }
+        repeat(3) {
+            delay(SCROLL_OBSERVE_MS)
+            val after = a11y.scrollEvidence(session)
+                ?: return failed(ActionFailureCode.SCROLL_UNVERIFIED, "Semantic scroll dispatched but its effect could not be verified")
+            val moved = after.visualChangeFrom(before)
+                ?: return failed(ActionFailureCode.SCROLL_UNVERIFIED, "Semantic scroll images are not comparable")
+            if (moved && after.signature != before.signature) {
+                Log.i(TAG, "Semantic scroll verified: window=${session.windowId}; action=${session.actionId}")
+                return result.copy(message = result.message + " (semantic scroll verified)")
+            }
+        }
+        return failed(ActionFailureCode.SCROLL_NO_EFFECT, "Semantic action accepted but screen did not observably scroll (possibly at boundary)")
     }
 
     private suspend fun executeLongPress(x: Int, y: Int, durationMs: Long): ActionResult {
@@ -462,7 +508,9 @@ class ActionEngine(
         }
         val swipe = ModelCoordinateAction.scrollGesture(action, bound, container)
         return bound.dispatch({ bot.coati.coordinates.DisplaySpaceReader.read(a11y) }) {
-            executeSwipe(swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.durationMs)
+            withScrollFallback(swipe) {
+                executeSwipe(swipe.x1, swipe.y1, swipe.x2, swipe.y2, swipe.durationMs)
+            }
         }
     }
 
@@ -637,6 +685,7 @@ class ActionEngine(
         /** A handled tap on a list item changes what the app shows well within this. */
         private const val REACTION_WAIT_MS = 800L
         private const val REACTION_POLL_MS = 200L
+        private const val SCROLL_OBSERVE_MS = 350L
         private const val MAX_APP_CANDIDATES_IN_ERROR = 5
         private val ACCESSIBILITY_FALLBACK_STATUSES = setOf(
             DirectTextEditStatus.LEGACY_UNSUPPORTED,

@@ -3,6 +3,7 @@
     <!-- Requested (never used) by PermissionFixtureActivity to show a real runtime-permission dialog. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <application android:networkSecurityConfig="@xml/debug_network_security_config">
+        <receiver android:name="bot.coati.debug.ScrollActionReceiver" android:exported="true" android:permission="android.permission.DUMP" />
         <!-- Installs the benchmark hooks (task results, ablation switches) at process start. -->
         <provider
             android:name="bot.coati.debug.BenchmarkHooksInstaller"
