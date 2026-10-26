@@ -29,10 +29,23 @@ object A11yScreenParser {
         for (node in nodes) {
             val bounds = node.bounds.clampTo(displayWidth, displayHeight) ?: continue
             if (node.isScrollable) {
-                val axis = if (node.actions.any { it == "SCROLL_LEFT" || it == "SCROLL_RIGHT" } ||
-                    (bounds.width() > bounds.height() * 1.5 && bounds.height() < displayHeight / 4)
-                ) ScrollAxis.HORIZONTAL else ScrollAxis.VERTICAL
-                regions += ScreenRegion("R${regions.size + 1}", "content", setOf(axis), bounds)
+                // Prefer the axis resolved from the node's advertised actions / collection metadata /
+                // child geometry (carried on the tree node); only guess from shape when it is unknown.
+                val axis = when (node.scrollsHorizontally) {
+                    true -> ScrollAxis.HORIZONTAL
+                    false -> ScrollAxis.VERTICAL
+                    null -> if (node.actions.any { it == "SCROLL_LEFT" || it == "SCROLL_RIGHT" } ||
+                        (bounds.width() > bounds.height() * 1.5 && bounds.height() < displayHeight / 4)
+                    ) ScrollAxis.HORIZONTAL else ScrollAxis.VERTICAL
+                }
+                // A scrollable view advertises SCROLL_FORWARD/BACKWARD only while it can still move that
+                // way; a node advertising neither (custom views, some toolkits) leaves the extent unknown.
+                val advertises = node.actions.any { it == "SCROLL_FORWARD" || it == "SCROLL_BACKWARD" }
+                regions += ScreenRegion(
+                    "R${regions.size + 1}", "content", setOf(axis), bounds,
+                    moreForward = if (advertises) "SCROLL_FORWARD" in node.actions else null,
+                    moreBackward = if (advertises) "SCROLL_BACKWARD" in node.actions else null,
+                )
             }
             if (!node.isActionable()) continue
             val ops = buildList {

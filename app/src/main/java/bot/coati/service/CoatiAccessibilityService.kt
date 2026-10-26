@@ -162,6 +162,24 @@ class CoatiAccessibilityService : AccessibilityService() {
         return out.toString()
     }
 
+    /** Whether window [windowId] exposes any visible scrollable node; false when it cannot be read. */
+    fun windowHasScrollable(windowId: Int): Boolean {
+        val root = try {
+            windows.firstOrNull { it.id == windowId }?.root
+        } catch (e: RuntimeException) {
+            null
+        } ?: return false
+        var budget = MAX_SNAPSHOT_NODES
+        val stack = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+        while (stack.isNotEmpty() && budget-- > 0) {
+            val node = stack.removeLast()
+            if (!node.isVisibleToUser) continue
+            if (node.isScrollable) return true
+            for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let(stack::add)
+        }
+        return false
+    }
+
     /**
      * The list item a tap (or, with [longClick], a long press) at a screen point would activate: the
      * deepest visible node under the point in the topmost app window, or its nearest ancestor that offers
@@ -299,6 +317,23 @@ class CoatiAccessibilityService : AccessibilityService() {
 
     internal fun performSemanticScroll(session: bot.coati.action.ScrollSession): Boolean? =
         ScrollAccessibility(this).perform(session)
+
+    /** Whether a soft keyboard window is on screen. */
+    fun isImeVisible(): Boolean = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+
+    /**
+     * Hides an open soft keyboard. On some builds (Android 16, ColorOS) a global BACK leaves the
+     * keyboard up, covering the lower half of the screen. The show mode returns to AUTO afterwards, so
+     * the keyboard comes back as usual the next time a field asks for it. True only if it stays down.
+     */
+    suspend fun hideSoftKeyboard(): Boolean {
+        if (!softKeyboardController.setShowMode(AccessibilityService.SHOW_MODE_HIDDEN)) return false
+        repeat(10) { if (isImeVisible()) delay(100) }
+        val hidden = !isImeVisible()
+        softKeyboardController.setShowMode(AccessibilityService.SHOW_MODE_AUTO)
+        delay(300)
+        return hidden && !isImeVisible()
+    }
 
     /** Display size, density and the system navigation gesture insets (bottom bar, side back edges). */
     data class GestureArea(val width: Int, val height: Int, val density: Float, val insets: PixelBounds)
@@ -1060,6 +1095,7 @@ class CoatiAccessibilityService : AccessibilityService() {
             bounds = bounds,
             isClickable = node.isClickable,
             isScrollable = node.isScrollable,
+            scrollsHorizontally = if (node.isScrollable) ScrollAccessibility(this).scrollAxisHorizontal(node) else null,
             isEditable = node.isEditable,
             isFocused = node.isFocused,
             isMultiLine = node.isMultiLine,

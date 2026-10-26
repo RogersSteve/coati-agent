@@ -25,6 +25,19 @@ class JevCandidatesTest {
     }
 
     @Test
+    fun `a region's advertised extent drops directions it cannot move and marks unseen content`() {
+        val atTop = verticalRegion().copy(moreForward = true, moreBackward = false)
+        val s = screen(element("E1", "资料库", ElementOp.TAP), regions = listOf(atTop))
+
+        val candidates = JevCandidates.build(s, ExplorationMemory(), emptySet(), apps = emptyList(), canType = false)
+
+        val keys = candidates.map { it.key }
+        assertFalse("R1.SCROLL_UP" in keys)
+        val down = candidates.single { it.key == "R1.SCROLL_DOWN" }
+        assertTrue(down.description.contains("continues below"))
+    }
+
+    @Test
     fun `input candidates are hidden when typing is impossible and excluded keys are dropped`() {
         val s = screen(element("E1", "搜索", ElementOp.TAP, ElementOp.INPUT))
 

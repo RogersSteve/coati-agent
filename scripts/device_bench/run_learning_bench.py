@@ -14,6 +14,7 @@ Compare cold (first L1) with warm (later L1) runs per mode, and the manuals betw
 Environment variables are the same as run_app_bench.py.
 """
 import json
+import os
 import re
 import sys
 import time
@@ -25,8 +26,8 @@ from tasks import TASKS
 
 MANUAL_RECEIVER = "bot.coati/.debug.DebugManualReceiver"
 # Cold run, two warm repeats of the same task, then a related task sharing the route
-# 我的 -> 设置 -> 高级设置.
-SEQUENCE = ["L1", "L1", "L1", "L3"]
+# 我的 -> 设置 -> 高级设置. BENCH_SEQUENCE (comma-separated task ids) runs another sequence.
+SEQUENCE = os.environ.get("BENCH_SEQUENCE", "L1,L1,L1,L3").split(",")
 UPDATE_WAIT_S = 240
 # Headings and route words that show the manual captured the deep route used by L1/L3.
 ROUTE_WORDS = ["实验档案", "高级设置", "设置", "紧凑资料卡片"]
@@ -69,10 +70,10 @@ def run(tid, mode, label, out_dir):
         return
     dev.sh("logcat", "-c")
     t0 = time.perf_counter()
-    if not bench.start_task(pkg, task):
+    if not bench.start_task(pkg, task, label, tid):
         bench.configure(mode)
         t0 = time.perf_counter()
-        bench.start_task(pkg, task)
+        bench.start_task(pkg, task, label, tid)
     status, state = "timeout", {}
     while time.perf_counter() - t0 < bench.RUN_TIMEOUT_S:
         time.sleep(3)

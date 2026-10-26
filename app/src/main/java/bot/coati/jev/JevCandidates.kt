@@ -87,10 +87,22 @@ object JevCandidates {
             }
         }
         for (r in screen.regions) {
+            // The view's advertised extent drops directions it cannot move and marks unseen content:
+            // on a narrow phone the target sat below the fold and the selector left the page to look
+            // for it, because "reveal content below" did not say there was any.
+            fun extent(more: Boolean?, effect: String, unseen: String): String? = when (more) {
+                false -> null
+                true -> "$effect ($unseen)"
+                null -> effect
+            }
             val directions = buildList {
-                if (ScrollAxis.VERTICAL in r.axes) addAll(listOf("DOWN" to "reveal content below", "UP" to "reveal content above"))
+                if (ScrollAxis.VERTICAL in r.axes) {
+                    extent(r.moreForward, "reveal content below", "this page continues below the visible part")?.let { add("DOWN" to it) }
+                    extent(r.moreBackward, "reveal content above", "this page continues above the visible part")?.let { add("UP" to it) }
+                }
                 if (ScrollAxis.HORIZONTAL in r.axes) {
-                    addAll(listOf("RIGHT" to "reveal content to the right", "LEFT" to "reveal content to the left"))
+                    extent(r.moreForward, "reveal content to the right", "more items to the right")?.let { add("RIGHT" to it) }
+                    extent(r.moreBackward, "reveal content to the left", "more items to the left")?.let { add("LEFT" to it) }
                 }
             }
             for ((direction, effect) in directions) {

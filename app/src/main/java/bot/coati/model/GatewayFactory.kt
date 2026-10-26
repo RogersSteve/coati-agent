@@ -6,6 +6,13 @@ import java.util.concurrent.TimeUnit
 /** End-to-end request budget, also shared by agent decision and verification stages. */
 const val MODEL_REQUEST_TIMEOUT_MS = 300_000L
 
+/**
+ * A model call with no response after this long gets one hedged duplicate. Reasoning and
+ * verification calls finish in about 5-12 s; on a phone network a request occasionally stalled for
+ * 70-140 s, which alone could exceed a task's time budget.
+ */
+const val MODEL_HEDGE_AFTER_MS = 20_000L
+
 object GatewayFactory {
 
     /** Shared transport settings for runtime gateways and debug-only protocol validation. */

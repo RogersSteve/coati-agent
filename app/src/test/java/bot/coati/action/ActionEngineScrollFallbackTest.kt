@@ -64,6 +64,35 @@ class ActionEngineScrollFallbackTest {
         every { service.performSemanticScroll(session) } returns false
         assertEquals(ActionFailureCode.SCROLL_REJECTED, engine.withScrollFallback(swipe) { dispatched }.failureCode)
     }
+    @Test fun `no action says whether the list ended or the axis was wrong`() = runTest {
+        every { service.prepareScroll(swipe) } returns session.copy(actionId = null)
+        val ended = engine.withScrollFallback(swipe) { dispatched }
+        assertEquals(ActionFailureCode.SCROLL_NO_ACTION, ended.failureCode)
+        assertTrue(ended.message, ended.message.contains("end of this list") && ended.message.contains("further right"))
+        every { service.prepareScroll(swipe) } returns session.copy(candidate = null, actionId = null)
+        every { service.windowHasScrollable(any()) } returns true
+        val wrongAxis = engine.withScrollFallback(swipe) { dispatched }
+        assertEquals(ActionFailureCode.SCROLL_NO_ACTION, wrongAxis.failureCode)
+        assertTrue(wrongAxis.message, wrongAxis.message.contains("scrolls horizontally"))
+        every { service.windowHasScrollable(any()) } returns false
+        val unscrollable = engine.withScrollFallback(swipe) { dispatched }
+        assertEquals(ActionFailureCode.SCROLL_NO_ACTION, unscrollable.failureCode)
+        assertTrue(unscrollable.message, unscrollable.message.contains("cannot be scrolled here in any direction"))
+        assertFalse(unscrollable.message, unscrollable.message.contains("scroll it there"))
+        verify(exactly = 0) { service.performSemanticScroll(any()) }
+    }
+    @Test fun `an unscrollable page points back to the list that scrolled earlier in the task`() = runTest {
+        coEvery { service.scrollEvidence(session) } returnsMany listOf(before, after)
+        assertEquals(dispatched, engine.withScrollFallback(swipe) { dispatched })
+        coEvery { service.scrollEvidence(any()) } returns before
+        every { service.prepareScroll(swipe) } returns session.copy(candidate = null, actionId = null)
+        every { service.windowHasScrollable(any()) } returns false
+        val back = engine.withScrollFallback(swipe) { dispatched }
+        assertTrue(back.message, back.message.contains("go back to that list and scroll it there"))
+        engine.newTask()
+        val fresh = engine.withScrollFallback(swipe) { dispatched }
+        assertTrue(fresh.message, fresh.message.contains("another tab or category"))
+    }
     @Test fun `changed target and unavailable evidence do not perform an unsafe action`() = runTest {
         every { service.performSemanticScroll(session) } returns null
         assertEquals(ActionFailureCode.SCROLL_TARGET_CHANGED, engine.withScrollFallback(swipe) { dispatched }.failureCode)

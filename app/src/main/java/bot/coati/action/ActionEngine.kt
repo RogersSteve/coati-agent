@@ -31,6 +31,11 @@ class ActionEngine(
     private val uptimeMillis: () -> Long = SystemClock::uptimeMillis,
 ) {
 
+    /** Windows in which a scroll moved the screen during the current task; cleared by [newTask]. */
+    private val scrolledWindows = mutableSetOf<Int>()
+
+    fun newTask() = scrolledWindows.clear()
+
     suspend fun execute(action: AgentAction, coordinates: ScreenshotCoordinates? = null): ActionResult {
         Log.i(TAG, "Executing action: ${action.toLogSummary()}")
         return try {
@@ -125,10 +130,42 @@ class ActionEngine(
                 ?: return failed(ActionFailureCode.SCROLL_UNVERIFIED, "App window or scroll evidence changed; no semantic action attempted")
             val moved = after.visualChangeFrom(before)
                 ?: return failed(ActionFailureCode.SCROLL_UNVERIFIED, "Scroll images are not comparable; no semantic action attempted")
-            if (moved || after.signature != before.signature) return result
+            if (moved || after.signature != before.signature) {
+                scrolledWindows += session.windowId
+                return result
+            }
         }
-        if (session.actionId == null) return failed(ActionFailureCode.SCROLL_NO_ACTION,
-            "Screen did not scroll; no advertised action in the requested direction (possibly at boundary)")
+        if (session.actionId == null) {
+            // A container on the requested axis that advertises no action this way is at its end;
+            // no container on this axis means the gesture went the wrong way. Say which, so the
+            // model changes strategy instead of repeating the same scroll on an unchanged page.
+            val direction = SemanticScroll.contentDirection(swipe) ?: "this way"
+            return failed(ActionFailureCode.SCROLL_NO_ACTION, if (session.candidate != null) {
+                "Reached the end of this list: it cannot scroll further $direction, so everything in that " +
+                    "direction is already visible. Do not scroll $direction here again; find the target another " +
+                    "way (another tab, category, filter or search) or scroll back."
+            } else if (!a11y.windowHasScrollable(session.windowId)) {
+                // Nothing in the window is scrollable and the swipe moved nothing: no other gesture
+                // will scroll it either (device: a Flutter page that drops its list from the tree
+                // and ignores injected swipes; the model swiped it three times and the task aborted).
+                "Screen did not scroll: $UNSCROLLABLE_PAGE and ignored the swipe, so " +
+                    "it cannot be scrolled here in any direction. Do not swipe this page again; " +
+                    if (session.windowId in scrolledWindows) {
+                        // Told to try another category, the model opened one unscrollable category
+                        // page after another until the run timed out, while the full list it had
+                        // scrolled before still worked.
+                        "a list on another page of this app did scroll earlier in this task (such as the " +
+                            "full list you came from): go back to that list and scroll it there, instead of " +
+                            "opening more pages that cannot scroll."
+                    } else {
+                        "reach the target another way (another tab or category that lists it, the full list, or search)."
+                    }
+            } else {
+                val axis = if (SemanticScroll.axis(swipe) == ScrollAxis.VERTICAL) "vertically" else "horizontally"
+                "Screen did not scroll: nothing at the gesture start scrolls $axis. If the content scrolls " +
+                    "along the other axis, scroll that way; otherwise use another navigation control."
+            })
+        }
         when (a11y.performSemanticScroll(session)) {
             null -> return failed(ActionFailureCode.SCROLL_TARGET_CHANGED, "Scroll target changed; semantic action not performed")
             false -> return failed(ActionFailureCode.SCROLL_REJECTED, "Scroll action rejected or at boundary; screen did not scroll")
@@ -142,6 +179,7 @@ class ActionEngine(
                 ?: return failed(ActionFailureCode.SCROLL_UNVERIFIED, "Semantic scroll images are not comparable")
             if (moved && after.signature != before.signature) {
                 Log.i(TAG, "Semantic scroll verified: window=${session.windowId}; action=${session.actionId}")
+                scrolledWindows += session.windowId
                 return result.copy(message = result.message + " (semantic scroll verified)")
             }
         }
@@ -456,7 +494,12 @@ class ActionEngine(
 
     private suspend fun executePressKey(keyCode: String): ActionResult {
         val globalAction = when (keyCode.uppercase()) {
-            "BACK" -> AccessibilityService.GLOBAL_ACTION_BACK
+            "BACK" -> {
+                // Closing the keyboard is what BACK means while one is open; on some builds a global
+                // BACK does not do it, and the keyboard then hides results and fields from later steps.
+                if (a11y.isImeVisible() && a11y.hideSoftKeyboard()) return ActionResult(true, "Soft keyboard hidden")
+                AccessibilityService.GLOBAL_ACTION_BACK
+            }
             "HOME" -> AccessibilityService.GLOBAL_ACTION_HOME
             "RECENTS" -> AccessibilityService.GLOBAL_ACTION_RECENTS
             "NOTIFICATIONS" -> AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
@@ -629,10 +672,25 @@ class ActionEngine(
     private fun findFocusedNode(): AccessibilityNodeInfo? {
         val root = a11y.rootInActiveWindow ?: return null
         return try {
-            root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            val focus = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            // Android 16 (OnePlus) sometimes reports a non-editable container as the input focus while
+            // the field inside it holds the caret; "Focused node is not editable" then blocked every
+            // replace on a visibly focused field. Prefer the focused editable node in that case.
+            if (focus == null || focus.isEditable) focus else focusedEditable(root)?.also { focus.recycle() } ?: focus
         } finally {
             root.recycle()
         }
+    }
+
+    private fun focusedEditable(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val stack = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+        var budget = MAX_FOCUS_SEARCH_NODES
+        while (stack.isNotEmpty() && budget-- > 0) {
+            val node = stack.removeLast()
+            if (node !== root && node.isEditable && node.isFocused) return node
+            for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let(stack::add)
+        }
+        return null
     }
 
     private fun activeWindowPackageName(): String? {
@@ -658,6 +716,9 @@ class ActionEngine(
 
     companion object {
         private const val TAG = "CoatiAction"
+
+        /** Marks the SCROLL_NO_ACTION message of a page with nothing scrollable at all. */
+        const val UNSCROLLABLE_PAGE = "this page exposes no scrollable content"
         private const val APP_RENDER_TIMEOUT_MS = 4_000L
         private const val APP_RENDER_POLL_MS = 200L
         private const val APP_RENDER_SETTLE_MS = 300L
@@ -687,6 +748,7 @@ class ActionEngine(
         private const val REACTION_POLL_MS = 200L
         private const val SCROLL_OBSERVE_MS = 350L
         private const val MAX_APP_CANDIDATES_IN_ERROR = 5
+        private const val MAX_FOCUS_SEARCH_NODES = 500
         private val ACCESSIBILITY_FALLBACK_STATUSES = setOf(
             DirectTextEditStatus.LEGACY_UNSUPPORTED,
             DirectTextEditStatus.UNAVAILABLE,

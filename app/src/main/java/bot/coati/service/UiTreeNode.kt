@@ -10,6 +10,13 @@ data class UiTreeNode(
     val bounds: Rect,
     val isClickable: Boolean,
     val isScrollable: Boolean,
+    /**
+     * For a scrollable node, the axis it actually scrolls, resolved from advertised directional
+     * actions, collection row/column metadata, or child geometry — the same signal the semantic
+     * scroll executor uses. true = horizontal, false = vertical, null = unknown or not scrollable.
+     * Perception reads this instead of guessing the axis from the viewport shape.
+     */
+    val scrollsHorizontally: Boolean? = null,
     val isEditable: Boolean = false,
     val isFocused: Boolean = false,
     val isMultiLine: Boolean = false,
