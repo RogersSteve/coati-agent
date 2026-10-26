@@ -6,6 +6,7 @@ Tags describe what the task exercises: native (full accessibility tree), no-tree
 mixed (both on one screen), input (soft keyboard text entry), dependent (a control that only
 appears after another action), cross-page (navigation across several pages).
 """
+import os
 import re
 import time
 
@@ -67,11 +68,49 @@ def gallery_theme_is(theme):
     return f"Theme\n{theme}" in shown
 
 
+def gallery_rally_tab_is(header):
+    """Each Rally tab opens with a summary card whose desc is "<header>\\n$..." (Bills: "Due",
+    Overview's card says "Bills", Accounts "Total", Budgets "Left"); only a card on screen counts,
+    not one on a neighbouring page of the tab pager."""
+    nodes = dev.ui_nodes()
+    tabs = [n for n in nodes if "\nTab " in (n["desc"] or "")]
+    if not tabs:
+        return False
+    right = max(n["bounds"][2] for n in tabs)
+    return any((n["desc"] or "").startswith(header + "\n") and 0 <= n["bounds"][0] < right for n in nodes)
+
+
+def revoke_lab_contacts():
+    """P1 starts with the contacts permission not granted, so the system dialog appears. AOSP resets
+    runtime permissions on `pm clear`; some OEM builds (ColorOS on OnePlus) keep them and refuse
+    shell `pm revoke`, so there the fixture app is reinstalled from BENCH_LAB_APK."""
+    if "android.permission.READ_CONTACTS: granted=true" not in dev.sh("shell", "dumpsys", "package", LAB):
+        return
+    apk = os.environ.get("BENCH_LAB_APK")
+    if not apk:
+        raise RuntimeError("P1 needs READ_CONTACTS revoked; set BENCH_LAB_APK to reinstall the fixture app")
+    dev.sh("uninstall", LAB, timeout=60)
+    if "Success" not in dev.sh("install", "-t", apk, timeout=180):
+        raise RuntimeError("fixture app reinstall failed")
+    if "android.permission.READ_CONTACTS: granted=true" in dev.sh("shell", "dumpsys", "package", LAB):
+        raise RuntimeError("READ_CONTACTS still granted after reinstall")
+    # ColorOS shows an install guide for PC installs; while it (a secure window) is in front, the
+    # agent's first screenshot fails, so wait for it to close before the run starts.
+    for _ in range(30):
+        focus = re.search(r"mCurrentFocus=.*", dev.sh("shell", "dumpsys", "window"))
+        if not focus or "InstallGuideActivity" not in focus.group(0):
+            break
+        time.sleep(2)
+    # Screenshots still fail for a few seconds after the guide closes (seen right after its exit).
+    time.sleep(8)
+
+
 # Setup after the app's data is cleared, per package or per task id. Gallery follows the system
 # language, so pin English. M5 turns on the Car Market promotion; the later launcher start reuses
 # that activity.
 SETUP = {
     GALLERY: lambda: dev.sh("shell", "cmd", "locale", "set-app-locales", GALLERY, "--locales", "en-US"),
+    "P1": revoke_lab_contacts,
     "M5": lambda: dev.sh("shell", "am", "start", "-W", "-n", f"{marketplace.PKG}/.MainActivity", "--ez", "promo", "true"),
     # Repeat mode for R1-R4 (persisted, so the launcher start that follows keeps it).
     **{tid: (lambda: dev.sh("shell", "am", "start", "-W", "-n", f"{marketplace.PKG}/.MainActivity",
@@ -112,6 +151,11 @@ TASKS = {
            lambda: gallery_cart_has("Gatsby hat", "Blue stone mug"), ["flutter", "input", "cross-page"]),
     "G2": (GALLERY, "In the Flutter Gallery app, open Settings and set the Theme to Dark",
            lambda: gallery_theme_is("Dark"), ["flutter", "dependent"]),
+    # Replaces G1 on Android 16: Shrine hides its products from accessibility after a category is
+    # chosen (ExcludeSemantics in its backdrop is not re-evaluated), an app bug unrelated to agents.
+    "G3": (GALLERY, "In the Flutter Gallery app, open Rally, sign in with username alex and password secret1, "
+                    "then open the Bills tab",
+           lambda: gallery_rally_tab_is("Due"), ["flutter", "input", "cross-page"]),
     # bilibili in guest mode: a real app with dialogs, feeds and partial trees.
     "B1": (BILI, "In the bilibili app, search for minecraft and open the first video in the search results",
            None, ["mixed", "input"]),

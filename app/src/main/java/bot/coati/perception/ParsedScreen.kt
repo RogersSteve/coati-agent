@@ -33,6 +33,12 @@ data class ScreenRegion(
     val role: String,
     val axes: Set<ScrollAxis>,
     val bounds: PixelBounds,
+    /**
+     * Whether content remains past the visible part going forward (down or right) and backward (up
+     * or left), from the node's advertised scroll actions; null when the source does not say.
+     */
+    val moreForward: Boolean? = null,
+    val moreBackward: Boolean? = null,
 )
 
 /** A structured description of one captured frame, independent of how it was produced. */

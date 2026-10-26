@@ -325,9 +325,34 @@ def recover_device(mode, reason):
     configure(mode)
 
 
+def reset_app(pkg):
+    """Clear the target app's data before a run. OEM builds (ColorOS on OnePlus) deny shell `pm clear`
+    (no CLEAR_APP_USER_DATA), which silently left every run starting from the previous run's final
+    state. Fallbacks, in order: delete a debuggable app's data with run-as; force-stop only for an app
+    listed in BENCH_STATELESS_APPS (checked to keep no state across a restart, e.g. Flutter Gallery);
+    reinstall from BENCH_RESET_APKS ("pkg=path|pkg=path"). Anything else stops the benchmark."""
+    if "Success" in dev.sh("shell", "pm", "clear", pkg):
+        return
+    dev.force_stop(pkg)
+    # adb joins shell arguments with spaces, so the sh -c script must arrive as one quoted string;
+    # run-as fails (stderr only) for a non-debuggable app, so success is an explicit stdout marker.
+    wiped = dev.sh("shell", f"run-as {pkg} sh -c 'rm -rf shared_prefs databases files no_backup cache "
+                            "app_webview datastore; [ -e shared_prefs ] || [ -e databases ] || echo CLEAN'")
+    if "CLEAN" in wiped:
+        return
+    if pkg in os.environ.get("BENCH_STATELESS_APPS", "").split(","):
+        return
+    apks = dict(e.split("=", 1) for e in os.environ.get("BENCH_RESET_APKS", "").split("|") if "=" in e)
+    if pkg not in apks:
+        raise RuntimeError(f"pm clear {pkg} failed and no other reset is configured for it")
+    dev.sh("uninstall", pkg, timeout=60)
+    if "Success" not in dev.sh("install", "-t", apks[pkg], timeout=300):
+        raise RuntimeError(f"reinstalling {pkg} failed")
+
+
 def start_task(pkg, task, run_id, tid=None):
     dev.force_stop(pkg)
-    dev.sh("shell", "pm", "clear", pkg)
+    reset_app(pkg)
     for key in (pkg, tid):
         if key in SETUP:
             SETUP[key]()

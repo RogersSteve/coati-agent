@@ -49,6 +49,13 @@ internal object SemanticScroll {
         }
     }
 
+    /** Content browsing direction of [swipe] (opposite to finger travel), named as ScrollProtocol does. */
+    fun contentDirection(swipe: AgentAction.Swipe): String? = when (axis(swipe)) {
+        ScrollAxis.HORIZONTAL -> if (swipe.x2 < swipe.x1) "right" else "left"
+        ScrollAxis.VERTICAL -> if (swipe.y2 < swipe.y1) "down" else "up"
+        null -> null
+    }
+
     fun directionalAxis(actions: Set<Int>): ScrollAxis? {
         val h = actions.any { it == LEFT || it == RIGHT }
         val v = actions.any { it == UP || it == DOWN }

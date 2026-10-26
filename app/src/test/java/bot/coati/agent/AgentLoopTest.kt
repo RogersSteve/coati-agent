@@ -96,6 +96,20 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `completion audit receives the fast route's verified steps and their precedence`() {
+        val record = "- step 5: tap the Sketch layer's visibility toggle -> SUCCESS\n- step 9: tap Export as SVG -> SUCCESS"
+        val question = AgentLoop.buildTaskCompletionAuditQuestion(
+            "Hide the Sketch layer, then export the artwork as SVG",
+            listOf("bot.coati.fixture.manual" to 4),
+            fastRecord = record,
+        )
+
+        assertTrue(question.contains(record))
+        assertTrue(question.contains("A SUCCESS at a later step supersedes a screenshot of the same page from an earlier step"))
+        assertFalse(AgentLoop.buildTaskCompletionAuditQuestion("Hide the Sketch layer").contains("Fast-route actions"))
+    }
+
+    @Test
     fun `both audits compare specified values character by character`() {
         val single = AgentLoop.buildTaskCompletionAuditQuestion("Create an event at 1 St Andrew's Road, Singapore 178957")
         val crossApp = AgentLoop.buildTaskCompletionAuditQuestion(
@@ -435,6 +449,7 @@ class AgentLoopTest {
         )
         assertTrue(question.contains("- Tap shutter: FAILED - screen unchanged"))
         assertTrue(question.contains("judged FAILED or UNKNOWN and no screenshot shows that result, answer false"))
+        assertTrue(question.contains("SUCCESS verdict on a page no longer shown (another tab) is evidence"))
         assertFalse(AgentLoop.buildTaskCompletionAuditQuestion("Take a photo").contains("step verifier"))
     }
 

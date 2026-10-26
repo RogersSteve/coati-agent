@@ -68,6 +68,18 @@ internal class ScrollAccessibility(private val service: CoatiAccessibilityServic
         } finally { owned.forEach { it.recycle() } }
     }
 
+    /**
+     * The scroll axis of [node] as a plain flag for the serialized [UiTreeNode], so perception can
+     * name the axis the same way the executor would instead of guessing it from the viewport shape.
+     * true = horizontal, false = vertical, null = axis unknown.
+     */
+    fun scrollAxisHorizontal(node: AccessibilityNodeInfo): Boolean? =
+        when (axis(node, node.actionList.map { it.id }.toSet())) {
+            ScrollAxis.HORIZONTAL -> true
+            ScrollAxis.VERTICAL -> false
+            null -> null
+        }
+
     private fun candidates(root: AccessibilityNodeInfo): List<ScrollCandidate> {
         val result = mutableListOf<ScrollCandidate>()
         val stack = ArrayDeque<Pair<AccessibilityNodeInfo, List<Int>>>()

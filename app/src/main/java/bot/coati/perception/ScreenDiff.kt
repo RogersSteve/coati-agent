@@ -1,7 +1,9 @@
 package bot.coati.perception
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import bot.coati.coordinates.PixelBounds
+import java.io.ByteArrayOutputStream
 import kotlin.math.abs
 
 /** Grayscale thumbnail of one captured frame; [values] are 0..255 row-major luminances. */
@@ -85,6 +87,37 @@ object ScreenDiff {
             (maxY + 1) * displayHeight / after.height,
         )
         return VisualChange(changed.toDouble() / total, bounds)
+    }
+
+    /** Width and height of a JPEG without decoding its pixels. */
+    fun imageSize(jpeg: ByteArray): Pair<Int, Int>? {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, options)
+        return if (options.outWidth > 0 && options.outHeight > 0) options.outWidth to options.outHeight else null
+    }
+
+    /**
+     * Full-width horizontal band of [jpeg] around [bounds] (image pixels), at least [minHeightFraction]
+     * of the frame tall, so a small change (a one-line confirmation) is judged at a closer scale.
+     */
+    fun band(jpeg: ByteArray, bounds: PixelBounds, minHeightFraction: Double = 0.2): ByteArray? {
+        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return null
+        try {
+            val want = maxOf((bounds.bottom - bounds.top) * 3, (bitmap.height * minHeightFraction).toInt())
+                .coerceAtMost(bitmap.height)
+            val top = ((bounds.top + bounds.bottom) / 2 - want / 2).coerceIn(0, bitmap.height - want)
+            val crop = Bitmap.createBitmap(bitmap, 0, top, bitmap.width, want)
+            try {
+                return ByteArrayOutputStream().use { out ->
+                    crop.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                    out.toByteArray()
+                }
+            } finally {
+                if (crop !== bitmap) crop.recycle()
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun luma(argb: Int): Int {

@@ -176,7 +176,11 @@ internal suspend fun Call.awaitModelResponseBody(): HttpResponseBody {
     val started = System.nanoTime()
     if (audit) Log.i(TAG, "Completion audit HTTP starting: bodyBytes=${request().body?.contentLength()}")
     val response = try {
-        awaitResponseBody()
+        // The JEV client hedges its own sub-second calls.
+        if (purpose == ModelCallPurpose.SELECTOR) awaitResponseBody()
+        else awaitHedgedResponseBody(MODEL_HEDGE_AFTER_MS) {
+            Log.i(TAG, "Model call slow (>${MODEL_HEDGE_AFTER_MS} ms, purpose=$purpose); sending hedged duplicate")
+        }
     } catch (e: Exception) {
         if (audit) Log.w(TAG, "Completion audit HTTP interrupted: elapsedMs=${(System.nanoTime() - started) / 1_000_000} type=${e.javaClass.simpleName}")
         throw e

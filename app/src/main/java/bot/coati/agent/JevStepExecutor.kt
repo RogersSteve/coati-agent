@@ -519,7 +519,8 @@ class JevStepExecutor(
             return FastStep.NotReady
         }
         Log.i(TAG, "Executed ${action.toLogSummary()}: success=${result.success} ${result.message}")
-        history += StepRecord(if (result.success) label else "$label (failed: ${result.message})")
+        // The step number lets the completion audit order this verified change against earlier screenshots.
+        history += StepRecord("step $stepNumber: " + if (result.success) label else "$label (failed: ${result.message})")
         previous = PreviousStep(
             actionLabel = label,
             screenDigest = JevDecisionEngine.digest(screen),
@@ -763,7 +764,6 @@ class JevStepExecutor(
             Log.w(TAG, "Vision parse failed: ${e.message}")
             null
         }
-
     /**
      * Most recent fast actions changed something on their own target: the task is advancing on one
      * page (a form, with the keyboard scrolling it), whatever the page fingerprints look like.

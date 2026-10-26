@@ -22,6 +22,7 @@ import bot.coati.model.QuickCheckResult
 import bot.coati.model.ScreenContext
 import bot.coati.model.VerifyOutcome
 import bot.coati.model.VerifyResult
+import bot.coati.perception.ScreenDiff
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.HomeScreens
 import bot.coati.service.UiTreeNode
@@ -128,6 +129,7 @@ class AgentLoop(
         conversationHistory.clear()
         screenshotCache.clear()
         appFrames.clear()
+        actionEngine.newTask()
         framelessPackages = HomeScreens.packages(a11y.packageManager) + setOf(a11y.packageName, SYSTEM_UI_PACKAGE)
         actionHistory.clear()
         taskStartTime = System.currentTimeMillis()
@@ -487,7 +489,12 @@ class AgentLoop(
                     )
                     val decision = capabilityFailureLedger.recordFailure(
                         key = key,
-                        constraint = capabilityConstraint(failureCode),
+                        // A page that cannot scroll at all says where to go instead; the generic
+                        // constraint ("use another navigation control") replaced that advice and the
+                        // model kept swiping unscrollable category pages until the task aborted.
+                        constraint = actionResult.message.takeIf {
+                            failureCode == ActionFailureCode.SCROLL_NO_ACTION && it.contains(ActionEngine.UNSCROLLABLE_PAGE)
+                        } ?: capabilityConstraint(failureCode),
                     )
                     Log.w(
                         TAG,
@@ -692,7 +699,7 @@ class AgentLoop(
 
                 // All attempts share one budget; retries must not multiply the waiting limit.
                 val actionDesc = "${response.action}: ${response.reasoning}"
-                val verifyResult = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
+                val modelVerify = withTimeoutOrNull(MODEL_REQUEST_TIMEOUT_MS) {
                     (1..3).firstNotNullOfOrNull { attempt ->
                         val res = modelRouter.fast.verifyAction(
                             beforeScreenshot = beforeScreenshot,
@@ -710,6 +717,11 @@ class AgentLoop(
                 } ?: run {
                     Log.w(TAG, "Verify unavailable after timeout or 3 failures, treating as UNKNOWN")
                     VerifyResult(VerifyOutcome.UNKNOWN, "Verification unavailable after timeout or repeated parse/API failures")
+                }
+                val verifyResult = if (modelVerify.outcome == VerifyOutcome.FAILED) {
+                    hostLocatedRecheck(beforeScreenshot, afterContext, actionDesc, response.expectedOutcome) ?: modelVerify
+                } else {
+                    modelVerify
                 }
 
                 Log.i(TAG, "Verify: ${verifyResult.outcome} - ${verifyResult.reason}")
@@ -1237,6 +1249,7 @@ class AgentLoop(
                 "${record.statusUpdate.ifBlank { record.action }}: ${record.outcome}" +
                     record.verifyReason.takeIf(String::isNotBlank)?.let { " - $it" }.orEmpty()
             },
+            fastExecutor?.recentHistory(AUDIT_FAST_STEPS),
         )
         if (earlier.isNotEmpty()) {
             Log.i(TAG, "Completion audit includes earlier screens ${earlier.map { "${it.packageName}@${it.step}" }}")
@@ -1322,6 +1335,49 @@ class AgentLoop(
             "strategy on the unchanged editor; choose a non-destructive alternative or stop."
     }
 
+    /**
+     * Host-grounded recheck of a FAILED verdict. A one-line confirmation ("Saved: ...", "Contacts
+     * imported.") is easy to miss in a full-screen pair, and the completion gate then rejects a finished
+     * task. When the host sees pixels change where the model reported no effect, the changed band is
+     * cropped from both frames and judged again; a second FAILED (or no host change) keeps the verdict.
+     */
+    private suspend fun hostLocatedRecheck(
+        beforeJpeg: ByteArray,
+        after: ScreenContext,
+        actionDesc: String,
+        expectedOutcome: String,
+    ): VerifyResult? {
+        val crops = try {
+            val (width, height) = ScreenDiff.imageSize(after.screenshotJpeg) ?: return null
+            val statusBar = after.coordinates?.let { it.display.insets.top * width / it.rawWidth } ?: 0
+            val change = ScreenDiff.compare(
+                ScreenDiff.lumaGrid(beforeJpeg) ?: return null,
+                ScreenDiff.lumaGrid(after.screenshotJpeg) ?: return null,
+                width, height, statusBar,
+            ) ?: return null
+            val bounds = change.bounds ?: return null
+            if (change.changedFraction < HOST_RECHECK_MIN_CHANGE) return null
+            Triple(
+                ScreenDiff.band(beforeJpeg, bounds) ?: return null,
+                ScreenDiff.band(after.screenshotJpeg, bounds) ?: return null,
+                "%.2f%% of the screen at %s".format(change.changedFraction * 100, bounds),
+            )
+        } catch (e: Exception) {
+            return null // Not decodable here (e.g. JVM tests); keep the model's verdict.
+        }
+        val recheck = modelRouter.fast.verifyAction(
+            beforeScreenshot = crops.first,
+            afterScreenshot = crops.second,
+            actionDescription = actionDesc,
+            expectedOutcome = "$expectedOutcome [Host evidence: pixels changed between the two screens; " +
+                "both images are the band of the screen where they changed. Judge whether this change is " +
+                "the action's effect.]",
+        ).getOrNull() ?: return null
+        Log.i(TAG, "Host-located recheck: ${crops.third} -> ${recheck.outcome}")
+        if (recheck.outcome == VerifyOutcome.FAILED) return null
+        return recheck.copy(reason = "Host-located change (${crops.third}): ${recheck.reason}")
+    }
+
     private fun capabilityConstraint(failureCode: ActionFailureCode): String {
         return when (failureCode) {
             ActionFailureCode.SCROLL_UNVERIFIED,
@@ -1360,6 +1416,9 @@ class AgentLoop(
         private const val SECURITY_DIALOG_POLL_MS = 1_000L
         private const val CAPTURE_ATTEMPTS = 3
         private const val CAPTURE_RETRY_DELAY_MS = 1_000L
+
+        /** Changed screen share that justifies a host-located recheck; one line of small text is about 0.4%. */
+        private const val HOST_RECHECK_MIN_CHANGE = 0.001
         private const val COORDINATE_RECAPTURES = 3
         private const val COORDINATE_RECAPTURE_DELAY_MS = 250L
         private const val LOADING_RECHECK_DELAY_MS = 1_000L
@@ -1381,8 +1440,11 @@ class AgentLoop(
         private val INEFFECTIVE_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.DRIFTED)
         private val UNPROVEN_OUTCOMES = setOf(VerifyOutcome.FAILED, VerifyOutcome.UNKNOWN)
 
-        /** Verify verdicts of the latest actions shown to the completion audit. */
-        private const val AUDIT_VERDICTS = 4
+        /** Verify verdicts shown to the completion audit: like the fast route, enough for a multi-tab task. */
+        private const val AUDIT_VERDICTS = 10
+
+        /** Fast-route steps shown to the completion audit: enough to cover a multi-tab task's earlier subgoals. */
+        private const val AUDIT_FAST_STEPS = 10
 
         /** Coordinates within one cell (4% of the 0..1000 model space) count as the same target. */
         private const val TARGET_CELL = 40
@@ -1458,6 +1520,7 @@ class AgentLoop(
             loopRecord: String? = null,
             notes: List<String> = emptyList(),
             recentVerdicts: List<String> = emptyList(),
+            fastRecord: String? = null,
         ): String {
             val question = if (earlierScreens.isNotEmpty()) {
                 buildCrossAppCompletionAuditQuestion(task, earlierScreens)
@@ -1469,7 +1532,22 @@ class AgentLoop(
                 if (loopRecord != null) append("\n\n").append(loopEvidence(loopRecord))
                 if (notes.isNotEmpty()) append("\n\n").append(notesEvidence(notes))
                 if (recentVerdicts.isNotEmpty()) append("\n\n").append(verdictEvidence(recentVerdicts))
+                if (!fastRecord.isNullOrBlank()) append("\n\n").append(fastRouteEvidence(fastRecord))
             }
+        }
+
+        /**
+         * The fast route's recent actions with the outcome the host verified for each. A tree-less page
+         * (a canvas tab) keeps no screenshot of an earlier state once another tab is shown, so without
+         * this record the audit judged a layer hidden on one tab from a screenshot taken before hiding it.
+         */
+        private fun fastRouteEvidence(record: String): String = buildString {
+            append("Fast-route actions, oldest first, with the outcome the host verified after each from pixel and ")
+            append("accessibility-tree changes (SUCCESS: the expected change appeared at the target; NO_CHANGE: nothing ")
+            append("changed; \"reasoning:\" lines are Reasoning steps in between):\n")
+            append(record)
+            append("\nA SUCCESS at a later step supersedes a screenshot of the same page from an earlier step; a ")
+            append("later screenshot that shows the opposite state wins over this record.")
         }
 
         /**
@@ -1482,6 +1560,10 @@ class AgentLoop(
             verdicts.forEach { append("\n- ").append(it) }
             append("\nIf the action that should have produced the requested result was judged FAILED or UNKNOWN and no ")
             append("screenshot shows that result, answer false.")
+            // A tree-less page (a canvas tab) keeps no screenshot of an earlier tab's state, so the audit
+            // judged a layer hidden on one tab as not hidden for want of a picture (as on the fast route).
+            append("\nA SUCCESS verdict on a page no longer shown (another tab) is evidence for that part of the task; ")
+            append("a later screenshot that shows the opposite state wins over it.")
         }
 
         /**
