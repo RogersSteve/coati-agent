@@ -231,9 +231,9 @@ Coati is free for **noncommercial use** under the
 noncommercial organizations such as universities and public research institutions.
 
 **Commercial use requires a separate license.** This includes use inside a company, in a commercial
-product or service, or to provide services to others for a fee. Aspects of Coati are the subject of a
-patent application; for a commercial license, contact the patent holder identified by the patent
-number in [PATENTS.md](PATENTS.md).
+product or service, or to provide services to others for a fee. Aspects of Coati are the subject of
+Chinese patent applications; for a commercial license, contact the applicant listed for the
+relevant application in [PATENTS.md](PATENTS.md).
 
 ## Acknowledgments
 
