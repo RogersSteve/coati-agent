@@ -4,6 +4,10 @@
 
 **Host-Grounded Execution for Installable Mobile GUI Agents**
 
+[![AndroidWorld 86.5%](https://img.shields.io/badge/AndroidWorld-86.5%25-orange)](#results)
+[![Android 11+](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](#getting-started)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
+
 An AI agent you install on your Android phone. Describe the result you want; Coati operates your other
 apps to get there, and reports success only when it can show it.
 
@@ -63,23 +67,29 @@ A deep, rarely used page in an unfamiliar app: the first run explores, the fourt
 
 ## Results
 
-AndroidWorld, all 116 tasks, with **Gemini 3.8 Flash as the backbone of every agent**:
+AndroidWorld, all 116 tasks, with **Gemini 3.8 Flash as the backbone of every agent**. Every agent
+runs through the same harness, task instances, step budgets and official scorer.
 
-| Agent | Success rate |
-|---|---|
-| **Coati** (VerifyLoop, trial 1) | **76%** |
-| FinalRun, Midscene (same backbone, same tasks) | about 20 points lower |
+| Agent | Controls the phone via | Trials | Success rate | False completions |
+|---|---|---|---|---|
+| **Coati** | accessibility only | 3 | **86.5%** (89.7 / 87.1 / 82.8) | **5.4%** |
+| Artemis | accessibility only | 3 | 77.6% | – |
+| Artemis | ADB | 1 | 76.5% | – |
+| FinalRun | ADB | 1 | 59.9% | 14.5% |
+| Midscene.js | ADB | 1 | 59.1% | 7.5% |
 
-*Final numbers, all trials and the ablation are in the paper.* Every agent runs through the same
-harness, task instances, step budgets and official scorer.
+Coati solves 95 of the 116 tasks in all three trials. The ablation and per-app breakdown are in the
+paper.
 
 Beyond the benchmark — whose tasks are short first visits — in everyday-use experiments:
 
 | What | Result |
 |---|---|
-| Fast executor on common phone tasks (alarm, timer, contact, settings, files) | **−24%** median time, **−22%** model tokens, equal success |
-| Fast executor on loops of simple steps (favorite, compare, hide over a 40-item list) | **3–5×** faster with **6–9×** fewer model tokens |
-| AppMemory on a deep route in an unfamiliar app (3 independent learning sessions) | **18 → 7** steps |
+| Fast executor on seven everyday phone tasks | **−39%** median time (64 → 39 s), **−25%** model tokens, comparable success |
+| Fast executor on loops of simple steps (favorite, compare, hide in a 40-item list) | **2.8–5.4×** faster with **6–9×** fewer model tokens, equal or higher success |
+| AppMemory on a deep route in an unfamiliar app (3 independent learning sessions) | **18.5 → 6–7** steps, median **190 → 77 s** |
+| Fast executor on an Android 16 phone (9 tasks × 3 runs: native, canvas, Flutter, permission dialogs) | **27/27** runs vs 26/27, median **110.5 → 78.6 s**, Reasoning calls on the critical path **285 → 67** |
+| AppMemory on the same phone | deep route: **22** steps (222 s) on the first visit, then **5** steps (about 22 s) |
 
 ## How it works
 
@@ -138,7 +148,10 @@ Details: [`docs/jev-executor.md`](docs/jev-executor.md).
 - Optional: a JEV key for the fast executor (without it, every step uses the Reasoning model)
 - To build: JDK 17+ and the Android SDK
 
-**Build and install**
+**Install**
+
+Download the latest APK from [Releases](../../releases) and install it (allow installation from
+unknown sources when Android asks), or build it yourself:
 
 ```sh
 ./gradlew :app:assembleDebug
