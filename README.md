@@ -18,6 +18,10 @@ apps to get there, and reports success only when it can show it.
 [Getting started](#getting-started) ·
 [Reproducing the paper](#reproducing-the-paper)
 
+<img src="docs/media/fast-executor-loop.gif" width="300" alt="Coati adds the first 10 Car Market listings to favorites: the model plans the loop once and the host taps each item">
+
+<sub>The large model plans a repeated action once; the host taps item after item and counts what changed. Real time.</sub>
+
 </div>
 
 ---
@@ -35,35 +39,40 @@ the progress of a repeated action. Coati grounds its execution in this evidence:
 
 ## Demo
 
-All demos are screen recordings on a ColorOS phone running the public build; side-by-side clips are
-synchronized, never sped up.
+Screen recordings of the public build on a OnePlus phone (ColorOS, Android 16), Balanced mode, real
+time: clips are trimmed at the ends only, never sped up. Each clip shows its own elapsed time; the top
+bar and bottom panel are Coati's on-screen progress and Pause/Stop controls. Each is one
+representative run.
 
-### Cross-app task — Maps → Keep → Calendar
-*"Find the address and opening hours of the National Museum of Singapore in Google Maps. Save them in
-a Google Keep note titled "Singapore day out". Then create a Google Calendar event titled "Visit
-National Museum" on November 7, 2026, from 10 AM to noon, Singapore time, using the address you found."*
+### Everyday task with the fast executor
+*"In the Clock app, turn on the 7:00 weekday alarm, then add Tokyo to the world clock."*
+73 s, 8 steps, 6 of them on the fast route; typing "Tokyo" goes to the Reasoning model.
 
-<!-- VIDEO V1: National Museum cross-app task (Maps → Keep → Calendar), ends on the verified completion -->
-> 🎬 *Demo video coming soon.*
+@@V4@@
 
-### Loops of simple steps — classic vs. fast executor
-*"In the Car Market app, add the first 10 listings to your favorites."* Same task, side by side.
+### Loops of simple steps — Reasoning every step vs. fast executor
+*"In the Car Market app, add the first 10 listings to my favorites."* Same task, same phone, side by
+side: 254 s with the Reasoning model deciding every step, 47 s when it plans the loop once and the host
+repeats it (5.4×). Both runs favorited exactly the first 10 listings.
 
-<!-- VIDEO V2: R1 favorites, classic mode (left) vs. JEV fast executor (right), side by side -->
-> 🎬 *Demo video coming soon.*
+@@V2@@
 
 ### AppMemory — first visit vs. after learning
-A deep, rarely used page in an unfamiliar app: the first run explores, the fourth goes straight there.
+*"In the Coati 手册实验室 (Manual Lab) app, open the "实验档案" (Experiment Archive) page."* A deep,
+rarely used page in an app the model has never seen. The first visit explores (18 steps, 231 s) and
+the verified route is written to the app's manual; the next visit goes straight there (6 steps, 27 s).
 
-<!-- VIDEO V3: Manual Lab "实验档案" page, run 1 (exploring) vs. run 4 (direct, with the learned manual) -->
-> 🎬 *Demo video coming soon.*
+@@V3@@
 
-### Everyday tasks with the fast executor
+### Cross-app task — Booking.com → Google Keep
+*"In the Booking.com app, find two hotels in Tokyo for two adults sharing one room, checking in on
+December 12, 2026 and checking out on December 14. Both should have a guest review score of at least
+8.0. Save their names, review scores, and total prices for the two-night stay, including the
+currency, in a Google Keep note titled "Tokyo hotel shortlist". Do not book anything."*
+A live app with dates, filters and prices, then a second app: 32 steps, 10 min 24 s, accepted by the
+completion audit. Account details are blurred.
 
-<!-- VIDEO V4: 2–3 everyday tasks in JEV mode (e.g. set an alarm, create a contact) -->
-> 🎬 *Demo video coming soon.*
-
-<!-- VIDEO V5 (optional): install Coati, enter model keys, send the first command -->
+@@V1@@
 
 ## Results
 
