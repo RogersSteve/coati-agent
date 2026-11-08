@@ -48,21 +48,21 @@ representative run.
 *"In the Clock app, turn on the 7:00 weekday alarm, then add Tokyo to the world clock."*
 73 s, 8 steps, 6 of them on the fast route; typing "Tokyo" goes to the Reasoning model.
 
-@@V4@@
+https://github.com/user-attachments/assets/24384019-9561-482a-ae9f-30cc6ec87f0c
 
 ### Loops of simple steps — Reasoning every step vs. fast executor
 *"In the Car Market app, add the first 10 listings to my favorites."* Same task, same phone, side by
 side: 254 s with the Reasoning model deciding every step, 47 s when it plans the loop once and the host
 repeats it (5.4×). Both runs favorited exactly the first 10 listings.
 
-@@V2@@
+https://github.com/user-attachments/assets/fb831034-b329-4b8a-a25b-fdd2b382c192
 
 ### AppMemory — first visit vs. after learning
 *"In the Coati 手册实验室 (Manual Lab) app, open the "实验档案" (Experiment Archive) page."* A deep,
 rarely used page in an app the model has never seen. The first visit explores (18 steps, 231 s) and
 the verified route is written to the app's manual; the next visit goes straight there (6 steps, 27 s).
 
-@@V3@@
+https://github.com/user-attachments/assets/e3d520af-a866-4f61-b647-075994f30fa7
 
 ### Cross-app task — Booking.com → Google Keep
 *"In the Booking.com app, find two hotels in Tokyo for two adults sharing one room, checking in on
@@ -72,7 +72,7 @@ currency, in a Google Keep note titled "Tokyo hotel shortlist". Do not book anyt
 A live app with dates, filters and prices, then a second app: 32 steps, 10 min 24 s, accepted by the
 completion audit. Account details are blurred.
 
-@@V1@@
+https://github.com/user-attachments/assets/e3babe08-9d76-4f92-b60b-f266a8fa7317
 
 ## Results
 
