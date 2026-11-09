@@ -295,4 +295,10 @@ their own licenses, including GPL and LGPL; see [THIRD_PARTY_NOTICES.md](THIRD_P
 
 ## Acknowledgments
 
-<!-- ACKNOWLEDGMENTS: to be added -->
+Coati is a joint research effort of Prof. Yuhua Zheng's team at the Hangzhou Institute for Advanced
+Study, University of Chinese Academy of Sciences, and independent researcher Pu Shi.
+
+Coati builds on [AndroidWorld](https://github.com/google-research/android_world) for evaluation,
+[ncnn](https://github.com/Tencent/ncnn) and [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) for
+on-device OCR, and [PRoot](https://github.com/termux/proot) and [Alpine Linux](https://alpinelinux.org)
+for the Linux workspace.
