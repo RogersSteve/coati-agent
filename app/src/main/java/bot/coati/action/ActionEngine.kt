@@ -27,7 +27,7 @@ import kotlin.coroutines.resume
 
 class ActionEngine(
     private val a11y: CoatiAccessibilityService,
-    private val appResolver: AppResolver = AppResolver(a11y.packageManager),
+    private val appResolver: AppResolver = AppResolver(a11y.packageManager, a11y.packageName),
     private val uptimeMillis: () -> Long = SystemClock::uptimeMillis,
 ) {
 

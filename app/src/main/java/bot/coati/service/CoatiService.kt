@@ -82,8 +82,18 @@ class CoatiService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification())
 
         configStore = ConfigStore(this)
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        overlayManager = OverlayManager(this, wm).also { overlay ->
+        // System Settings hides every application overlay (HIDE_NON_SYSTEM_OVERLAY_WINDOWS): the progress
+        // panel and Pause/Stop vanished for the whole of a Settings task. An accessibility overlay, added
+        // through the accessibility service's own window manager, is exempt; the screen parser already
+        // skips accessibility-overlay windows.
+        val a11y = CoatiAccessibilityService.instance
+        val wm = (a11y ?: this).getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val windowType = if (a11y != null) {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        }
+        overlayManager = OverlayManager(this, wm, windowType).also { overlay ->
             overlay.setSafetyMode(configStore.getSafetyMode())
             overlay.setManualMode(configStore.getManualMode())
             overlay.onSafetyModeChanged = { mode ->

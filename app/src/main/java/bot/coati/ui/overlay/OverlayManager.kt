@@ -40,6 +40,7 @@ import kotlinx.coroutines.withContext
 class OverlayManager(
     private val context: Context,
     private val windowManager: WindowManager,
+    windowType: Int = LayoutParams.TYPE_APPLICATION_OVERLAY,
 ) {
     private var composeView: View? = null
     private var idleOverlaySuppressed = false
@@ -86,7 +87,7 @@ class OverlayManager(
     private val scrimParams = LayoutParams(
         LayoutParams.MATCH_PARENT,
         LayoutParams.MATCH_PARENT,
-        LayoutParams.TYPE_APPLICATION_OVERLAY,
+        windowType,
         LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_LAYOUT_IN_SCREEN or LayoutParams.FLAG_NOT_TOUCHABLE,
         PixelFormat.TRANSLUCENT,
     ).apply {
@@ -98,7 +99,7 @@ class OverlayManager(
     private val layoutParams = LayoutParams(
         LayoutParams.WRAP_CONTENT,
         LayoutParams.WRAP_CONTENT,
-        LayoutParams.TYPE_APPLICATION_OVERLAY,
+        windowType,
         LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_LAYOUT_IN_SCREEN,
         PixelFormat.TRANSLUCENT,
     ).apply {

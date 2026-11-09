@@ -98,4 +98,17 @@ class AppResolverTest {
         )
         assertTrue(AppResolver.resolve("Pro Notes", twins) is Result.Ambiguous)
     }
+
+    @Test
+    fun `resolve never opens Coati itself for an app whose name contains Coati`() {
+        val withSelf = apps + listOf(
+            LaunchableApp("Coati", "bot.coati", "MainActivity"),
+            LaunchableApp("Coati 手册实验室", "bot.coati.fixture.manual", "MainActivity"),
+        )
+
+        val lab = AppResolver.resolve("Coati Manual Lab", withSelf, selfPackage = "bot.coati")
+        assertEquals("bot.coati.fixture.manual", (lab as Result.Resolved).app.packageName)
+        val self = AppResolver.resolve("Coati", withSelf, selfPackage = "bot.coati")
+        assertEquals("bot.coati", (self as Result.Resolved).app.packageName)
+    }
 }
