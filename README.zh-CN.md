@@ -46,7 +46,9 @@
 
 ### Linux 工作区：从 App 到成品文件
 
-https://github.com/user-attachments/assets/e50647c7-1d8b-4ee8-8af9-a5a702b55a5b
+<a href="https://www.coati-os.com/assets/demos/V5_linux.mp4"><img src="docs/media/linux-demo.jpg" width="300" alt="观看录屏"></a>
+
+[观看录屏](https://www.coati-os.com/assets/demos/V5_linux.mp4)
 
 ### 日常任务
 

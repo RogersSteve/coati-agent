@@ -118,7 +118,9 @@ twice rejected the report as read from the screen, and Coati Agent regenerated a
 accepted. An unrecorded run of the same task finished in 9 steps and 1 min 44 s. File names in Downloads
 and the app drawer are blurred.
 
-https://github.com/user-attachments/assets/e50647c7-1d8b-4ee8-8af9-a5a702b55a5b
+<a href="https://www.coati-os.com/assets/demos/V5_linux.mp4"><img src="docs/media/linux-demo.jpg" width="300" alt="Watch the recording"></a>
+
+[Watch the recording](https://www.coati-os.com/assets/demos/V5_linux.mp4)
 
 ### Everyday task with the fast executor
 *"In the Clock app, turn on the 7:00 weekday alarm, then add Tokyo to the world clock."*

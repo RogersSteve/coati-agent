@@ -46,7 +46,9 @@ Necesitas un teléfono con Android 11 o posterior (arm64, como casi todos los te
 
 ### Espacio de trabajo Linux: de las aplicaciones a un archivo terminado
 
-https://github.com/user-attachments/assets/e50647c7-1d8b-4ee8-8af9-a5a702b55a5b
+<a href="https://www.coati-os.com/assets/demos/V5_linux.mp4"><img src="docs/media/linux-demo.jpg" width="300" alt="Ver la grabación"></a>
+
+[Ver la grabación](https://www.coati-os.com/assets/demos/V5_linux.mp4)
 
 ### Tarea cotidiana
 
