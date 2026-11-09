@@ -1,24 +1,27 @@
 <div align="center">
 
-# Coati
+# Coati Agent
 
 **An AI agent that lives on your Android phone**
 
 [![arXiv](https://img.shields.io/badge/arXiv-2611.02644-b31b1b)](https://arxiv.org/abs/2611.02644)
 [![AndroidWorld 86.5%](https://img.shields.io/badge/AndroidWorld-86.5%25-orange)](#results)
-[![Android 11+](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](#getting-started)
+[![Android 11+](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](#get-started)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 
-Describe the result you want. Coati operates your apps to get there, uses its built-in Linux workspace
+Describe the result you want. Coati Agent operates your apps to get there, uses its built-in Linux workspace
 when the job needs code or a file, and reports success only when it can show it. No computer and no ADB.
 
-[Demo](#demo) ·
+**English** · [Español](README.es.md) · [中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
+
+[Why Coati Agent](#why-coati-agent) ·
+[Get started](#get-started) ·
 [What it can do](#what-it-can-do) ·
-[Getting started](#getting-started) ·
+[Demo](#demo) ·
 [How it works](#how-it-works) ·
 [Research](#research)
 
-<img src="docs/media/fast-executor-loop.gif" width="300" alt="Coati adds the first 10 Car Market listings to favorites: the model plans the loop once and the host taps each item">
+<img src="docs/media/fast-executor-loop.gif" width="300" alt="Coati Agent adds the first 10 Car Market listings to favorites: the model plans the loop once and the host taps each item">
 
 <sub>The large model plans a repeated action once; the host taps item after item and counts what changed. Real time.</sub>
 
@@ -26,19 +29,90 @@ when the job needs code or a file, and reports success only when it can show it.
 
 ---
 
+## Why Coati Agent
+
+Your phone can do almost anything, but you still have to do it yourself: open one app, copy something,
+switch to another, tap through the same screens again. Coati Agent does that part for you. Say what you
+want in everyday language, and watch it work on your screen, the way a helpful friend would.
+
+- **It lives on your phone.** Install one app. You do not need a computer, a cable or root access.
+- **It works with the apps you already have.** There are no plugins to wait for: if you can tap through
+  an app, Coati Agent can usually operate it too.
+- **It can make things, not only tap.** A small Linux computer comes built in, so it can gather
+  information, work on it, and hand you a finished PDF, chart or spreadsheet.
+- **It checks its own work.** A task counts as done only when the screen shows it. If Coati Agent cannot
+  confirm the result, it tells you.
+- **You stay in charge.** You see every step and can pause or stop at any time. Your API key stays on your
+  phone.
+
+**Things you can ask it:**
+
+- *"Set an alarm for 7:30 on weekdays and add Tokyo to my world clock."*
+- *"Find two hotels in Tokyo rated 8.0 or higher for December 12 to 14, and save the prices in a note."*
+- *"Read the first five listings in this app and make me a PDF comparing their prices."*
+
+It is not magic: it can be slower than you on a simple task, and it can make mistakes, so keep an eye on
+anything important. Coati Agent uses an AI model account of your own, and that provider may charge for
+what you use.
+
+## Get started
+
+You need an Android 11 or newer phone (arm64, which nearly all recent phones are) and an API key for an AI
+model. A [Google Gemini key](https://aistudio.google.com/apikey) is the easiest place to start.
+
+1. **Install.** Download the APK from [Releases](../../releases/latest) on your phone and open it. Allow
+   installation from this source if Android asks.
+2. **Set up.** Open Coati Agent and follow the steps to turn on the overlay and **accessibility**
+   permissions, then enter your API key under *AI Model Configuration*.
+   On Android 13 and newer, if the accessibility switch is greyed out, open the app's info page in system
+   Settings, tap the **⋮** menu, and choose *Allow restricted settings*.
+3. **Ask.** Tap the floating Coati Agent button and type the result you want, for example *"Set an alarm
+   for 7:30 AM in the Clock app."* A panel shows each step; pause or stop whenever you like.
+
+Optional: add a JEV key (*Settings → JEV*) for faster simple steps, and choose a mode under *Settings →
+Speed and accuracy*. Keys stay on the device and are sent only to the providers you configure.
+
+<details>
+<summary>Build from source</summary>
+
+Requires JDK 17+ and the Android SDK.
+
+```sh
+./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+</details>
+
+## What it can do
+
+- **Operate your apps.** Native, Flutter and canvas apps, through Android's accessibility service. It
+  needs no root, no ADB and no computer.
+- **Finish tasks across apps.** Read something in one app and act on it in another; a completion is
+  checked against the result screen of every app the task used.
+- **Run code and produce files.** A built-in Linux workspace comes inside the APK with nothing else to
+  install: bash, Python (Pillow, pypdf, ReportLab, requests), Node.js, curl and a Chinese font, plus
+  `apk add` and `pip install` for anything else. Coati Agent can collect information on the phone, process
+  it, and deliver a PDF, chart or spreadsheet to your Download/Coati Agent folder. (arm64 devices.)
+- **Get faster with use.** A small selection model takes simple steps, the host repeats loops of simple
+  steps without a model call per item, and per-app manuals learned from verified observations shorten
+  later visits.
+- **Say when it could not finish.** Host evidence decides whether a step or a task succeeded, and a task
+  that cannot be verified is reported as unverified rather than done.
+
 ## Demo
 
 Screen recordings of the public build on a OnePlus phone (ColorOS, Android 16), Balanced mode, real
 time: clips are trimmed at the ends only, never sped up. Each clip shows its own elapsed time; the top
-bar and bottom panel are Coati's on-screen progress and Pause/Stop controls. Each is one
+bar and bottom panel are Coati Agent's on-screen progress and Pause/Stop controls. Each is one
 representative run.
 
 ### Linux workspace — from phone apps to a finished file
 *"In the Car Market app, read the names and prices of the first 5 listings. Then make a one-page PDF
 report named car_report.pdf with a table of those listings and a bar chart of their prices, deliver it
-to me, and open it on the phone so I can see it."* Coati reads the listings, writes the report with
+to me, and open it on the phone so I can see it."* Coati Agent reads the listings, writes the report with
 Python in its Linux workspace, and opens the delivered file. 17 steps, 5 min 13 s: the completion audit
-twice rejected the report as read from the screen, and Coati regenerated and reopened it before the audit
+twice rejected the report as read from the screen, and Coati Agent regenerated and reopened it before the audit
 accepted. An unrecorded run of the same task finished in 9 steps and 1 min 44 s. File names in Downloads
 and the app drawer are blurred.
 
@@ -74,60 +148,13 @@ completion audit. Account details are blurred.
 
 https://github.com/user-attachments/assets/e3babe08-9d76-4f92-b60b-f266a8fa7317
 
-## What it can do
-
-- **Operate your apps.** Native, Flutter and canvas apps, through Android's accessibility service. It
-  needs no root, no ADB and no computer.
-- **Finish tasks across apps.** Read something in one app and act on it in another; a completion is
-  checked against the result screen of every app the task used.
-- **Run code and produce files.** A built-in Linux workspace comes inside the APK with nothing else to
-  install: bash, Python (Pillow, pypdf, ReportLab, requests), Node.js, curl and a Chinese font, plus
-  `apk add` and `pip install` for anything else. Coati can collect information on the phone, process
-  it, and deliver a PDF, chart or spreadsheet to your Download/Coati folder. (arm64 devices.)
-- **Get faster with use.** A small selection model takes simple steps, the host repeats loops of simple
-  steps without a model call per item, and per-app manuals learned from verified observations shorten
-  later visits.
-- **Say when it could not finish.** Host evidence decides whether a step or a task succeeded, and a task
-  that cannot be verified is reported as unverified rather than done.
-
-## Getting started
-
-**Requirements**
-- Android 11 (API 30) or newer, phone or emulator
-- A model API key for the Reasoning and Fast models (Gemini is recommended; other providers and
-  OpenAI-compatible endpoints are supported)
-- Optional: a JEV key for the fast executor (without it, every step uses the Reasoning model)
-- For the Linux workspace: an arm64 device, about 300 MB of free storage, and a one-time unpack on first use
-- To build: JDK 17+ and the Android SDK
-
-**Install**
-
-Download the latest APK from [Releases](../../releases) and install it (allow installation from
-unknown sources when Android asks), or build it yourself:
-
-```sh
-./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-**First run**
-1. Open Coati and follow onboarding: grant the overlay and **accessibility** permissions.
-2. Enter your model provider and API key (*AI Model Configuration*), and optionally your JEV key
-   (*Settings → JEV*).
-3. Pick a mode under *Settings → Speed and accuracy* and, optionally, *App knowledge*
-   (off / use guides / use and learn).
-4. Type the result you want, e.g. *"Set an alarm for 7:30 AM in the Clock app."* The floating panel
-   shows each step; pause or stop at any time.
-
-Keys stay on the device and are sent only to the providers you configure.
-
 ## How it works
 
 Most mobile GUI agents run on a computer that drives a phone over a debugging bridge, out of reach
-of ordinary users. **Coati ships as an Android app** and operates other apps through Android's
+of ordinary users. **Coati Agent ships as an Android app** and operates other apps through Android's
 accessibility service. Running on the phone gives it something a model alone lacks: **host-recorded
 evidence** of what actually happened on screen — accessibility trees, result screens across apps,
-the progress of a repeated action. Coati grounds its execution in this evidence:
+the progress of a repeated action. Coati Agent grounds its execution in this evidence:
 
 - **VerifyLoop** accepts a step or a completion only when host evidence confirms it.
 - **AppMemory** learns per-app manuals solely from verified observations and reuses them later.
@@ -137,7 +164,7 @@ the progress of a repeated action. Coati grounds its execution in this evidence:
 ```mermaid
 flowchart LR
     U([User task]) --> R[Reasoning model<br/>plans, acts on hard steps]
-    subgraph Phone["Coati on the phone (host)"]
+    subgraph Phone["Coati Agent on the phone (host)"]
         P[Perception<br/>accessibility tree · vision parse · GPU OCR]
         F[Routed fast executor<br/>JEV selection · loop delegation]
         V[VerifyLoop<br/>step checks · completion audit]
@@ -187,7 +214,7 @@ folder and gives the completion audit its own record of commands and files.
 
 ## Research
 
-Coati's execution design is described in the paper
+Coati Agent's execution design is described in the paper
 [*Coati: Host-Grounded Execution for Installable Mobile GUI Agents*](https://arxiv.org/abs/2611.02644).
 The Linux workspace was added after the paper; the benchmark results below do not use it.
 
@@ -198,13 +225,13 @@ runs through the same harness, task instances, step budgets and official scorer.
 
 | Agent | Controls the phone via | Trials | Success rate | False completions |
 |---|---|---|---|---|
-| **Coati** | accessibility only | 3 | **86.5%** (89.7 / 87.1 / 82.8) | **5.4%** |
+| **Coati Agent** | accessibility only | 3 | **86.5%** (89.7 / 87.1 / 82.8) | **5.4%** |
 | Artemis | accessibility only | 3 | 77.6% | – |
 | Artemis | ADB | 1 | 76.5% | – |
 | FinalRun | ADB | 1 | 59.9% | 14.5% |
 | Midscene.js | ADB | 1 | 59.1% | 7.5% |
 
-Coati solves 95 of the 116 tasks in all three trials. The ablation and per-app breakdown are in the
+Coati Agent solves 95 of the 116 tasks in all three trials. The ablation and per-app breakdown are in the
 paper.
 
 Beyond the benchmark — whose tasks are short first visits — in everyday-use experiments:
@@ -221,7 +248,7 @@ Beyond the benchmark — whose tasks are short first visits — in everyday-use 
 
 | Experiment | Where | Notes |
 |---|---|---|
-| AndroidWorld (Coati, ablations, opponents) | [`scripts/androidworld`](scripts/androidworld/README.md) | APK adapter around the official AW task runner; `--config C1/C2/C3/C4`, `--provider google`, `--routing`; opponents via `--agent midscene` / `--agent finalrun` |
+| AndroidWorld (Coati Agent, ablations, opponents) | [`scripts/androidworld`](scripts/androidworld/README.md) | APK adapter around the official AW task runner; `--config C1/C2/C3/C4`, `--provider google`, `--routing`; opponents via `--agent midscene` / `--agent finalrun` |
 | Everyday and device tasks, Car Market loops | [`scripts/device_bench`](scripts/device_bench/README.md) | `python run_app_bench.py <out> R1,R2,R3,R4 classic,jev 5`; `python marketplace.py repeat-summary <out>` |
 | AppMemory learning | [`scripts/device_bench`](scripts/device_bench/README.md) | `python run_learning_bench.py <out> classic 2` |
 | Fixture apps | [`test-apps/living-manual-lab`](test-apps/living-manual-lab/README.md), [`test-apps/marketplace`](test-apps/marketplace/README.md), `test-apps/interrupter` | Offline, deterministic; outcomes checked from the apps' saved state |
@@ -245,8 +272,8 @@ environment and credential rules.
   AppMemory stores only admitted, sanitized page facts on the device.
 - **Linux workspace.** Commands run with the app's own permissions and have internet access. The
   workspace separates file paths for convenience and is not a security boundary, so treat it as code
-  running inside the Coati app.
-- **Distribution.** Coati operates other apps through the accessibility service, which Google Play's
+  running inside the Coati Agent app.
+- **Distribution.** Coati Agent operates other apps through the accessibility service, which Google Play's
   AccessibilityService policy does not permit for autonomous agents, so it is distributed for direct
   installation. In July 2026 the European Commission adopted binding measures under the Digital
   Markets Act requiring Google to give third-party AI assistants equal access to Android features,
@@ -256,8 +283,8 @@ environment and credential rules.
 
 | Path | Contents |
 |---|---|
-| `app/` | The Coati Android app: agent loop, VerifyLoop, AppMemory, JEV fast executor, perception, overlay UI |
-| `scripts/androidworld/` | AndroidWorld harness for Coati and opponent agents |
+| `app/` | The Coati Agent Android app: agent loop, VerifyLoop, AppMemory, JEV fast executor, perception, overlay UI |
+| `scripts/androidworld/` | AndroidWorld harness for Coati Agent and opponent agents |
 | `scripts/device_bench/` | Device benchmarks, Car Market tasks and checker, learning benchmark |
 | `test-apps/` | Fixture apps: Manual Lab, Car Market, Interrupter |
 | `third_party/` | Sources, build recipe and package list for the Linux workspace components |
@@ -281,12 +308,12 @@ Yudou Ying and Pu Shi contributed equally; Yuhua Zheng is the corresponding auth
 
 ## License
 
-Coati is free for **noncommercial use** under the
+Coati Agent is free for **noncommercial use** under the
 [PolyForm Noncommercial License 1.0.0](LICENSE): personal use, research, education, and use by
 noncommercial organizations such as universities and public research institutions.
 
 **Commercial use requires a separate license.** This includes use inside a company, in a commercial
-product or service, or to provide services to others for a fee. Aspects of Coati are the subject of
+product or service, or to provide services to others for a fee. Aspects of Coati Agent are the subject of
 Chinese patent applications; for a commercial license, contact the applicant listed for the
 relevant application in [PATENTS.md](PATENTS.md).
 
@@ -295,10 +322,10 @@ their own licenses, including GPL and LGPL; see [THIRD_PARTY_NOTICES.md](THIRD_P
 
 ## Acknowledgments
 
-Coati is a joint research effort of Prof. Yuhua Zheng's team at the Hangzhou Institute for Advanced
+Coati Agent is a joint research effort of Prof. Yuhua Zheng's team at the Hangzhou Institute for Advanced
 Study, University of Chinese Academy of Sciences, and independent researcher Pu Shi.
 
-Coati builds on [AndroidWorld](https://github.com/google-research/android_world) for evaluation,
+Coati Agent builds on [AndroidWorld](https://github.com/google-research/android_world) for evaluation,
 [ncnn](https://github.com/Tencent/ncnn) and [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) for
 on-device OCR, and [PRoot](https://github.com/termux/proot) and [Alpine Linux](https://alpinelinux.org)
 for the Linux workspace.
