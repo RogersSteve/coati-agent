@@ -242,4 +242,5 @@
 
     <!-- Common -->
     <string name="next">Next</string>
+    <string name="action_paste">Paste</string>
 </resources>
