@@ -31,7 +31,7 @@ object ModelProviders {
             apiFormat = ApiFormat.GEMINI,
             authStyle = AuthStyle.QUERY_PARAM,
             defaultEndpoint = "https://generativelanguage.googleapis.com",
-            models = listOf("gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash"),
+            models = listOf("gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash"),
         ),
         ModelProvider(
             id = "openai",

@@ -18,7 +18,7 @@
     <string name="onboarding_get_started">Get Started</string>
 
     <string name="onboarding_overlay_title">Overlay Permission</string>
-    <string name="onboarding_overlay_description">Coati needs to display a floating ball on top of other apps so you can interact with it anytime.</string>
+    <string name="onboarding_overlay_description">Coati needs to display a floating ball on top of other apps so you can interact with it anytime. Find Coati in the list and allow it.</string>
     <string name="onboarding_overlay_grant">Grant Permission</string>
     <string name="onboarding_overlay_granted">Permission Granted</string>
 
@@ -205,6 +205,40 @@
     <string name="overlay_confirm">Confirm</string>
     <string name="overlay_retry">Retry</string>
     <string name="overlay_dismiss">Dismiss</string>
+
+    <!-- First run and overlay -->
+    <string name="onboarding_restricted_title">Is the switch greyed out?</string>
+    <string name="onboarding_restricted_body">Android restricts apps installed from a file. Open App info, tap the ⋮ menu at the top right, choose Allow restricted settings, then come back and turn on Coati.</string>
+    <string name="onboarding_restricted_open">Open App info</string>
+    <string name="onboarding_quick_start_description_short">A few things to know before your first task.</string>
+    <string name="onboarding_keep_running_title">Keep Coati running</string>
+    <string name="keep_running_allow">Allow background running</string>
+    <string name="keep_running_rom_hint">On Xiaomi, OPPO, OnePlus, vivo, Honor and Huawei phones, also lock Coati in the recent-apps screen and allow it to run in the background, or the system may turn it off.</string>
+    <string name="settings_battery">Background running</string>
+    <string name="settings_battery_ok">Unrestricted</string>
+    <string name="settings_battery_recommended">Recommended</string>
+    <string name="notification_alerts_channel">Coati alerts</string>
+    <string name="notification_accessibility_lost_title">Coati lost accessibility access</string>
+    <string name="notification_accessibility_lost_text">Android turned the service off. Tap to turn it back on.</string>
+    <string name="overlay_settings">Settings</string>
+    <string name="overlay_exit">Exit</string>
+    <string name="overlay_learning_on">Learning on · Settings</string>
+    <string name="overlay_execution_mode">Execution mode</string>
+    <string name="overlay_pause">⏸ Pause</string>
+    <string name="overlay_stop_button">■ Stop</string>
+    <string name="overlay_paused">Paused</string>
+    <string name="overlay_resume_button">▶ Resume</string>
+    <string name="overlay_task_complete">✅ Task Complete</string>
+    <string name="overlay_steps_duration">%1$d steps · %2$s</string>
+    <string name="overlay_close">Close</string>
+    <string name="overlay_task_failed">❌ Task Failed</string>
+    <string name="overlay_completed_steps">Completed: %1$d/%2$d steps</string>
+    <string name="overlay_unfinished_task">Unfinished Task Found</string>
+    <string name="overlay_progress_steps">Progress: %1$d/%2$d steps</string>
+    <string name="overlay_interrupted">Interrupted: %1$s</string>
+    <string name="overlay_abandon">Abandon</string>
+    <string name="overlay_resume">Resume</string>
+    <string name="overlay_collapse">Collapse</string>
 
     <!-- Common -->
     <string name="next">Next</string>

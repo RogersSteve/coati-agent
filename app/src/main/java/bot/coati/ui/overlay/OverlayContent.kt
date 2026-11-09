@@ -219,10 +219,10 @@ private fun ExpandedInputPanel(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = onSettings) {
-                    Text("Settings")
+                    Text(stringResource(R.string.overlay_settings))
                 }
                 TextButton(onClick = onExit) {
-                    Text("Exit", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.overlay_exit), color = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -231,7 +231,7 @@ private fun ExpandedInputPanel(
             value = taskInput,
             onValueChange = { taskInput = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Describe a task...") },
+            placeholder = { Text(stringResource(R.string.overlay_task_hint)) },
             singleLine = false,
             maxLines = 3,
             shape = RoundedCornerShape(12.dp),
@@ -248,7 +248,7 @@ private fun ExpandedInputPanel(
                 horizontalArrangement = Arrangement.End,
             ) {
                 TextButton(onClick = onSettings) {
-                    Text("Learning on · Settings")
+                    Text(stringResource(R.string.overlay_learning_on))
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
@@ -263,7 +263,7 @@ private fun ExpandedInputPanel(
             shape = RoundedCornerShape(12.dp),
             enabled = taskInput.isNotBlank(),
         ) {
-            Text("Execute")
+            Text(stringResource(R.string.overlay_execute))
         }
     }
 }
@@ -280,7 +280,7 @@ private fun SafetyModeSelector(
     )
 
     Text(
-        text = "Execution mode",
+        text = stringResource(R.string.overlay_execution_mode),
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Medium,
     )
@@ -425,7 +425,7 @@ private fun FrameExecutingOverlay(
                     ),
                     shape = RoundedCornerShape(8.dp),
                 ) {
-                    Text("⏸ Pause")
+                    Text(stringResource(R.string.overlay_pause))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 OutlinedButton(
@@ -435,7 +435,7 @@ private fun FrameExecutingOverlay(
                     ),
                     shape = RoundedCornerShape(8.dp),
                 ) {
-                    Text("■ Stop")
+                    Text(stringResource(R.string.overlay_stop_button))
                 }
             }
         }
@@ -479,7 +479,7 @@ private fun PausedBar(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Paused",
+                    text = stringResource(R.string.overlay_paused),
                     color = FrameBarText,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
@@ -499,7 +499,7 @@ private fun PausedBar(
                 ),
                 shape = RoundedCornerShape(8.dp),
             ) {
-                Text("▶ Resume", fontSize = 12.sp)
+                Text(stringResource(R.string.overlay_resume_button), fontSize = 12.sp)
             }
         }
     }
@@ -551,14 +551,14 @@ private fun SafetyConfirmOverlay(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.overlay_cancel))
                     }
                     Button(
                         onClick = onConfirm,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text("Confirm")
+                        Text(stringResource(R.string.overlay_confirm))
                     }
                 }
             }
@@ -594,7 +594,7 @@ private fun TaskCompleteOverlay(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = "✅ Task Complete",
+                    text = stringResource(R.string.overlay_task_complete),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = BallExecuting,
@@ -615,7 +615,7 @@ private fun TaskCompleteOverlay(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "$steps steps · $durationText",
+                    text = stringResource(R.string.overlay_steps_duration, steps, durationText),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -625,7 +625,7 @@ private fun TaskCompleteOverlay(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp),
                 ) {
-                    Text("Close")
+                    Text(stringResource(R.string.overlay_close))
                 }
             }
         }
@@ -659,7 +659,7 @@ private fun TaskFailedOverlay(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = "❌ Task Failed",
+                    text = stringResource(R.string.overlay_task_failed),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = BallError,
@@ -684,7 +684,7 @@ private fun TaskFailedOverlay(
                     if (totalSteps > 0) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Completed: $stepsCompleted/$totalSteps steps",
+                            text = stringResource(R.string.overlay_completed_steps, stepsCompleted, totalSteps),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -700,14 +700,14 @@ private fun TaskFailedOverlay(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text("Close")
+                        Text(stringResource(R.string.overlay_close))
                     }
                     Button(
                         onClick = onRetry,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text("Retry")
+                        Text(stringResource(R.string.overlay_retry))
                     }
                 }
             }
@@ -742,7 +742,7 @@ private fun TaskRecoveryOverlay(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = "Unfinished Task Found",
+                    text = stringResource(R.string.overlay_unfinished_task),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
@@ -754,13 +754,13 @@ private fun TaskRecoveryOverlay(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Progress: $step/$totalSteps steps",
+                    text = stringResource(R.string.overlay_progress_steps, step, totalSteps),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (interruptedAgo.isNotBlank()) {
                     Text(
-                        text = "Interrupted: $interruptedAgo",
+                        text = stringResource(R.string.overlay_interrupted, interruptedAgo),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -775,14 +775,14 @@ private fun TaskRecoveryOverlay(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text("Abandon")
+                        Text(stringResource(R.string.overlay_abandon))
                     }
                     Button(
                         onClick = onResume,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text("Resume")
+                        Text(stringResource(R.string.overlay_resume))
                     }
                 }
             }
@@ -810,7 +810,7 @@ private fun PanelContainer(
             onClick = onCollapse,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         ) {
-            Text("Collapse")
+            Text(stringResource(R.string.overlay_collapse))
         }
     }
 }

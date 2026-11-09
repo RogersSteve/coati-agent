@@ -44,6 +44,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -424,6 +425,20 @@ private fun ReadinessCard(
                 actionLabel = if (accessibilityGranted) stringResource(R.string.settings_reconnect)
                 else stringResource(R.string.settings_open),
                 onAction = onOpenAccessibilityPermission,
+            )
+            val context = LocalContext.current
+            val batteryUnrestricted = rememberBatteryUnrestricted()
+            PermissionRow(
+                label = stringResource(R.string.settings_battery),
+                available = batteryUnrestricted,
+                status = stringResource(if (batteryUnrestricted) R.string.settings_battery_ok else R.string.settings_battery_recommended),
+                actionLabel = stringResource(R.string.settings_open),
+                onAction = { context.startActivity(batteryExemptionIntent(context)) },
+            )
+            Text(
+                text = stringResource(R.string.keep_running_rom_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

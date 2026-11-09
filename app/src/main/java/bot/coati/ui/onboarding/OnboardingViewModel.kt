@@ -449,13 +449,12 @@ class OnboardingViewModel @Inject constructor(
         val KEY_REGION = stringPreferencesKey("region")
 
         fun hasAccessibilityPermission(context: android.content.Context): Boolean {
-            val pkg = context.packageName
+            val component = android.content.ComponentName(context, bot.coati.service.CoatiAccessibilityService::class.java)
             val enabled = Settings.Secure.getString(
                 context.contentResolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
             ) ?: return false
-            return enabled.contains("$pkg/$pkg.service.CoatiAccessibilityService")
-                    || enabled.contains("$pkg/.service.CoatiAccessibilityService")
+            return enabled.contains(component.flattenToString()) || enabled.contains(component.flattenToShortString())
         }
     }
 }

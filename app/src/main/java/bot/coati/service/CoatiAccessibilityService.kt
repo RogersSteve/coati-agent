@@ -70,6 +70,7 @@ class CoatiAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        CoatiService.onAccessibilityChanged(connected = true)
         Log.i(TAG, "Accessibility service connected")
         onConnected?.invoke()
     }
@@ -387,6 +388,7 @@ class CoatiAccessibilityService : AccessibilityService() {
         }
         trackingInputMethod = null
         instance = null
+        CoatiService.onAccessibilityChanged(connected = false)
         super.onDestroy()
     }
 
