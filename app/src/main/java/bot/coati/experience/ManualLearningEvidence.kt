@@ -212,7 +212,7 @@ internal class ManualTraceCollector {
         is AgentAction.FocusAndInputText -> "focus_and_input_text"
         is AgentAction.PressKey -> "press_key_${action.keyCode.lowercase()}"
         is AgentAction.Scroll -> "scroll_${action.direction.lowercase()}"
-        is AgentAction.Wait, AgentAction.Screenshot, is AgentAction.OpenApp -> null
+        is AgentAction.Wait, AgentAction.Screenshot, is AgentAction.OpenApp, is AgentAction.RunShell -> null
     }
 
     private fun targetFor(action: AgentAction, tree: UiTreeNode?): String? {

@@ -1,5 +1,7 @@
 package bot.coati.action
 
+import bot.coati.sandbox.LinuxSandbox
+
 sealed class AgentAction {
     data class Tap(val x: Int, val y: Int) : AgentAction()
     data class LongPress(val x: Int, val y: Int, val durationMs: Long = 1000) : AgentAction()
@@ -27,6 +29,8 @@ sealed class AgentAction {
     data class Wait(val ms: Long) : AgentAction()
     data object Screenshot : AgentAction()
     data class OpenApp(val packageName: String? = null, val appName: String? = null) : AgentAction()
+    /** Runs in the Linux sandbox; the agent loop handles it because it touches no screen. */
+    data class RunShell(val command: String, val timeoutSeconds: Int = LinuxSandbox.DEFAULT_TIMEOUT_SECONDS) : AgentAction()
 
     companion object {
         fun fromMap(action: String, params: Map<String, Any>): AgentAction {
@@ -72,6 +76,11 @@ sealed class AgentAction {
                     }
                     OpenApp(packageName = packageName, appName = appName)
                 }
+                "runshell", "run_shell" -> RunShell(
+                    command = (params["command"] as? String)?.takeIf { it.isNotBlank() }
+                        ?: throw IllegalArgumentException("runShell requires command"),
+                    timeoutSeconds = (params["timeoutSeconds"] as? Number)?.toInt() ?: LinuxSandbox.DEFAULT_TIMEOUT_SECONDS,
+                )
                 else -> throw IllegalArgumentException("Unknown action: $action")
             }
         }
@@ -147,6 +156,7 @@ fun AgentAction.toLogSummary(): String {
             "InputText(mode=${mode.name.lowercase()}, length=${text.length}, multiline=${text.contains('\n')})"
         is AgentAction.FocusAndInputText ->
             "FocusAndInputText(x=$x, y=$y, length=${text.length}, multiline=${text.contains('\n')})"
+        is AgentAction.RunShell -> "RunShell(length=${command.length}, timeoutSeconds=$timeoutSeconds)"
         else -> toString()
     }
 }

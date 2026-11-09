@@ -43,6 +43,7 @@ import bot.coati.model.GatewayFactory
 import bot.coati.model.ResilientModelGateway
 import bot.coati.model.ModelProviders
 import bot.coati.model.ModelRouter
+import bot.coati.sandbox.LinuxSandbox
 import bot.coati.state.StateManager
 import bot.coati.state.TaskRecovery
 import bot.coati.ui.main.MainActivity
@@ -269,11 +270,14 @@ class CoatiService : Service() {
                 routingPolicy = { configStore.getRoutingPolicy() },
             )
         }
+        val sandbox = LinuxSandbox(applicationContext).takeIf { LinuxSandbox.isSupported(applicationContext) }
+        LinuxSandbox.available = sandbox != null
         val loop = AgentLoop(
             overlay, modelRouter, actionEngine, a11y,
             stateManager, newManualRuntime,
             safetyModeProvider = { configStore.getSafetyMode() },
             fastExecutor = fastExecutor,
+            sandbox = sandbox,
         )
         agentLoop = loop
 

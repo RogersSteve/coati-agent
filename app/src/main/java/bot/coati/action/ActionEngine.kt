@@ -60,6 +60,7 @@ class ActionEngine(
                 is AgentAction.Wait -> executeWait(action.ms)
                 is AgentAction.Screenshot -> executeScreenshot()
                 is AgentAction.OpenApp -> executeOpenApp(action)
+                is AgentAction.RunShell -> ActionResult(false, "runShell is handled by the agent loop")
             }
         } catch (e: CancellationException) {
             // Cancellation is loop control, not an action failure. Swallowing it causes retries and

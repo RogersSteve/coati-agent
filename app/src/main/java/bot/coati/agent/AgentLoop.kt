@@ -26,6 +26,8 @@ import bot.coati.perception.ScreenDiff
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.HomeScreens
 import bot.coati.service.UiTreeNode
+import bot.coati.sandbox.LinuxSandbox
+import bot.coati.sandbox.ShellResult
 import bot.coati.state.StateManager
 import bot.coati.state.TaskState
 import bot.coati.ui.overlay.OverlayManager
@@ -58,7 +60,11 @@ class AgentLoop(
      * Reasoning step below when it is unsure or stuck; when absent every step uses Reasoning.
      */
     private val fastExecutor: JevStepExecutor? = null,
+    private val sandbox: LinuxSandbox? = null,
 ) {
+    /** A shell result is only meaningful to Reasoning, so it keeps the next step instead of the fast route. */
+    private var sandboxFollowUp = false
+
     private data class ActionRecord(
         val action: String,
         val statusUpdate: String,
@@ -138,6 +144,8 @@ class AgentLoop(
         exceptionHandler.reset()
         capabilityFailureLedger.reset()
         taskNotes.clear()
+        sandbox?.newTask()
+        sandboxFollowUp = false
         resumedFromPause = false
         replanHint = null
         lastStepFeedback = null
@@ -300,7 +308,7 @@ class AgentLoop(
             Log.i(TAG, "UI quality=$quality, nodes=$nodeCount, textNodes=$textNodeCount")
 
             // c2. FAST PATH: JEV decides when configured; Reasoning takes the step on escalation.
-            val fast = fastExecutor?.takeIf { it.activeForTask }
+            val fast = fastExecutor?.takeIf { it.activeForTask && !sandboxFollowUp }
             if (fast != null) {
                 overlayManager.updateProgress(task, "Deciding...", "", stepCount, maxSteps)
                 val outcome = fast.step(stepCount, task, screenContext, uiTree) { pkg, actionName, label, level ->
@@ -451,6 +459,12 @@ class AgentLoop(
                     "${response.action}: ${response.reasoning}")) {
                 cancelByUser()
                 return
+            }
+
+            sandboxFollowUp = action is AgentAction.RunShell
+            if (action is AgentAction.RunShell) {
+                runSandboxCommand(task, response.statusUpdate, response.reasoning, action, screenSig, response.params)
+                continue
             }
 
             // Save before-context for verification
@@ -946,6 +960,47 @@ class AgentLoop(
         }
     }
 
+    /** No screenshot can verify a command, so its exit status and output are the step's result. */
+    private suspend fun runSandboxCommand(
+        task: String,
+        statusUpdate: String,
+        reasoning: String,
+        action: AgentAction.RunShell,
+        screenSignature: String,
+        params: Map<String, Any>,
+    ) {
+        val status = statusUpdate.ifBlank { "Running a Linux command" }
+        overlayManager.updateProgress(task, status, reasoning, stepCount, maxSteps)
+        val result = try {
+            requireNotNull(sandbox) { "the Linux workspace is not available on this device" }
+                .run(action.command, action.timeoutSeconds) {
+                    overlayManager.updateProgress(task, "Preparing Linux (first use)...", "", stepCount, maxSteps)
+                }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "runShell could not run: ${e.message}")
+            ShellResult(null, false, "The command could not be started: ${e.message}", emptyList())
+        }
+        Log.i(TAG, "runShell: exit=${result.exitCode}, timedOut=${result.timedOut}, delivered=${result.delivered}")
+        val succeeded = result.exitCode == 0
+        exceptionHandler.recordSuccess()
+        replanHint = null
+        lastStepFeedback = sandboxFeedback(result)
+        fastActedSinceReasoning = false
+        actionHistory.add(
+            ActionRecord(
+                action = "runShell",
+                statusUpdate = statusUpdate,
+                screenSignature = screenSignature,
+                outcome = if (succeeded) VerifyOutcome.SUCCESS else VerifyOutcome.FAILED,
+                target = actionTarget(null, null, params),
+                verifyReason = if (result.timedOut) "timed out" else "exit ${result.exitCode}",
+            ),
+        )
+        fastExecutor?.recordReasoningStep(status, succeeded)
+    }
+
     private fun buildTaskDescription(
         task: String,
         manualSection: String?,
@@ -967,6 +1022,7 @@ class AgentLoop(
             }
         }
         taskNotes.render()?.let { sb.append("\n\n").append(it) }
+        sandbox?.record()?.let { sb.append("\n\n[LINUX WORKSPACE]\n").append(it) }
         if (manualSection != null) {
             sb.append("\n\n$manualSection")
         }
@@ -1251,6 +1307,7 @@ class AgentLoop(
                     record.verifyReason.takeIf(String::isNotBlank)?.let { " - $it" }.orEmpty()
             },
             fastExecutor?.recentHistory(AUDIT_FAST_STEPS),
+            sandbox?.record(),
         )
         if (earlier.isNotEmpty()) {
             Log.i(TAG, "Completion audit includes earlier screens ${earlier.map { "${it.packageName}@${it.step}" }}")
@@ -1522,6 +1579,7 @@ class AgentLoop(
             notes: List<String> = emptyList(),
             recentVerdicts: List<String> = emptyList(),
             fastRecord: String? = null,
+            sandboxRecord: String? = null,
         ): String {
             val question = if (earlierScreens.isNotEmpty()) {
                 buildCrossAppCompletionAuditQuestion(task, earlierScreens)
@@ -1534,6 +1592,7 @@ class AgentLoop(
                 if (notes.isNotEmpty()) append("\n\n").append(notesEvidence(notes))
                 if (recentVerdicts.isNotEmpty()) append("\n\n").append(verdictEvidence(recentVerdicts))
                 if (!fastRecord.isNullOrBlank()) append("\n\n").append(fastRouteEvidence(fastRecord))
+                if (!sandboxRecord.isNullOrBlank()) append("\n\n").append(sandboxEvidence(sandboxRecord))
             }
         }
 
@@ -1542,6 +1601,20 @@ class AgentLoop(
          * (a canvas tab) keeps no screenshot of an earlier state once another tab is shown, so without
          * this record the audit judged a layer hidden on one tab from a screenshot taken before hiding it.
          */
+        private fun sandboxEvidence(record: String): String =
+            "Linux workspace record, written by the host and not by the agent:\n$record\n" +
+                "A file listed as delivered exists on the phone even though no screen shows it: judge a " +
+                "requirement to create or deliver a file from this record, not from the screenshot."
+
+        internal fun sandboxFeedback(result: ShellResult): String = buildString {
+            append("runShell ")
+            append(if (result.timedOut) "TIMED OUT and was killed" else "exited with code ${result.exitCode}")
+            append(". Output:\n").append(result.output.ifBlank { "(none)" })
+            if (result.delivered.isNotEmpty()) {
+                append("\nDelivered to the phone's Download/Coati folder: ").append(result.delivered.joinToString("; "))
+            }
+        }
+
         private fun fastRouteEvidence(record: String): String = buildString {
             append("Fast-route actions, oldest first, with the outcome the host verified after each from pixel and ")
             append("accessibility-tree changes (SUCCESS: the expected change appeared at the target; NO_CHANGE: nothing ")
