@@ -32,8 +32,11 @@ object GatewayFactory {
     ): CloudModelGateway {
         return when (provider.apiFormat) {
             ApiFormat.GEMINI -> GeminiGateway(client, apiKey, endpoint, modelName)
-            ApiFormat.OPENAI_COMPATIBLE -> OpenAiCompatibleGateway(client, apiKey, endpoint, modelName)
-            ApiFormat.CLAUDE_COMPATIBLE -> ClaudeCompatibleGateway(client, apiKey, endpoint, modelName)
+            ApiFormat.OPENAI_COMPATIBLE -> OpenAiCompatibleGateway(client, apiKey, compatibleBaseUrl(endpoint), modelName)
+            ApiFormat.CLAUDE_COMPATIBLE -> ClaudeCompatibleGateway(client, apiKey, compatibleBaseUrl(endpoint), modelName)
         }
     }
 }
+
+/** The gateways append /v1/...; providers document their URL with /v1 included, and pasting that gave /v1/v1. */
+internal fun compatibleBaseUrl(endpoint: String): String = endpoint.trim().trimEnd('/').removeSuffix("/v1")
