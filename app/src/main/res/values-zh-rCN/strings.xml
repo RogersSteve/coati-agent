@@ -215,4 +215,5 @@
     <plurals name="settings_required_items">
         <item quantity="other">还需完成 %d 项必需设置</item>
     </plurals>
+    <string name="action_paste">粘贴</string>
 </resources>

@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import bot.coati.R
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
+import bot.coati.ui.common.PasteButton
 import bot.coati.ui.theme.BallError
 import bot.coati.ui.theme.BallExecuting
 import bot.coati.ui.theme.BallIdle
@@ -232,6 +233,7 @@ private fun ExpandedInputPanel(
             onValueChange = { taskInput = it },
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text(stringResource(R.string.overlay_task_hint)) },
+            trailingIcon = { PasteButton { taskInput += it } },
             singleLine = false,
             maxLines = 3,
             shape = RoundedCornerShape(12.dp),

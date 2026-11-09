@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import bot.coati.ui.common.PasteButton
 import bot.coati.ui.settings.batteryExemptionIntent
 import bot.coati.ui.settings.rememberBatteryUnrestricted
 import bot.coati.R
@@ -653,6 +654,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
             onValueChange = { viewModel.updateEndpoint(it) },
             modifier = Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.onboarding_endpoint_hint)) },
+            trailingIcon = { PasteButton(viewModel::updateEndpoint) },
             placeholder = {
                 Text(
                     if (currentProvider.apiFormat == ApiFormat.CLAUDE_COMPATIBLE)
@@ -718,8 +720,11 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
         singleLine = true,
         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
-            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                Text(stringResource(if (passwordVisible) R.string.settings_hide else R.string.settings_show), style = MaterialTheme.typography.labelLarge)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PasteButton(viewModel::updateReasoningApiKey)
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Text(stringResource(if (passwordVisible) R.string.settings_hide else R.string.settings_show), style = MaterialTheme.typography.labelLarge)
+                }
             }
         },
         shape = RoundedCornerShape(12.dp),
@@ -923,6 +928,7 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
                 onValueChange = { viewModel.updateFastEndpoint(it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.onboarding_endpoint_hint)) },
+                trailingIcon = { PasteButton(viewModel::updateFastEndpoint) },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
             )
@@ -979,8 +985,11 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
             singleLine = true,
             visualTransformation = if (fastPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
-                IconButton(onClick = { fastPasswordVisible = !fastPasswordVisible }) {
-                    Text(stringResource(if (fastPasswordVisible) R.string.settings_hide else R.string.settings_show), style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PasteButton(viewModel::updateFastApiKey)
+                    IconButton(onClick = { fastPasswordVisible = !fastPasswordVisible }) {
+                        Text(stringResource(if (fastPasswordVisible) R.string.settings_hide else R.string.settings_show), style = MaterialTheme.typography.labelLarge)
+                    }
                 }
             },
             shape = RoundedCornerShape(12.dp),

@@ -57,6 +57,7 @@ import bot.coati.data.RoutingMode
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
 import bot.coati.model.ModelProviders
+import bot.coati.ui.common.PasteButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -706,6 +707,7 @@ private fun ModelSettingsCard(
                         onValueChange = { viewModel.updateEndpoint(role, it) },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text(stringResource(R.string.settings_api_endpoint)) },
+                        trailingIcon = { PasteButton { viewModel.updateEndpoint(role, it) } },
                         supportingText = {
                             Text(
                                 stringResource(
@@ -964,8 +966,11 @@ private fun ApiKeyField(
         isError = isError,
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
-            TextButton(onClick = { visible = !visible }) {
-                Text(stringResource(if (visible) R.string.settings_hide else R.string.settings_show))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PasteButton(onValueChange)
+                TextButton(onClick = { visible = !visible }) {
+                    Text(stringResource(if (visible) R.string.settings_hide else R.string.settings_show))
+                }
             }
         },
         singleLine = true,
