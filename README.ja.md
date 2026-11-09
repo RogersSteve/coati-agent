@@ -46,7 +46,9 @@ Android 11 以降のスマートフォン（arm64。最近の機種のほとん�
 
 ### Linux ワークスペース：アプリから完成したファイルまで
 
-https://github.com/user-attachments/assets/e50647c7-1d8b-4ee8-8af9-a5a702b55a5b
+<a href="https://www.coati-os.com/assets/demos/V5_linux.mp4"><img src="docs/media/linux-demo.jpg" width="300" alt="録画を見る"></a>
+
+[録画を見る](https://www.coati-os.com/assets/demos/V5_linux.mp4)
 
 ### 日常のタスク
 

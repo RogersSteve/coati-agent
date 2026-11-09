@@ -46,7 +46,9 @@ Android 11 이상 휴대폰(arm64, 최근 휴대폰은 대부분 해당)과 AI �
 
 ### Linux 작업 공간: 앱에서 완성된 파일까지
 
-https://github.com/user-attachments/assets/e50647c7-1d8b-4ee8-8af9-a5a702b55a5b
+<a href="https://www.coati-os.com/assets/demos/V5_linux.mp4"><img src="docs/media/linux-demo.jpg" width="300" alt="녹화 보기"></a>
+
+[녹화 보기](https://www.coati-os.com/assets/demos/V5_linux.mp4)
 
 ### 일상 작업
 
