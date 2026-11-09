@@ -31,7 +31,7 @@ class ModelProviderTest {
     @Test
     fun `gemini provider has correct models`() {
         val gemini = ModelProviders.findById("gemini")!!
-        assertEquals(3, gemini.models.size)
+        assertEquals(4, gemini.models.size)
         assertTrue(gemini.models.contains("gemini-2.5-flash"))
         assertFalse(gemini.isCustom)
     }

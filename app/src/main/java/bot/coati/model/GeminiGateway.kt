@@ -428,7 +428,7 @@ class GeminiGateway(
     companion object {
         private const val TAG = "CoatiModel"
         private const val DEFAULT_ENDPOINT = "https://generativelanguage.googleapis.com"
-        private const val DEFAULT_MODEL = "gemini-3.1-pro-preview"
+        private const val DEFAULT_MODEL = "gemini-3.8-flash"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         /**

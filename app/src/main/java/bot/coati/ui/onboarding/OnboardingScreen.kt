@@ -1,8 +1,12 @@
 package bot.coati.ui.onboarding
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +37,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +52,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import bot.coati.ui.settings.batteryExemptionIntent
+import bot.coati.ui.settings.rememberBatteryUnrestricted
 import bot.coati.R
 import bot.coati.ui.settings.JevConfigurationContent
 import bot.coati.model.ApiFormat
@@ -263,6 +270,30 @@ private fun AccessibilityPermissionStep(viewModel: OnboardingViewModel, onGrante
             ) {
                 Text(stringResource(R.string.onboarding_accessibility_grant))
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Spacer(modifier = Modifier.height(32.dp))
+                Text(
+                    text = stringResource(R.string.onboarding_restricted_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.onboarding_restricted_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+                        )
+                    },
+                ) {
+                    Text(stringResource(R.string.onboarding_restricted_open))
+                }
+            }
         }
     }
 }
@@ -291,7 +322,7 @@ private fun RegionSelectionStep(viewModel: OnboardingViewModel) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = stringResource(R.string.onboarding_region_detected, RegionDetector.regionDisplayName(selectedRegion)),
+            text = stringResource(R.string.onboarding_region_detected, regionLabel(selectedRegion)),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.outline,
         )
@@ -314,7 +345,7 @@ private fun RegionSelectionStep(viewModel: OnboardingViewModel) {
                     ButtonDefaults.outlinedButtonColors()
                 },
             ) {
-                Text(RegionDetector.regionDisplayName(region))
+                Text(regionLabel(region))
             }
         }
 
@@ -452,6 +483,15 @@ private fun ModelReviewPrompt(
 
 @Composable
 private fun QuickStartStep(onFinish: () -> Unit) {
+    val context = LocalContext.current
+    val batteryUnrestricted = rememberBatteryUnrestricted()
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    // Without this permission Coati cannot say that Android turned its accessibility service off.
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -466,7 +506,7 @@ private fun QuickStartStep(onFinish: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = stringResource(R.string.onboarding_quick_start_description),
+            text = stringResource(R.string.onboarding_quick_start_description_short),
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -497,6 +537,16 @@ private fun QuickStartStep(onFinish: () -> Unit) {
             title = stringResource(R.string.settings_jev_title),
             description = stringResource(R.string.onboarding_jev_description),
         )
+        QuickStartItem(
+            number = "6",
+            title = stringResource(R.string.onboarding_keep_running_title),
+            description = stringResource(R.string.keep_running_rom_hint),
+        )
+        if (!batteryUnrestricted) {
+            OutlinedButton(onClick = { context.startActivity(batteryExemptionIntent(context)) }) {
+                Text(stringResource(R.string.keep_running_allow))
+            }
+        }
         Spacer(modifier = Modifier.height(32.dp))
         Button(
             onClick = onFinish,
@@ -509,6 +559,15 @@ private fun QuickStartStep(onFinish: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun regionLabel(region: String): String = stringResource(
+    when (region) {
+        "CN" -> R.string.region_cn
+        "JP" -> R.string.region_jp
+        else -> R.string.region_global
+    },
+)
 
 @Composable
 private fun QuickStartItem(number: String, title: String, description: String) {
@@ -660,7 +719,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
             IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                Text(if (passwordVisible) "Hide" else "Show", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(if (passwordVisible) R.string.settings_hide else R.string.settings_show), style = MaterialTheme.typography.labelLarge)
             }
         },
         shape = RoundedCornerShape(12.dp),
@@ -921,7 +980,7 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
             visualTransformation = if (fastPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = { fastPasswordVisible = !fastPasswordVisible }) {
-                    Text(if (fastPasswordVisible) "Hide" else "Show", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(if (fastPasswordVisible) R.string.settings_hide else R.string.settings_show), style = MaterialTheme.typography.labelLarge)
                 }
             },
             shape = RoundedCornerShape(12.dp),

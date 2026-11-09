@@ -474,6 +474,34 @@ class CoatiService : Service() {
         super.onDestroy()
     }
 
+    /** The panel dies with the accessibility service, so only a notification can still reach the user. */
+    private fun updateAccessibilityAlert(connected: Boolean) {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (connected) {
+            manager.cancel(ACCESSIBILITY_ALERT_ID)
+            return
+        }
+        manager.createNotificationChannel(
+            NotificationChannel(ALERT_CHANNEL_ID, getString(R.string.notification_alerts_channel), NotificationManager.IMPORTANCE_HIGH),
+        )
+        val fix = PendingIntent.getActivity(
+            this,
+            ACCESSIBILITY_ALERT_ID,
+            MainActivity.settingsIntent(this),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        manager.notify(
+            ACCESSIBILITY_ALERT_ID,
+            Notification.Builder(this, ALERT_CHANNEL_ID)
+                .setContentTitle(getString(R.string.notification_accessibility_lost_title))
+                .setContentText(getString(R.string.notification_accessibility_lost_text))
+                .setSmallIcon(R.drawable.ic_coati)
+                .setContentIntent(fix)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -598,6 +626,13 @@ class CoatiService : Service() {
          * Starts a task as the overlay's Execute button does, with a benchmark's [options] (run id,
          * step budget). Returns false when not ready.
          */
+        private const val ALERT_CHANNEL_ID = "coati_alerts"
+        private const val ACCESSIBILITY_ALERT_ID = 7302
+
+        fun onAccessibilityChanged(connected: Boolean) {
+            instance?.updateAccessibilityAlert(connected)
+        }
+
         fun executeTask(task: String, options: TaskRunOptions = TaskRunOptions()): Boolean {
             val service = instance ?: return false
             // The Execute button's callback is set once the runtime is ready; the loop comes with it.
