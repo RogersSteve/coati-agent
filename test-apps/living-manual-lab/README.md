@@ -38,7 +38,7 @@ From the repository root:
 ```powershell
 .\gradlew :test-apps:living-manual-lab:test :test-apps:living-manual-lab:assembleV1Debug :test-apps:living-manual-lab:assembleV2Debug
 
-$Device = '3B15AM00LXZ00000'
+$Device = '<device-serial>'
 $LabApk = 'test-apps\living-manual-lab\build\outputs\apk\v1\debug\living-manual-lab-v1-debug.apk'
 adb -s $Device install -r $LabApk
 adb -s $Device shell am start -n bot.coati.fixture.manual/.MainActivity

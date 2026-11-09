@@ -2,22 +2,21 @@
 
 # Coati
 
-**Host-Grounded Execution for Installable Mobile GUI Agents**
+**An AI agent that lives on your Android phone**
 
 [![arXiv](https://img.shields.io/badge/arXiv-2611.02644-b31b1b)](https://arxiv.org/abs/2611.02644)
 [![AndroidWorld 86.5%](https://img.shields.io/badge/AndroidWorld-86.5%25-orange)](#results)
 [![Android 11+](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](#getting-started)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 
-An AI agent you install on your Android phone. Describe the result you want; Coati operates your other
-apps to get there, and reports success only when it can show it.
+Describe the result you want. Coati operates your apps to get there, uses its built-in Linux workspace
+when the job needs code or a file, and reports success only when it can show it. No computer and no ADB.
 
-[Paper (arXiv:2611.02644)](https://arxiv.org/abs/2611.02644) ·
 [Demo](#demo) ·
-[Results](#results) ·
-[How it works](#how-it-works) ·
+[What it can do](#what-it-can-do) ·
 [Getting started](#getting-started) ·
-[Reproducing the paper](#reproducing-the-paper)
+[How it works](#how-it-works) ·
+[Research](#research)
 
 <img src="docs/media/fast-executor-loop.gif" width="300" alt="Coati adds the first 10 Car Market listings to favorites: the model plans the loop once and the host taps each item">
 
@@ -27,23 +26,23 @@ apps to get there, and reports success only when it can show it.
 
 ---
 
-Most mobile GUI agents run on a computer that drives a phone over a debugging bridge, out of reach
-of ordinary users. **Coati ships as an Android app** and operates other apps through Android's
-accessibility service. Running on the phone gives it something a model alone lacks: **host-recorded
-evidence** of what actually happened on screen — accessibility trees, result screens across apps,
-the progress of a repeated action. Coati grounds its execution in this evidence:
-
-- **VerifyLoop** accepts a step or a completion only when host evidence confirms it.
-- **AppMemory** learns per-app manuals solely from verified observations and reuses them later.
-- A **routed fast executor** lets a small selection model take simple, confident steps, and lets the
-  host repeat loops of simple steps that the large model plans once.
-
 ## Demo
 
 Screen recordings of the public build on a OnePlus phone (ColorOS, Android 16), Balanced mode, real
 time: clips are trimmed at the ends only, never sped up. Each clip shows its own elapsed time; the top
 bar and bottom panel are Coati's on-screen progress and Pause/Stop controls. Each is one
 representative run.
+
+### Linux workspace — from phone apps to a finished file
+*"In the Car Market app, read the names and prices of the first 5 listings. Then make a one-page PDF
+report named car_report.pdf with a table of those listings and a bar chart of their prices, deliver it
+to me, and open it on the phone so I can see it."* Coati reads the listings, writes the report with
+Python in its Linux workspace, and opens the delivered file. 17 steps, 5 min 13 s: the completion audit
+twice rejected the report as read from the screen, and Coati regenerated and reopened it before the audit
+accepted. An unrecorded run of the same task finished in 9 steps and 1 min 44 s. File names in Downloads
+and the app drawer are blurred.
+
+https://github.com/user-attachments/assets/e50647c7-1d8b-4ee8-8af9-a5a702b55a5b
 
 ### Everyday task with the fast executor
 *"In the Clock app, turn on the 7:00 weekday alarm, then add Tokyo to the world clock."*
@@ -75,33 +74,65 @@ completion audit. Account details are blurred.
 
 https://github.com/user-attachments/assets/e3babe08-9d76-4f92-b60b-f266a8fa7317
 
-## Results
+## What it can do
 
-AndroidWorld, all 116 tasks, with **Gemini 3.8 Flash as the backbone of every agent**. Every agent
-runs through the same harness, task instances, step budgets and official scorer.
+- **Operate your apps.** Native, Flutter and canvas apps, through Android's accessibility service. It
+  needs no root, no ADB and no computer.
+- **Finish tasks across apps.** Read something in one app and act on it in another; a completion is
+  checked against the result screen of every app the task used.
+- **Run code and produce files.** A built-in Linux workspace comes inside the APK with nothing else to
+  install: bash, Python (Pillow, pypdf, ReportLab, requests), Node.js, curl and a Chinese font, plus
+  `apk add` and `pip install` for anything else. Coati can collect information on the phone, process
+  it, and deliver a PDF, chart or spreadsheet to your Download/Coati folder. (arm64 devices.)
+- **Get faster with use.** A small selection model takes simple steps, the host repeats loops of simple
+  steps without a model call per item, and per-app manuals learned from verified observations shorten
+  later visits.
+- **Say when it could not finish.** Host evidence decides whether a step or a task succeeded, and a task
+  that cannot be verified is reported as unverified rather than done.
 
-| Agent | Controls the phone via | Trials | Success rate | False completions |
-|---|---|---|---|---|
-| **Coati** | accessibility only | 3 | **86.5%** (89.7 / 87.1 / 82.8) | **5.4%** |
-| Artemis | accessibility only | 3 | 77.6% | – |
-| Artemis | ADB | 1 | 76.5% | – |
-| FinalRun | ADB | 1 | 59.9% | 14.5% |
-| Midscene.js | ADB | 1 | 59.1% | 7.5% |
+## Getting started
 
-Coati solves 95 of the 116 tasks in all three trials. The ablation and per-app breakdown are in the
-paper.
+**Requirements**
+- Android 11 (API 30) or newer, phone or emulator
+- A model API key for the Reasoning and Fast models (Gemini is recommended; other providers and
+  OpenAI-compatible endpoints are supported)
+- Optional: a JEV key for the fast executor (without it, every step uses the Reasoning model)
+- For the Linux workspace: an arm64 device, about 300 MB of free storage, and a one-time unpack on first use
+- To build: JDK 17+ and the Android SDK
 
-Beyond the benchmark — whose tasks are short first visits — in everyday-use experiments:
+**Install**
 
-| What | Result |
-|---|---|
-| Fast executor on seven everyday phone tasks | **−39%** median time (64 → 39 s), **−25%** model tokens, comparable success |
-| Fast executor on loops of simple steps (favorite, compare, hide in a 40-item list) | **2.8–5.4×** faster with **6–9×** fewer model tokens, equal or higher success |
-| AppMemory on a deep route in an unfamiliar app (3 independent learning sessions) | **18.5 → 6–7** steps, median **190 → 77 s** |
-| Fast executor on an Android 16 phone (9 tasks × 3 runs: native, canvas, Flutter, permission dialogs) | **27/27** runs vs 26/27, median **110.5 → 78.6 s**, Reasoning calls on the critical path **285 → 67** |
-| AppMemory on the same phone | deep route: **22** steps (222 s) on the first visit, then **5** steps (about 22 s) |
+Download the latest APK from [Releases](../../releases) and install it (allow installation from
+unknown sources when Android asks), or build it yourself:
+
+```sh
+./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+**First run**
+1. Open Coati and follow onboarding: grant the overlay and **accessibility** permissions.
+2. Enter your model provider and API key (*AI Model Configuration*), and optionally your JEV key
+   (*Settings → JEV*).
+3. Pick a mode under *Settings → Speed and accuracy* and, optionally, *App knowledge*
+   (off / use guides / use and learn).
+4. Type the result you want, e.g. *"Set an alarm for 7:30 AM in the Clock app."* The floating panel
+   shows each step; pause or stop at any time.
+
+Keys stay on the device and are sent only to the providers you configure.
 
 ## How it works
+
+Most mobile GUI agents run on a computer that drives a phone over a debugging bridge, out of reach
+of ordinary users. **Coati ships as an Android app** and operates other apps through Android's
+accessibility service. Running on the phone gives it something a model alone lacks: **host-recorded
+evidence** of what actually happened on screen — accessibility trees, result screens across apps,
+the progress of a repeated action. Coati grounds its execution in this evidence:
+
+- **VerifyLoop** accepts a step or a completion only when host evidence confirms it.
+- **AppMemory** learns per-app manuals solely from verified observations and reuses them later.
+- A **routed fast executor** lets a small selection model take simple, confident steps, and lets the
+  host repeat loops of simple steps that the large model plans once.
 
 ```mermaid
 flowchart LR
@@ -149,37 +180,44 @@ per item, recording progress as evidence. The speed–accuracy trade-off is a us
 
 Details: [`docs/jev-executor.md`](docs/jev-executor.md).
 
-## Getting started
+**Linux workspace.** An Alpine Linux userland runs under PRoot as an ordinary child process of the app,
+unpacked on first use. Each task gets a fresh `/workspace`; the Reasoning model runs commands one at a
+time and reads their output. The host copies files from `/workspace/output` to the phone's Download
+folder and gives the completion audit its own record of commands and files.
 
-**Requirements**
-- Android 11 (API 30) or newer, phone or emulator
-- A model API key for the Reasoning and Fast models (Gemini is recommended; other providers and
-  OpenAI-compatible endpoints are supported)
-- Optional: a JEV key for the fast executor (without it, every step uses the Reasoning model)
-- To build: JDK 17+ and the Android SDK
+## Research
 
-**Install**
+Coati's execution design is described in the paper
+[*Coati: Host-Grounded Execution for Installable Mobile GUI Agents*](https://arxiv.org/abs/2611.02644).
+The Linux workspace was added after the paper; the benchmark results below do not use it.
 
-Download the latest APK from [Releases](../../releases) and install it (allow installation from
-unknown sources when Android asks), or build it yourself:
+### Results
 
-```sh
-./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+AndroidWorld, all 116 tasks, with **Gemini 3.8 Flash as the backbone of every agent**. Every agent
+runs through the same harness, task instances, step budgets and official scorer.
 
-**First run**
-1. Open Coati and follow onboarding: grant the overlay and **accessibility** permissions.
-2. Enter your model provider and API key (*AI Model Configuration*), and optionally your JEV key
-   (*Settings → JEV*).
-3. Pick a mode under *Settings → Speed and accuracy* and, optionally, *App knowledge*
-   (off / use guides / use and learn).
-4. Type the result you want, e.g. *"Set an alarm for 7:30 AM in the Clock app."* The floating panel
-   shows each step; pause or stop at any time.
+| Agent | Controls the phone via | Trials | Success rate | False completions |
+|---|---|---|---|---|
+| **Coati** | accessibility only | 3 | **86.5%** (89.7 / 87.1 / 82.8) | **5.4%** |
+| Artemis | accessibility only | 3 | 77.6% | – |
+| Artemis | ADB | 1 | 76.5% | – |
+| FinalRun | ADB | 1 | 59.9% | 14.5% |
+| Midscene.js | ADB | 1 | 59.1% | 7.5% |
 
-Keys stay on the device and are sent only to the providers you configure.
+Coati solves 95 of the 116 tasks in all three trials. The ablation and per-app breakdown are in the
+paper.
 
-## Reproducing the paper
+Beyond the benchmark — whose tasks are short first visits — in everyday-use experiments:
+
+| What | Result |
+|---|---|
+| Fast executor on seven everyday phone tasks | **−39%** median time (64 → 39 s), **−25%** model tokens, comparable success |
+| Fast executor on loops of simple steps (favorite, compare, hide in a 40-item list) | **2.8–5.4×** faster with **6–9×** fewer model tokens, equal or higher success |
+| AppMemory on a deep route in an unfamiliar app (3 independent learning sessions) | **18.5 → 6–7** steps, median **190 → 77 s** |
+| Fast executor on an Android 16 phone (9 tasks × 3 runs: native, canvas, Flutter, permission dialogs) | **27/27** runs vs 26/27, median **110.5 → 78.6 s**, Reasoning calls on the critical path **285 → 67** |
+| AppMemory on the same phone | deep route: **22** steps (222 s) on the first visit, then **5** steps (about 22 s) |
+
+### Reproducing the paper
 
 | Experiment | Where | Notes |
 |---|---|---|
@@ -205,6 +243,9 @@ environment and credential rules.
   time, and risky actions ask for confirmation.
 - **Privacy.** Screenshots and screen descriptions are sent to the model providers you configure.
   AppMemory stores only admitted, sanitized page facts on the device.
+- **Linux workspace.** Commands run with the app's own permissions and have internet access. The
+  workspace separates file paths for convenience and is not a security boundary, so treat it as code
+  running inside the Coati app.
 - **Distribution.** Coati operates other apps through the accessibility service, which Google Play's
   AccessibilityService policy does not permit for autonomous agents, so it is distributed for direct
   installation. In July 2026 the European Commission adopted binding measures under the Digital
@@ -219,6 +260,7 @@ environment and credential rules.
 | `scripts/androidworld/` | AndroidWorld harness for Coati and opponent agents |
 | `scripts/device_bench/` | Device benchmarks, Car Market tasks and checker, learning benchmark |
 | `test-apps/` | Fixture apps: Manual Lab, Car Market, Interrupter |
+| `third_party/` | Sources, build recipe and package list for the Linux workspace components |
 | `docs/` | Design notes (fast executor, OCR inputs, local relay) and device validation reports |
 
 ## Citation
@@ -247,6 +289,9 @@ noncommercial organizations such as universities and public research institution
 product or service, or to provide services to others for a fee. Aspects of Coati are the subject of
 Chinese patent applications; for a commercial license, contact the applicant listed for the
 relevant application in [PATENTS.md](PATENTS.md).
+
+The Linux workspace bundles separate third-party programs (PRoot, talloc, Alpine Linux packages) under
+their own licenses, including GPL and LGPL; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Acknowledgments
 
