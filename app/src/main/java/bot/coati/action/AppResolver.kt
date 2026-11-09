@@ -5,7 +5,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import java.util.Locale
 
-class AppResolver(private val packageManager: PackageManager) {
+class AppResolver(
+    private val packageManager: PackageManager,
+    private val selfPackage: String? = null,
+) {
 
     data class LaunchableApp(
         val label: String,
@@ -20,7 +23,7 @@ class AppResolver(private val packageManager: PackageManager) {
     }
 
     fun resolve(appName: String): Result {
-        return resolve(appName, listLaunchableApps())
+        return resolve(appName, listLaunchableApps(), selfPackage)
     }
 
     fun listLaunchableApps(): List<LaunchableApp> {
@@ -52,26 +55,33 @@ class AppResolver(private val packageManager: PackageManager) {
         private val whitespaceRegex = Regex("\\s+")
         private val nonWordRegex = Regex("[^\\p{L}\\p{N}]+")
 
-        fun resolve(query: String, apps: List<LaunchableApp>): Result {
+        /**
+         * [selfPackage] (Coati itself) matches only by its exact label or package: "Coati Manual Lab"
+         * contains the label "Coati", and the agent opened itself for a whole task instead of the
+         * fixture app labelled "Coati 手册实验室".
+         */
+        fun resolve(query: String, apps: List<LaunchableApp>, selfPackage: String? = null): Result {
             val normalizedQuery = normalize(query)
             if (normalizedQuery.isBlank()) return Result.NotFound(query)
+            val others = apps.filter { it.packageName != selfPackage }
 
             return uniqueOrAmbiguous(query, apps.filter { normalize(it.label) == normalizedQuery })
                 ?: uniqueOrAmbiguous(query, apps.filter { it.packageName.equals(query.trim(), ignoreCase = true) })
-                ?: uniqueOrAmbiguous(query, apps.filter { app ->
+                ?: uniqueOrAmbiguous(query, others.filter { app ->
                     val label = normalize(app.label)
                     label.isNotBlank() && label.contains(normalizedQuery)
                 })
-                ?: uniqueOrAmbiguous(query, apps.filter { app ->
+                ?: uniqueOrAmbiguous(query, others.filter { app ->
                     val label = normalize(app.label)
                     label.isNotBlank() && normalizedQuery.contains(label)
                 })
                 ?: uniqueOrAmbiguous(
                     query,
-                    apps.filter { app ->
+                    others.filter { app ->
                         app.packageName.split('.').any { normalize(it) == normalizedQuery }
                     },
                 )
+                ?: tieBreak(query, others)?.let { Result.Resolved(it) }
                 ?: Result.NotFound(query)
         }
 

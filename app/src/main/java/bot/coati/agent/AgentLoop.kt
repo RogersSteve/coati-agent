@@ -330,8 +330,9 @@ class AgentLoop(
                         lastAuditDecision = decision.takeIf { verifyEnabled }
                         if (decision != CompletionAuditDecision.REJECT) {
                             finalAnswer = audit?.taskAnswer
-                            acceptCompletion(task, completionSummary(
-                                finalAnswer ?: outcome.summary.ifBlank { "Task complete" }, lastAuditDecision))
+                            // outcome.summary is the parsed screen's text, which the result dialog showed as a
+                            // wall of page labels ("Display & brightness | Light mode | ...").
+                            acceptCompletion(task, completionSummary(finalAnswer ?: "Task complete", lastAuditDecision))
                             return
                         }
                         fast.doneRejected()
