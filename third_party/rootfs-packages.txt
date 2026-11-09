@@ -1,4 +1,4 @@
-# Alpine 3.22 aarch64 packages in app/src/main/assets/sandbox/rootfs.tar.xz: name version license
+# Alpine 3.22 packages in app/src/main/assets/sandbox/rootfs-*.tar.xz (same list for aarch64 and x86_64): name version license
 ada-libs 2.9.2-r4 ( Apache-2.0 OR MIT ) AND MPL-2.0
 alpine-baselayout 3.7.0-r0 GPL-2.0-only
 alpine-baselayout-data 3.7.0-r0 GPL-2.0-only

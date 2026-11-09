@@ -36,9 +36,9 @@
 
 ## 시작하기
 
-Android 11 이상 휴대폰(arm64, 최근 휴대폰은 대부분 해당)과 AI 모델 API 키가 필요합니다. [Google Gemini 키](https://aistudio.google.com/apikey)로 시작하는 것이 가장 쉽습니다.
+Android 11 이상 휴대폰과 AI 모델 API 키가 필요합니다. [Google Gemini 키](https://aistudio.google.com/apikey)로 시작하는 것이 가장 쉽습니다.
 
-1. **설치.** 휴대폰에서 [Releases](https://github.com/coati-os/coati-agent/releases/latest)의 APK를 내려받아 엽니다. Android가 물으면 이 출처의 설치를 허용하세요.
+1. **설치.** 휴대폰에서 [Releases](https://github.com/coati-os/coati-agent/releases/latest)에서 `coati-<버전>-arm64.apk`(대부분의 휴대폰용. x86 기기는 `x86_64`, 잘 모르겠으면 `universal`)를 내려받아 엽니다. Android가 물으면 이 출처의 설치를 허용하세요.
 2. **설정.** Coati Agent를 열고 안내에 따라 오버레이와 **접근성** 권한을 켠 뒤 *AI Model Configuration*에 API 키를 입력합니다. Android 13 이상에서 접근성 스위치가 회색이면 시스템 설정의 앱 정보에서 **⋮** 메뉴를 눌러 제한된 설정을 허용하세요.
 3. **부탁.** 떠 있는 Coati Agent 버튼을 누르고 원하는 결과를 입력합니다. 패널에 각 단계가 표시되며 언제든 일시 중지하거나 멈출 수 있습니다.
 

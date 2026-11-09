@@ -1,11 +1,12 @@
 #!/bin/bash
 # Cross-builds PRoot (termux/proot 5.1.107.102, GPL-2.0) with a static talloc 2.5.0 (LGPL-3.0) for
-# arm64 Android: out/libproot.so (the tracer, PIE) and out/libproot_loader.so (static loader).
+# 64-bit Android: out/libproot.so (the tracer, PIE) and out/libproot_loader.so (static loader).
 set -euo pipefail
 W=${WORK_DIR:?set WORK_DIR to a directory holding proot.zip and talloc.tar.gz from third_party/proot/sources}
 NDK=${ANDROID_NDK_ROOT:?set ANDROID_NDK_ROOT to NDK 28.2}
 TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
-export CC=$TC/aarch64-linux-android30-clang AR=$TC/llvm-ar STRIP=$TC/llvm-strip OBJCOPY=$TC/llvm-objcopy
+TARGET=${TARGET:-aarch64} # or x86_64
+export CC=$TC/$TARGET-linux-android30-clang AR=$TC/llvm-ar STRIP=$TC/llvm-strip OBJCOPY=$TC/llvm-objcopy
 cd $W && rm -rf src-proot talloc-2.5.0 out && mkdir -p out
 
 # talloc: configure through its waf with cross answers, then archive the single object statically.

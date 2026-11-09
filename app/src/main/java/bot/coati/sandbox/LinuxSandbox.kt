@@ -3,6 +3,7 @@ package bot.coati.sandbox
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.Process
 import android.provider.MediaStore
@@ -26,6 +27,7 @@ import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.TimeZone
+import java.util.stream.Collectors
 
 data class ShellResult(val exitCode: Int?, val timedOut: Boolean, val output: String, val delivered: List<String>)
 
@@ -87,7 +89,7 @@ class LinuxSandbox(private val context: Context) {
         val base = workspace.toPath()
         val files = runCatching {
             Files.walk(base).use { paths ->
-                paths.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }.limit(RECORD_FILES.toLong()).toList()
+                paths.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }.limit(RECORD_FILES.toLong()).collect(Collectors.toList())
             }.map { "${base.relativize(it)} (${Files.size(it)} bytes)" }
         }.getOrDefault(emptyList())
         return buildString {
@@ -110,7 +112,7 @@ class LinuxSandbox(private val context: Context) {
         marker.delete()
         partial.mkdirs()
         val directoryModes = ArrayList<Pair<File, Int>>()
-        context.assets.open(ROOTFS_ASSET).use { asset ->
+        context.assets.open(rootfsAsset()).use { asset ->
             TarReader.read(XZInputStream(BufferedInputStream(asset, IO_BUFFER))) { entry ->
                 val target = File(partial, entry.path)
                 target.parentFile?.mkdirs()
@@ -197,7 +199,7 @@ class LinuxSandbox(private val context: Context) {
     private fun exportOutputs(): List<String> {
         val base = output.toPath()
         val files = Files.walk(base).use { paths ->
-            paths.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }.toList()
+            paths.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }.collect(Collectors.toList())
         }
         val delivered = mutableListOf<String>()
         for (file in files.take(MAX_EXPORT_FILES)) {
@@ -259,7 +261,7 @@ class LinuxSandbox(private val context: Context) {
         private const val TAG = "LinuxSandbox"
         private const val PROOT = "libproot.so"
         private const val PROOT_LOADER = "libproot_loader.so"
-        private const val ROOTFS_ASSET = "sandbox/rootfs.tar.xz"
+        private const val ASSET_DIR = "sandbox"
 
         /** Bump when the bundled rootfs changes: an older unpacked copy is then replaced. */
         private const val ROOTFS_VERSION = "alpine-3.22.8-1"
@@ -286,6 +288,12 @@ class LinuxSandbox(private val context: Context) {
         var available: Boolean = false
 
         fun isSupported(context: Context): Boolean =
-            File(context.applicationInfo.nativeLibraryDir, PROOT).isFile
+            File(context.applicationInfo.nativeLibraryDir, PROOT).isFile &&
+                context.assets.list(ASSET_DIR).orEmpty().contains(rootfsName())
+
+        /** Each APK carries the rootfs of the CPU it targets; the universal one carries both. */
+        private fun rootfsName() = "rootfs-${Build.SUPPORTED_ABIS.first()}.tar.xz"
+
+        private fun rootfsAsset() = "$ASSET_DIR/${rootfsName()}"
     }
 }
