@@ -57,6 +57,17 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        // The sandbox executes libproot.so from nativeLibraryDir, so it must exist as a file on disk.
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    androidResources {
+        noCompress += "xz"
+    }
 }
 
 dependencies {
@@ -101,6 +112,9 @@ dependencies {
 
     // Network
     implementation(libs.okhttp)
+
+    // Linux sandbox rootfs decompression
+    implementation(libs.xz)
 
     // Testing
     testImplementation(libs.junit)

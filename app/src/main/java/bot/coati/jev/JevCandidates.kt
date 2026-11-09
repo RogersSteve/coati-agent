@@ -4,6 +4,7 @@ import bot.coati.perception.ElementOp
 import bot.coati.perception.ParsedScreen
 import bot.coati.perception.ScreenElement
 import bot.coati.perception.ScrollAxis
+import bot.coati.sandbox.LinuxSandbox
 
 /** Everything the executor may do on one screen. JEV only ever returns one of these keys. */
 sealed interface CandidateAction {
@@ -133,7 +134,8 @@ object JevCandidates {
         }
         out += Candidate(
             CandidateAction.Escalate,
-            "hopeless here: needs another app or text that is not available; never use it merely because the target is not visible yet",
+            "hopeless here: needs another app or text that is not available; never use it merely because the target is not visible yet" +
+                if (LinuxSandbox.available) ". Also use it when the next part of the task is computing or creating a file such as a PDF or chart" else "",
         )
         // Keep the question within the API option limit, dropping the least useful tail first.
         return if (out.size <= JevProtocol.MAX_OPTIONS) out
