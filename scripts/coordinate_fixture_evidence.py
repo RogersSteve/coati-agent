@@ -37,7 +37,7 @@ def validate_report(report, run, phase, previous=None):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--adb', required=True)
-    p.add_argument('--serial', required=True, choices=['emulator-5554', '3B15AM00LXZ00000'])
+    p.add_argument('--serial', required=True, help='adb device serial')
     p.add_argument('--run-id', required=True)
     p.add_argument('--out', required=True, type=Path)
     p.add_argument('--phase', required=True, choices=['initial', 'final'])
