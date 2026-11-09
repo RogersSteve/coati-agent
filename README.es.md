@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/media/coati-icon.svg" width="96" height="96" alt="Coati Agent icon">
+
 # Coati Agent
 
 **Un agente de IA que vive en tu teléfono Android**
