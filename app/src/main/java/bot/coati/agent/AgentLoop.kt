@@ -272,7 +272,7 @@ class AgentLoop(
             // b2. SYSTEM AUTHORIZATION: permission and install dialogs belong to the user unless
             // they fully trust the agent (TRUST).
             val onSecurityDialog = SecurityDialogs.isSecurityDialog(screenContext.appPackage)
-            if (onSecurityDialog && !SecurityDialogs.agentMayAnswer(safetyMode)) {
+            if (SecurityDialogs.userMustAnswer(screenContext.appPackage, safetyMode)) {
                 if (!awaitUserAnswersSecurityDialog(task)) {
                     updateTaskStatus("failed", "Timed out waiting for the user to answer a system dialog")
                     throw Exception("No answer to the system dialog within ${SecurityDialogs.USER_RESPONSE_TIMEOUT_MS / 1000}s")
@@ -1604,7 +1604,7 @@ class AgentLoop(
         private fun sandboxEvidence(record: String): String =
             "Linux workspace record, written by the host and not by the agent:\n$record\n" +
                 "A file listed as delivered exists on the phone even though no screen shows it: judge a " +
-                "requirement to create or deliver a file from this record, not from the screenshot."
+                "requirement to create or deliver a file, or to compute a value, from this record, not from the screenshot."
 
         internal fun sandboxFeedback(result: ShellResult): String = buildString {
             append("runShell ")

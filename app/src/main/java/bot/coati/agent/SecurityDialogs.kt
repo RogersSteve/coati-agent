@@ -19,7 +19,16 @@ object SecurityDialogs {
         "com.google.android.packageinstaller",
     )
 
-    fun isSecurityDialog(packageName: String?): Boolean = packageName in PACKAGES
+    /**
+     * ColorOS asks whether to keep an app's accessibility access. Left to itself the agent tapped
+     * "Turn off Accessibility" and disabled its own service, so even TRUST does not answer this one.
+     */
+    private val OWN_ACCESS_PACKAGES = setOf("com.oplus.safecenter", "com.coloros.safecenter")
+
+    fun isSecurityDialog(packageName: String?): Boolean = packageName in PACKAGES || packageName in OWN_ACCESS_PACKAGES
+
+    fun userMustAnswer(packageName: String?, mode: SafetyMode): Boolean =
+        packageName in OWN_ACCESS_PACKAGES || (isSecurityDialog(packageName) && !agentMayAnswer(mode))
 
     /**
      * Only a fully trusting user (TRUST) lets the agent answer these dialogs itself; every other

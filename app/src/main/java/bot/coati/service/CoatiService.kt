@@ -474,13 +474,12 @@ class CoatiService : Service() {
         super.onDestroy()
     }
 
-    /** The panel dies with the accessibility service, so only a notification can still reach the user. */
-    private fun updateAccessibilityAlert(connected: Boolean) {
+    /**
+     * The panel dies with the accessibility service, so only a notification can still reach the user.
+     * The runtime is bound to the lost service too: stopping lets the next start build a working one.
+     */
+    private fun handleAccessibilityLost() {
         val manager = getSystemService(NotificationManager::class.java)
-        if (connected) {
-            manager.cancel(ACCESSIBILITY_ALERT_ID)
-            return
-        }
         manager.createNotificationChannel(
             NotificationChannel(ALERT_CHANNEL_ID, getString(R.string.notification_alerts_channel), NotificationManager.IMPORTANCE_HIGH),
         )
@@ -500,6 +499,8 @@ class CoatiService : Service() {
                 .setAutoCancel(true)
                 .build(),
         )
+        agentLoop?.stop()
+        stopSelf()
     }
 
     private fun createNotificationChannel() {
@@ -629,8 +630,12 @@ class CoatiService : Service() {
         private const val ALERT_CHANNEL_ID = "coati_alerts"
         private const val ACCESSIBILITY_ALERT_ID = 7302
 
-        fun onAccessibilityChanged(connected: Boolean) {
-            instance?.updateAccessibilityAlert(connected)
+        fun onAccessibilityLost() {
+            instance?.handleAccessibilityLost()
+        }
+
+        fun clearAccessibilityAlert(context: Context) {
+            context.getSystemService(NotificationManager::class.java).cancel(ACCESSIBILITY_ALERT_ID)
         }
 
         fun executeTask(task: String, options: TaskRunOptions = TaskRunOptions()): Boolean {
