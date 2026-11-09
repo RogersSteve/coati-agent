@@ -4,6 +4,7 @@
 
 **Host-Grounded Execution for Installable Mobile GUI Agents**
 
+[![arXiv](https://img.shields.io/badge/arXiv-2611.02644-b31b1b)](https://arxiv.org/abs/2611.02644)
 [![AndroidWorld 86.5%](https://img.shields.io/badge/AndroidWorld-86.5%25-orange)](#results)
 [![Android 11+](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](#getting-started)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
@@ -11,7 +12,7 @@
 An AI agent you install on your Android phone. Describe the result you want; Coati operates your other
 apps to get there, and reports success only when it can show it.
 
-[Paper — link coming soon](#citation) ·
+[Paper (arXiv:2611.02644)](https://arxiv.org/abs/2611.02644) ·
 [Demo](#demo) ·
 [Results](#results) ·
 [How it works](#how-it-works) ·
@@ -222,14 +223,17 @@ environment and credential rules.
 
 ## Citation
 
-Pu Shi and Yudou Ying contributed equally; Yuhua Zheng is the corresponding author.
+Yudou Ying and Pu Shi contributed equally; Yuhua Zheng is the corresponding author.
 
 ```bibtex
-@misc{shi2026coati,
-  title  = {Coati: Host-Grounded Execution for Installable Mobile GUI Agents},
-  author = {Pu Shi and Yudou Ying and Hanlei Shi and Yuhua Zheng},
-  year   = {2026},
-  note   = {Under review}
+@misc{ying2026coati,
+  title         = {Coati: Host-Grounded Execution for Installable Mobile GUI Agents},
+  author        = {Yudou Ying and Pu Shi and Hanlei Shi and Yuhua Zheng},
+  year          = {2026},
+  eprint        = {2611.02644},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.MA},
+  url           = {https://arxiv.org/abs/2611.02644}
 }
 ```
 
