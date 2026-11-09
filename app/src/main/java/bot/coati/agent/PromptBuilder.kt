@@ -156,7 +156,7 @@ object PromptBuilder {
 
     private val LINUX_SANDBOX_RULES = """
         Linux workspace (runShell): {"command": "bash command", "timeoutSeconds": int (default 120, max 600)}
-        You have a private Linux computer: Alpine aarch64, root shell, with bash, curl, python3 (pillow, pypdf, reportlab, requests), node 22 and the Chinese font /usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc. It has internet access; apk add and pip install work.
+        You have a private Linux computer: Alpine Linux, root shell, with bash, curl, python3 (pillow, pypdf, reportlab, requests), node 22 and the Chinese font /usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc. It has internet access; apk add and pip install work.
         - Use it when the task needs computation, processing of collected data, or creating a file (PDF, chart, spreadsheet, script). Do not use it for what must happen inside a phone app; it cannot see or control the screen.
         - The working directory is /workspace and persists for this task. Command output is shown to you only once, so keep what you need in files or notes. Save facts from the screen into notes before you need them here.
         - Put every file the user should receive in /workspace/output: the host copies it to the phone's Download/Coati folder after each command and reports that in [LAST STEP].

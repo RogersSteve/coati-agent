@@ -36,9 +36,9 @@ No es magia: en una tarea sencilla puede ser más lento que tú y puede equivoca
 
 ## Empieza
 
-Necesitas un teléfono con Android 11 o posterior (arm64, como casi todos los teléfonos recientes) y una clave de API de un modelo de IA. Lo más fácil es empezar con una [clave de Google Gemini](https://aistudio.google.com/apikey).
+Necesitas un teléfono con Android 11 o posterior  y una clave de API de un modelo de IA. Lo más fácil es empezar con una [clave de Google Gemini](https://aistudio.google.com/apikey).
 
-1. **Instala.** Descarga el APK desde [Releases](https://github.com/coati-os/coati-agent/releases/latest) en tu teléfono y ábrelo. Permite la instalación desde esa fuente si Android lo pide.
+1. **Instala.** Descarga `coati-<versión>-arm64.apk` (casi todos los teléfonos; `x86_64` para dispositivos x86 o `universal` si no estás seguro) desde [Releases](https://github.com/coati-os/coati-agent/releases/latest) en tu teléfono y ábrelo. Permite la instalación desde esa fuente si Android lo pide.
 2. **Configura.** Abre Coati Agent, sigue los pasos para activar los permisos de superposición y **accesibilidad**, y escribe tu clave en *AI Model Configuration*. En Android 13 o posterior, si el interruptor de accesibilidad aparece en gris, abre la información de la aplicación en los ajustes del sistema, toca el menú **⋮** y elige permitir los ajustes restringidos.
 3. **Pide.** Toca el botón flotante de Coati Agent y escribe el resultado que quieres. Un panel muestra cada paso; puedes pausar o detener cuando quieras.
 

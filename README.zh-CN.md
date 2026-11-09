@@ -36,9 +36,9 @@
 
 ## 开始使用
 
-你需要一台 Android 11 或更新版本的手机（arm64，近几年的手机基本都是），以及一个 AI 模型的 API Key。最简单的是从 [Google Gemini Key](https://aistudio.google.com/apikey) 开始。
+你需要一台 Android 11 或更新版本的手机，以及一个 AI 模型的 API Key。最简单的是从 [Google Gemini Key](https://aistudio.google.com/apikey) 开始。
 
-1. **安装。** 在手机上从 [Releases](https://github.com/coati-os/coati-agent/releases/latest) 下载 APK 并打开。如果 Android 询问，请允许从该来源安装。
+1. **安装。** 在手机上从 [Releases](https://github.com/coati-os/coati-agent/releases/latest) 下载 `coati-<版本>-arm64.apk`（绝大多数手机选这个；x86 设备选 `x86_64`，不确定就选 `universal`）并打开。如果 Android 询问，请允许从该来源安装。
 2. **设置。** 打开 Coati Agent，按提示开启悬浮窗和**无障碍**权限，然后在 *AI Model Configuration* 中填入 API Key。在 Android 13 及以上，如果无障碍开关是灰色的，请到系统设置的应用信息页，点右上角 **⋮** 菜单，选择允许受限设置。
 3. **开口。** 点击悬浮的 Coati Agent 按钮，输入你想要的结果。面板会显示每一步，你可以随时暂停或停止。
 

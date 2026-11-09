@@ -59,10 +59,10 @@ what you use.
 
 ## Get started
 
-You need an Android 11 or newer phone (arm64, which nearly all recent phones are) and an API key for an AI
-model. A [Google Gemini key](https://aistudio.google.com/apikey) is the easiest place to start.
+You need an Android 11 or newer device and an API key for an AI model. A [Google Gemini key](https://aistudio.google.com/apikey) is the easiest place to start.
 
-1. **Install.** Download the APK from [Releases](../../releases/latest) on your phone and open it. Allow
+1. **Install.** On your phone, download `coati-<version>-arm64.apk` from [Releases](../../releases/latest)
+   (nearly all phones; use `x86_64` for an x86 device or emulator, or `universal` if unsure) and open it. Allow
    installation from this source if Android asks.
 2. **Set up.** Open Coati Agent and follow the steps to turn on the overlay and **accessibility**
    permissions, then enter your API key under *AI Model Configuration*.
@@ -95,7 +95,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - **Run code and produce files.** A built-in Linux workspace comes inside the APK with nothing else to
   install: bash, Python (Pillow, pypdf, ReportLab, requests), Node.js, curl and a Chinese font, plus
   `apk add` and `pip install` for anything else. Coati Agent can collect information on the phone, process
-  it, and deliver a PDF, chart or spreadsheet to your Download/Coati Agent folder. (arm64 devices.)
+  it, and deliver a PDF, chart or spreadsheet to your Download/Coati folder.
 - **Get faster with use.** A small selection model takes simple steps, the host repeats loops of simple
   steps without a model call per item, and per-app manuals learned from verified observations shorten
   later visits.
