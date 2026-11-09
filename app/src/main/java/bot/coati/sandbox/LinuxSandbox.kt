@@ -48,6 +48,7 @@ class LinuxSandbox(private val context: Context) {
     /** Output-relative path -> the Download entry and the file state it holds, for this task. */
     private val exports = mutableMapOf<String, Export>()
     private val commands = ArrayDeque<String>()
+    private var lastOutput = ""
     private var taskFresh = true
 
     private class Export(val uri: Uri, val signature: String)
@@ -56,6 +57,7 @@ class LinuxSandbox(private val context: Context) {
         taskFresh = true
         exports.clear()
         commands.clear()
+        lastOutput = ""
     }
 
     suspend fun run(command: String, timeoutSeconds: Int, onPreparing: suspend () -> Unit): ShellResult = mutex.withLock {
@@ -74,6 +76,7 @@ class LinuxSandbox(private val context: Context) {
             val result = execute(command, timeoutSeconds.coerceIn(1, MAX_TIMEOUT_SECONDS))
             commands.addLast("exit ${if (result.timedOut) "timeout" else result.exitCode}: ${command.take(RECORD_COMMAND_CHARS)}")
             while (commands.size > RECORD_COMMANDS) commands.removeFirst()
+            lastOutput = result.output.trim().takeLast(RECORD_OUTPUT_CHARS)
             result
         }
     }
@@ -91,6 +94,7 @@ class LinuxSandbox(private val context: Context) {
             append("Recent commands, oldest first:\n")
             commands.forEach { append("- ").append(it).append('\n') }
             append("Files in /workspace: ").append(if (files.isEmpty()) "none" else files.joinToString("; "))
+            if (lastOutput.isNotEmpty()) append("\nOutput of the last command (end): ").append(lastOutput)
             if (exports.isNotEmpty()) {
                 append("\nDelivered to the phone's Download/$EXPORT_DIR folder: ").append(exports.keys.joinToString("; "))
             }
@@ -267,6 +271,7 @@ class LinuxSandbox(private val context: Context) {
         private const val RECORD_COMMANDS = 8
         private const val RECORD_COMMAND_CHARS = 100
         private const val RECORD_FILES = 40
+        private const val RECORD_OUTPUT_CHARS = 600
         private const val IO_BUFFER = 64 * 1024
         private const val POLL_MS = 100L
         private const val READER_JOIN_MS = 2_000L
