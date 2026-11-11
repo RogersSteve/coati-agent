@@ -243,4 +243,23 @@
     <!-- Common -->
     <string name="next">Next</string>
     <string name="action_paste">Paste</string>
+
+    <string name="openai_plan_title">OpenAI plan</string>
+    <string name="openai_plan_body">Continue with ChatGPT to let Coati use eligible AI requests from your ChatGPT plan. Your password stays on OpenAI\'s website. Coati stores the resulting login encrypted on this phone and does not back it up. Task text and screenshots are sent to OpenAI with that login.</string>
+    <string name="openai_plan_sign_in">Continue with ChatGPT</string>
+    <string name="openai_plan_code_help">Finish signing in and approving plan access in your browser. Coati never sees your password.</string>
+    <string name="openai_plan_open_page">Return to browser sign-in</string>
+    <string name="openai_plan_signed_in">Signed in. Choose an account and model, then use it for the agent.</string>
+    <string name="openai_plan_signed_in_as">Signed in as %1$s</string>
+    <string name="openai_plan_account">Account</string>
+    <string name="openai_plan_use">Use this model</string>
+    <string name="openai_plan_in_use">This model is selected for the agent. It is used for reasoning and fast checks.</string>
+    <string name="openai_plan_sign_out">Sign out</string>
+    <string name="openai_plan_signed_out">Signed out. The login was removed from this phone and revoked at OpenAI.</string>
+    <string name="openai_plan_signed_out_local">Signed out on this phone. OpenAI could not be reached to revoke the login, so disconnect Coati in ChatGPT Settings if you want to remove its remote authorization too.</string>
+    <string name="openai_plan_sign_in_again">The agent is set to your OpenAI plan, but the login is missing. Sign in again.</string>
+    <string name="openai_plan_choose_model">Choose an account and a model.</string>
+    <string name="openai_plan_model_fallback">OpenAI did not return a model list. These models are a fallback and may not be on your plan.</string>
+    <string name="openai_plan_api_key_note">The agent is using your OpenAI plan. Verify an API key below only if you want to switch away from it.</string>
+    <string name="openai_plan_or_api_key">Or use an API key</string>
 </resources>

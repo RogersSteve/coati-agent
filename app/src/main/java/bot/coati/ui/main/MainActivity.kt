@@ -12,6 +12,7 @@ import androidx.activity.viewModels
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import bot.coati.data.ConfigStore
+import bot.coati.model.openai.OpenAiPlanAuth
 import bot.coati.service.CoatiService
 import bot.coati.ui.onboarding.OnboardingActivity
 import bot.coati.ui.onboarding.OnboardingViewModel
@@ -144,7 +145,9 @@ class MainActivity : ComponentActivity() {
         if (!OnboardingViewModel.hasAccessibilityPermission(this)) return false
 
         val reasoningConfig = configStore.getReasoningConfig() ?: configStore.getActiveProviderConfig()
-        return isCompleteModelConfig(reasoningConfig) && isCompleteModelConfig(configStore.getFastConfig())
+        val planSignedIn = OpenAiPlanAuth.signedIn(this)
+        return isCompleteModelConfig(reasoningConfig, planSignedIn) &&
+            isCompleteModelConfig(configStore.getFastConfig(), planSignedIn)
     }
 
     companion object {

@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import bot.coati.R
 import bot.coati.data.ConfigStore
+import bot.coati.data.ModelAuthMode
 import bot.coati.data.ProviderConfig
 import bot.coati.data.RoutingMode
 import bot.coati.data.SafetyMode
@@ -13,6 +14,8 @@ import bot.coati.experience.ManualMode
 import bot.coati.experience.AppManualRepository
 import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
+import bot.coati.model.openai.OpenAiPlanAuth
+import bot.coati.model.openai.OpenAiPlanProtocol
 import bot.coati.model.userFacingConnectionError
 import bot.coati.service.CoatiAccessibilityService
 import bot.coati.service.CoatiService
@@ -34,6 +37,7 @@ class SettingsViewModel @Inject constructor(
     application: Application,
     private val configStore: ConfigStore,
     private val okHttpClient: OkHttpClient,
+    private val planAuth: OpenAiPlanAuth,
 ) : AndroidViewModel(application) {
 
     private var reasoningSavedConfig = configStore.getReasoningConfig() ?: configStore.getActiveProviderConfig()
@@ -61,6 +65,23 @@ class SettingsViewModel @Inject constructor(
     private var independentFastDraft = initialIndependentFast
 
     val jevEditor = JevConfigurationController(application, configStore, okHttpClient, viewModelScope, ::reloadModelsIfAvailable)
+    val planLogin = OpenAiPlanController(
+        application = application,
+        configStore = configStore,
+        planAuth = planAuth,
+        client = okHttpClient,
+        scope = viewModelScope,
+        onApplied = {
+            reasoningSavedConfig = configStore.getReasoningConfig()
+            refreshPermissions()
+            reloadModelsIfAvailable()
+        },
+        onSignedOut = {
+            reasoningSavedConfig = configStore.getReasoningConfig()
+            refreshPermissions()
+            reloadModelsIfAvailable()
+        },
+    )
 
     private val _uiState = MutableStateFlow(
         SettingsUiState(
@@ -70,8 +91,9 @@ class SettingsViewModel @Inject constructor(
             safetyMode = configStore.getSafetyMode(),
             routingMode = configStore.getRoutingMode(),
             manualMode = configStore.getManualMode(),
-            reasoningConfigured = isCompleteModelConfig(reasoningSavedConfig),
-            fastConfigured = isCompleteModelConfig(configStore.getFastConfig()),
+            reasoningConfigured = isCompleteModelConfig(reasoningSavedConfig, planAuth.hasSession()),
+            fastConfigured = isCompleteModelConfig(configStore.getFastConfig(), planAuth.hasSession()),
+            openAiPlanInUse = reasoningSavedConfig?.authMode == ModelAuthMode.OPENAI_PLAN && planAuth.hasSession(),
             reasoning = initialReasoning,
             fast = initialFast,
             fastSameAsReasoning = initialFastSameAsReasoning,
@@ -96,8 +118,9 @@ class SettingsViewModel @Inject constructor(
             overlayGranted = Settings.canDrawOverlays(context),
             accessibilityGranted = OnboardingViewModel.hasAccessibilityPermission(context),
             accessibilityConnected = CoatiAccessibilityService.instance != null,
-            reasoningConfigured = isCompleteModelConfig(reasoningSavedConfig),
-            fastConfigured = isCompleteModelConfig(configStore.getFastConfig()),
+            reasoningConfigured = isCompleteModelConfig(reasoningSavedConfig, planAuth.hasSession()),
+            fastConfigured = isCompleteModelConfig(configStore.getFastConfig(), planAuth.hasSession()),
+            openAiPlanInUse = reasoningSavedConfig?.authMode == ModelAuthMode.OPENAI_PLAN && planAuth.hasSession(),
         )
         refreshManualDataPresence()
     }
@@ -348,6 +371,33 @@ class SettingsViewModel @Inject constructor(
             return
         }
         val modelName = state.fast.modelName.trim()
+        if (reasoning.authMode == ModelAuthMode.OPENAI_PLAN) {
+            if (modelName.isBlank()) {
+                setEditorError(ModelRole.FAST, modelDraftIssueMessage(ModelDraftIssue.MODEL_REQUIRED))
+                return
+            }
+            launchVerification(ModelRole.FAST) {
+                val result = GatewayFactory.create(
+                    provider,
+                    okHttpClient,
+                    "",
+                    OpenAiPlanProtocol.API_ROOT,
+                    modelName,
+                    ModelAuthMode.OPENAI_PLAN,
+                    planAuth,
+                ).testConnection()
+                if (result.isFailure) throw result.exceptionOrNull() ?: IllegalStateException("Connection failed")
+                configStore.saveFastSameAsReasoning(true)
+                configStore.saveFastModelName(modelName)
+                completeVerification(
+                    ModelRole.FAST,
+                    reasoning.copy(modelName = modelName),
+                    persistAsIndependent = false,
+                )
+                reloadModelsIfAvailable()
+            }
+            return
+        }
         val validationError = validateModelDraft(reasoning.endpoint, modelName, reasoning.apiKey)
         if (validationError != null) {
             setEditorError(ModelRole.FAST, modelDraftIssueMessage(validationError))

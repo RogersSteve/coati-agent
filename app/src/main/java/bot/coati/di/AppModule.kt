@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import bot.coati.data.ConfigStore
 import bot.coati.model.GatewayFactory
+import bot.coati.model.openai.OpenAiPlanAuth
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -44,4 +45,12 @@ object AppModule {
     fun provideOkHttpClient(): OkHttpClient {
         return GatewayFactory.createRuntimeClient()
     }
+
+    @Provides
+    @Singleton
+    fun provideOpenAiPlanAuth(
+        @ApplicationContext context: Context,
+        client: OkHttpClient,
+        configStore: ConfigStore,
+    ): OpenAiPlanAuth = OpenAiPlanAuth.create(context, client, configStore)
 }

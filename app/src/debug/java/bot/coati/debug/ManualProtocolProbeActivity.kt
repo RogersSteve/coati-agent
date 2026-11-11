@@ -91,7 +91,10 @@ class ManualProtocolProbeActivity : Activity() {
         var passed: Boolean
         var cleanupOk = true
         try {
-            val gateway = GatewayFactory.create(provider, client, config.apiKey, config.endpoint, config.modelName)
+            val planAuth = bot.coati.model.openai.OpenAiPlanAuth.create(this, client, configStore)
+            val gateway = GatewayFactory.create(
+                provider, client, config.apiKey, config.endpoint, config.modelName, config.authMode, planAuth,
+            )
             passed = withContext(Dispatchers.IO) {
                 ManualProtocolProbe(runRoot, gateway, label).run { message ->
                     runOnUiThread { status.append("\n$message") }

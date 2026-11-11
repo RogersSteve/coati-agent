@@ -1,5 +1,6 @@
 package bot.coati.ui.settings
 
+import bot.coati.data.ModelAuthMode
 import bot.coati.data.ProviderConfig
 import bot.coati.data.RoutingMode
 import bot.coati.data.RoutingPolicy
@@ -67,6 +68,7 @@ data class SettingsUiState(
     val reasoning: ModelEditorState,
     val fast: ModelEditorState,
     val fastSameAsReasoning: Boolean = true,
+    val openAiPlanInUse: Boolean = false,
     val jev: JevEditorState = JevEditorState(),
 ) {
     val startupIssues: List<StartupIssue>
@@ -107,13 +109,17 @@ internal fun startupIssues(
     if (!fastConfigured && (!fastSameAsReasoning || reasoningConfigured)) add(StartupIssue.FAST_MODEL)
 }
 
-internal fun isCompleteModelConfig(config: ProviderConfig?): Boolean {
-    return config != null &&
-        config.providerId.isNotBlank() &&
+internal fun isCompleteModelConfig(config: ProviderConfig?, openAiPlanSignedIn: Boolean = false): Boolean {
+    if (config == null) return false
+    val credential = when (config.authMode) {
+        ModelAuthMode.API_KEY -> config.apiKey.isNotBlank()
+        ModelAuthMode.OPENAI_PLAN -> openAiPlanSignedIn
+    }
+    return config.providerId.isNotBlank() &&
         ModelProviders.findById(config.providerId) != null &&
         config.endpoint.isNotBlank() &&
         config.modelName.isNotBlank() &&
-        config.apiKey.isNotBlank()
+        credential
 }
 
 internal fun shouldStartOverlayDirectly(

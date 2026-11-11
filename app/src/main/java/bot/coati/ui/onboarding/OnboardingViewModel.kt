@@ -10,11 +10,15 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import bot.coati.data.ConfigStore
+import bot.coati.data.ModelAuthMode
 import bot.coati.model.GatewayFactory
 import bot.coati.model.ModelProviders
+import bot.coati.model.openai.OpenAiPlanAuth
 import bot.coati.model.userFacingConnectionError
 import bot.coati.util.RegionDetector
 import bot.coati.ui.settings.JevConfigurationController
+import bot.coati.ui.settings.OpenAiPlanController
+import bot.coati.ui.settings.isCompleteModelConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -31,6 +35,7 @@ class OnboardingViewModel @Inject constructor(
     private val dataStore: DataStore<Preferences>,
     private val configStore: ConfigStore,
     private val okHttpClient: OkHttpClient,
+    private val planAuth: OpenAiPlanAuth,
 ) : AndroidViewModel(application) {
 
     private val _currentStep = MutableStateFlow(0)
@@ -63,6 +68,9 @@ class OnboardingViewModel @Inject constructor(
     private val _apiKeyVerified = MutableStateFlow(false)
     val apiKeyVerified: StateFlow<Boolean> = _apiKeyVerified
 
+    private val _reasoningApiDraftDirty = MutableStateFlow(false)
+    val reasoningApiDraftDirty: StateFlow<Boolean> = _reasoningApiDraftDirty
+
     private val _verifying = MutableStateFlow(false)
     val verifying: StateFlow<Boolean> = _verifying
 
@@ -73,6 +81,8 @@ class OnboardingViewModel @Inject constructor(
     private var fastVerifyJob: Job? = null
 
     val jevEditor = JevConfigurationController(application, configStore, okHttpClient, viewModelScope)
+    lateinit var planLogin: OpenAiPlanController
+        private set
 
     // Tab selection (0 = Reasoning, 1 = Fast, 2 = optional Jev)
     private val _selectedTab = MutableStateFlow(0)
@@ -108,13 +118,49 @@ class OnboardingViewModel @Inject constructor(
     private var independentFastModelName = ""
 
     init {
+        planLogin = OpenAiPlanController(
+            application = application,
+            configStore = configStore,
+            planAuth = planAuth,
+            client = okHttpClient,
+            scope = viewModelScope,
+            onApplied = {
+                val config = configStore.getReasoningConfig() ?: return@OpenAiPlanController
+                _selectedProvider.value = config.providerId
+                _selectedEndpoint.value = config.endpoint
+                _selectedModelName.value = config.modelName
+                _reasoningApiKeyInput.value = ""
+                _reasoningApiDraftDirty.value = false
+                _apiKeyVerified.value = true
+                _fastSameAsReasoning.value = true
+                _fastProvider.value = config.providerId
+                _fastEndpoint.value = config.endpoint
+                _fastModelName.value = config.modelName
+                _fastApiKeyVerified.value = true
+                _fastVerifyError.value = null
+                _verifyError.value = null
+            },
+            onSignedOut = { wasApplied ->
+                if (wasApplied) {
+                    _apiKeyVerified.value = false
+                    _fastApiKeyVerified.value = false
+                }
+            },
+        )
         _selectedRegion.value = RegionDetector.detectRegion(application)
         val defaultProvider = configStore.getDefaultProvider()
-        _selectedProvider.value = defaultProvider
-        val provider = ModelProviders.findById(defaultProvider)
+        val reasoningConfig = configStore.getReasoningConfig() ?: configStore.getActiveProviderConfig()
+        val initialProvider = reasoningConfig?.providerId ?: defaultProvider
+        _selectedProvider.value = initialProvider
+        val provider = ModelProviders.findById(initialProvider)
         if (provider != null) {
-            _selectedEndpoint.value = configStore.getEndpoint(defaultProvider) ?: provider.defaultEndpoint
-            _selectedModelName.value = configStore.getModelName(defaultProvider) ?: provider.models.firstOrNull() ?: ""
+            _selectedEndpoint.value = reasoningConfig?.endpoint
+                ?: configStore.getEndpoint(initialProvider)
+                ?: provider.defaultEndpoint
+            _selectedModelName.value = reasoningConfig?.modelName
+                ?: configStore.getModelName(initialProvider)
+                ?: provider.models.firstOrNull()
+                ?: ""
         }
         _fastSameAsReasoning.value = configStore.isFastSameAsReasoning()
         val savedIndependentFast = configStore.getRoleConfig(ConfigStore.ROLE_FAST)
@@ -126,10 +172,13 @@ class OnboardingViewModel @Inject constructor(
             ?: independentProvider?.models?.getOrNull(1)
             ?: independentProvider?.models?.firstOrNull().orEmpty()
         if (_fastSameAsReasoning.value) {
-            syncSharedFastModel(defaultProvider)
+            syncSharedFastModel(initialProvider)
         } else {
             restoreIndependentFastDraft()
         }
+        val planSignedIn = planAuth.hasSession()
+        _apiKeyVerified.value = isCompleteModelConfig(reasoningConfig, planSignedIn)
+        _fastApiKeyVerified.value = isCompleteModelConfig(configStore.getFastConfig(), planSignedIn)
     }
 
     fun nextStep() {
@@ -188,9 +237,9 @@ class OnboardingViewModel @Inject constructor(
         verifyJob?.cancel()
         verifyJob = null
         _verifying.value = false
-        _apiKeyVerified.value = false
+        _reasoningApiDraftDirty.value = true
+        _apiKeyVerified.value = isCompleteModelConfig(configStore.getReasoningConfig(), planAuth.hasSession())
         _verifyError.value = null
-        if (_fastSameAsReasoning.value) resetFastVerification()
     }
 
     fun selectTab(tab: Int) {
@@ -307,6 +356,8 @@ class OnboardingViewModel @Inject constructor(
                     reasoning.apiKey,
                     reasoning.endpoint,
                     modelName,
+                    reasoning.authMode,
+                    if (reasoning.authMode == ModelAuthMode.OPENAI_PLAN) planAuth else null,
                 ).testConnection()
                 if (!isActive) return@launch
                 if (result.isSuccess) {
@@ -406,6 +457,7 @@ class OnboardingViewModel @Inject constructor(
                     // Also save as reasoning role config
                     configStore.saveRoleConfig(ConfigStore.ROLE_REASONING, provider, key, endpoint, modelName)
                     _apiKeyVerified.value = true
+                    _reasoningApiDraftDirty.value = false
                     _verifyError.value = null
                     _reasoningApiKeyInput.value = ""
                     if (_fastSameAsReasoning.value) syncSharedFastModel(provider)

@@ -3,9 +3,12 @@ package bot.coati.model
 import android.util.Base64
 import android.util.Log
 import bot.coati.agent.PromptBuilder
+import bot.coati.model.openai.OpenAiPlanException
+import bot.coati.model.openai.OpenAiPlanProtocol
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -29,33 +32,11 @@ class OpenAiCompatibleGateway(
         try {
             val requestBody = buildRequestBody(screenshot, uiTreeHint, taskDescription, conversationHistory)
             Log.d(TAG, "Request body size: ${requestBody.length} chars")
-
-            val request = Request.Builder()
-                .url("$endpoint/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-
-            val response = client.newCall(request).awaitModelResponseBody()
-            val body = response.body
-            Log.d(TAG, "Response status: ${response.code}, body length: ${body.length}")
-
-            if (!response.isSuccessful) {
-                Log.e(TAG, "API error: ${response.code}, responseLength=${body.length}")
-                return@withContext Result.failure(ApiHttpException(response.code))
-            }
-
-            val choice = JSONObject(body)
-                .getJSONArray("choices")
-                .getJSONObject(0)
-            val text = choice
-                .getJSONObject("message")
-                .getString("content")
-
+            val reply = complete(requestBody)
             val modelResponse = try {
-                GatewayUtils.parseModelResponse(text)
+                GatewayUtils.parseModelResponse(reply.text)
             } catch (e: MalformedModelResponseException) {
-                Log.w(TAG, "Malformed response, finish_reason=${choice.optString("finish_reason")}")
+                Log.w(TAG, "Malformed response, finish_reason=${reply.finishReason}")
                 throw e
             }
             Log.i(TAG, "Parsed response: action=${modelResponse.action}, safety=${modelResponse.safetyLevel}")
@@ -115,26 +96,8 @@ class OpenAiCompatibleGateway(
                 put("max_tokens", withThinking(compactJsonMaxTokens(manualObservationInstruction != null)))
             }.toString()
 
-            val request = Request.Builder()
-                .url("$endpoint/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-
-            val response = client.newCall(request).awaitModelResponseBody()
-            val body = response.body
-
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(ApiHttpException(response.code))
-            }
-
-            val text = JSONObject(body)
-                .getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-
-            Result.success(GatewayUtils.parseQuickCheckResponse(text))
+            val reply = complete(requestBody)
+            Result.success(GatewayUtils.parseQuickCheckResponse(reply.text))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -193,26 +156,8 @@ class OpenAiCompatibleGateway(
                 put("max_tokens", withThinking(compactJsonMaxTokens(manualObservationInstruction != null)))
             }.toString()
 
-            val request = Request.Builder()
-                .url("$endpoint/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-
-            val response = client.newCall(request).awaitModelResponseBody()
-            val body = response.body
-
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(ApiHttpException(response.code))
-            }
-
-            val text = JSONObject(body)
-                .getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-
-            Result.success(GatewayUtils.parseVerifyResponse(text))
+            val reply = complete(requestBody)
+            Result.success(GatewayUtils.parseVerifyResponse(reply.text))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -240,26 +185,8 @@ class OpenAiCompatibleGateway(
                 put("max_tokens", withThinking(1024))
             }.toString()
 
-            val request = Request.Builder()
-                .url("$endpoint/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-
-            val response = client.newCall(request).awaitModelResponseBody()
-            val body = response.body
-
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(ApiHttpException(response.code))
-            }
-
-            val text = JSONObject(body)
-                .getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-
-            Result.success(text.trim())
+            val reply = complete(requestBody)
+            Result.success(reply.text.trim())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -289,6 +216,16 @@ class OpenAiCompatibleGateway(
                     put("role", "user")
                     put("content", userContent)
                 })
+            if (usesResponsesApi()) {
+                val reply = complete(JSONObject().apply {
+                    put("model", modelName)
+                    put("messages", messages)
+                }.toString())
+                return Result.success(StructuredTextResult(
+                    text = reply.text.trim(),
+                    finishReason = if (reply.finishReason == "length") StructuredTextFinishReason.TRUNCATED else StructuredTextFinishReason.COMPLETE,
+                ))
+            }
             fun body(lowLatency: Boolean) = JSONObject().apply {
                 put("model", modelName)
                 put("messages", messages)
@@ -328,27 +265,9 @@ class OpenAiCompatibleGateway(
                 put("max_tokens", 64)
             }.toString()
 
-            val request = Request.Builder()
-                .url("$endpoint/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .post(requestBody.toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-
-            val response = client.newCall(request).awaitModelResponseBody()
-            val body = response.body
-
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(ApiHttpException(response.code))
-            }
-
-            val text = JSONObject(body)
-                .getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-
-            Log.i(TAG, "Connection test OK: $text")
-            Result.success(text)
+            val reply = complete(requestBody)
+            Log.i(TAG, "Connection test OK: ${reply.text}")
+            Result.success(reply.text)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -406,6 +325,46 @@ class OpenAiCompatibleGateway(
         }.toString()
     }
 
+    private suspend fun complete(chatBody: String): ChatReply {
+        val response = if (usesResponsesApi()) {
+            val payload = OpenAiPlanProtocol.responsesBodyFromChat(JSONObject(chatBody))
+            client.newCall(
+                Request.Builder()
+                    .url("$endpoint/v1/responses")
+                    .header("Authorization", "Bearer $apiKey")
+                    .header("Accept", "text/event-stream")
+                    .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .build(),
+            ).awaitModelResponseBody()
+        } else {
+            client.newCall(
+                Request.Builder()
+                    .url("$endpoint/v1/chat/completions")
+                    .header("Authorization", "Bearer $apiKey")
+                    .post(chatBody.toRequestBody(JSON_MEDIA_TYPE))
+                    .build(),
+            ).awaitModelResponseBody()
+        }
+        Log.d(TAG, "Response status: ${response.code}, body length: ${response.body.length}")
+        if (!response.isSuccessful) {
+            Log.e(TAG, "API error: ${response.code}, responseLength=${response.body.length}")
+            throw ApiHttpException(response.code)
+        }
+        if (!usesResponsesApi()) {
+            val choice = JSONObject(response.body).getJSONArray("choices").getJSONObject(0)
+            return ChatReply(choice.getJSONObject("message").getString("content"), choice.optString("finish_reason"))
+        }
+        val output = OpenAiPlanProtocol.parseResponseStream(response.body)
+        if (!output.terminal) throw OpenAiPlanException("The OpenAI response stream ended before completion.")
+        if (output.failedDetail != null) throw OpenAiPlanException(output.failedDetail)
+        if (output.text.isBlank()) throw EmptyModelResponseException("The model returned an empty response.")
+        return ChatReply(output.text, if (output.incomplete) "length" else "stop")
+    }
+
+    private fun usesResponsesApi(): Boolean = usesResponsesApi(endpoint)
+
+    private data class ChatReply(val text: String, val finishReason: String)
+
     companion object {
         private const val TAG = "CoatiModel"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
@@ -421,5 +380,9 @@ class OpenAiCompatibleGateway(
 
         internal fun withThinking(answerTokens: Int): Int =
             minOf(answerTokens + THINKING_HEADROOM_TOKENS, maxOf(answerTokens, MAX_OUTPUT_TOKENS))
+
+        /** Keep third-party OpenAI-compatible endpoints on their established Chat Completions contract. */
+        internal fun usesResponsesApi(endpoint: String): Boolean =
+            endpoint.toHttpUrlOrNull()?.let { it.scheme == "https" && it.host == "api.openai.com" } == true
     }
 }

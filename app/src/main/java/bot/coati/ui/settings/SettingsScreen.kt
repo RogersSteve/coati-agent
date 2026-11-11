@@ -146,6 +146,8 @@ fun SettingsScreen(
             item {
                 SectionTitle(stringResource(R.string.settings_ai_models))
                 Spacer(Modifier.height(8.dp))
+                OpenAiPlanCard(controller = viewModel.planLogin)
+                Spacer(Modifier.height(10.dp))
                 ModelSettingsCard(state = state, viewModel = viewModel)
             }
             item {
@@ -604,6 +606,14 @@ private fun ModelSettingsCard(
         border = if (hasModelIssue) BorderStroke(2.dp, MaterialTheme.colorScheme.error) else null,
     ) {
         Column(Modifier.padding(16.dp)) {
+            if (state.openAiPlanInUse) {
+                Text(
+                    stringResource(R.string.openai_plan_api_key_note),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
             if (hasModelIssue) {
                 Text(
                     text = stringResource(R.string.settings_model_setup_required),
@@ -902,7 +912,8 @@ private fun ModelPicker(
     onSelected: (String) -> Unit,
 ) {
     val provider = ModelProviders.findById(providerId)
-    if (provider != null && provider.models.isNotEmpty()) {
+    val models = provider?.models.orEmpty()
+    if (provider != null && models.isNotEmpty() && !provider.isCustom) {
         var expanded by remember(providerId) { mutableStateOf(false) }
         Column {
             Text(stringResource(R.string.settings_model), style = MaterialTheme.typography.labelLarge)
@@ -912,7 +923,7 @@ private fun ModelPicker(
                     Text(modelName.ifBlank { stringResource(R.string.settings_select_model) })
                 }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    provider.models.forEach { model ->
+                    models.forEach { model ->
                         DropdownMenuItem(
                             text = { Text(model) },
                             onClick = {

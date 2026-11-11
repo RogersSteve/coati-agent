@@ -1,5 +1,8 @@
 package bot.coati.model
 
+import bot.coati.data.ModelAuthMode
+import bot.coati.model.openai.OpenAiPlanCredential
+import bot.coati.model.openai.OpenAiPlanGateway
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -29,7 +32,12 @@ object GatewayFactory {
         apiKey: String,
         endpoint: String,
         modelName: String,
+        authMode: ModelAuthMode = ModelAuthMode.API_KEY,
+        planAuth: OpenAiPlanCredential? = null,
     ): CloudModelGateway {
+        if (authMode == ModelAuthMode.OPENAI_PLAN) {
+            return OpenAiPlanGateway(client, checkNotNull(planAuth) { "OpenAI plan login is missing" }, modelName)
+        }
         return when (provider.apiFormat) {
             ApiFormat.GEMINI -> GeminiGateway(client, apiKey, endpoint, modelName)
             ApiFormat.OPENAI_COMPATIBLE -> OpenAiCompatibleGateway(client, apiKey, compatibleBaseUrl(endpoint), modelName)

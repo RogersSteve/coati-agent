@@ -68,6 +68,10 @@ android {
     androidResources {
         noCompress += "xz"
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

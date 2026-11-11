@@ -57,6 +57,7 @@ import bot.coati.ui.settings.batteryExemptionIntent
 import bot.coati.ui.settings.rememberBatteryUnrestricted
 import bot.coati.R
 import bot.coati.ui.settings.JevConfigurationContent
+import bot.coati.ui.settings.OpenAiPlanCard
 import bot.coati.model.ApiFormat
 import bot.coati.model.ModelProviders
 import bot.coati.util.RegionDetector
@@ -392,6 +393,14 @@ private fun ApiKeyStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(16.dp))
+        OpenAiPlanCard(controller = viewModel.planLogin)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.openai_plan_or_api_key),
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Tab Row
         TabRow(selectedTabIndex = selectedTab) {
@@ -612,6 +621,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
     val verifying by viewModel.verifying.collectAsState()
     val verifyError by viewModel.verifyError.collectAsState()
     val apiKeyInput by viewModel.reasoningApiKeyInput.collectAsState()
+    val apiDraftDirty by viewModel.reasoningApiDraftDirty.collectAsState()
 
     var passwordVisible by remember { mutableStateOf(false) }
     var providerDropdownExpanded by remember { mutableStateOf(false) }
@@ -671,7 +681,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
     Spacer(modifier = Modifier.height(12.dp))
 
     // Model selector
-    if (currentProvider != null && currentProvider.models.isNotEmpty()) {
+    if (currentProvider != null && currentProvider.models.isNotEmpty() && !currentProvider.isCustom) {
         Box {
             OutlinedButton(
                 onClick = { modelDropdownExpanded = true },
@@ -732,8 +742,8 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Verify button — hidden once verified
-    if (!verified) {
+    // A saved subscription/API configuration remains usable while an alternative API draft is edited.
+    if (!verified || apiDraftDirty) {
         Button(
             onClick = viewModel::verifyApiKey,
             modifier = Modifier
@@ -756,7 +766,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
 
     Spacer(modifier = Modifier.height(8.dp))
 
-    if (verified) {
+    if (verified && !apiDraftDirty) {
         Text(
             text = stringResource(R.string.onboarding_apikey_verified),
             style = MaterialTheme.typography.bodyMedium,

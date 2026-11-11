@@ -33,6 +33,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import bot.coati.data.ConfigStore
+import bot.coati.data.ModelAuthMode
+import bot.coati.model.openai.OpenAiPlanAuth
 import bot.coati.experience.AppIdentityResolver
 import bot.coati.experience.AppManualRenderer
 import bot.coati.experience.AppManualRepository
@@ -233,13 +235,24 @@ class CoatiService : Service() {
         val fastProvider = ModelProviders.findById(fastConfig.providerId) ?: reasoningProvider
 
         val client = GatewayFactory.createRuntimeClient()
+        val planAuth = OpenAiPlanAuth.create(this, client, configStore)
+        if (reasoningConfig.authMode == ModelAuthMode.OPENAI_PLAN && !planAuth.hasSession()) {
+            Log.w(TAG, "OpenAI plan is selected, but no login is stored")
+            return
+        }
 
         // Runtime calls retry transient failures (e.g. relay-truncated JSON); settings checks do not.
         val reasoningGateway = ResilientModelGateway(
-            GatewayFactory.create(reasoningProvider, client, reasoningConfig.apiKey, reasoningConfig.endpoint, reasoningConfig.modelName),
+            GatewayFactory.create(
+                reasoningProvider, client, reasoningConfig.apiKey, reasoningConfig.endpoint, reasoningConfig.modelName,
+                reasoningConfig.authMode, planAuth,
+            ),
         )
         val fastGateway = ResilientModelGateway(
-            GatewayFactory.create(fastProvider, client, fastConfig.apiKey, fastConfig.endpoint, fastConfig.modelName),
+            GatewayFactory.create(
+                fastProvider, client, fastConfig.apiKey, fastConfig.endpoint, fastConfig.modelName,
+                fastConfig.authMode, planAuth,
+            ),
         )
         val modelRouter = ModelRouter(reasoningGateway, fastGateway)
         val actionEngine = ActionEngine(a11y)

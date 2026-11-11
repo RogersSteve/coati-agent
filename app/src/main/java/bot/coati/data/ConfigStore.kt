@@ -9,11 +9,14 @@ import androidx.security.crypto.MasterKey
 import bot.coati.experience.ManualMode
 import bot.coati.model.ModelProviders
 
+enum class ModelAuthMode { API_KEY, OPENAI_PLAN }
+
 data class ProviderConfig(
     val providerId: String,
     val apiKey: String,
     val endpoint: String,
     val modelName: String,
+    val authMode: ModelAuthMode = ModelAuthMode.API_KEY,
 )
 
 enum class SafetyMode { CAUTIOUS, STANDARD, TRUST }
@@ -191,17 +194,51 @@ class ConfigStore(context: Context) {
             .putString(roleProviderPrefKey(role), providerId)
             .putString(roleEndpointPrefKey(role), endpoint)
             .putString(roleModelNamePrefKey(role), modelName)
+            .putString(roleAuthModePrefKey(role), ModelAuthMode.API_KEY.name)
             .apply()
-        Log.i(TAG, "Role config saved: role=$role, provider=$providerId, model=$modelName")
+        Log.i(TAG, "Role config saved: role=$role, provider=$providerId, model=$modelName, auth=API_KEY")
+    }
+
+    /** Use the signed-in ChatGPT subscription for reasoning and the fast checks. */
+    fun saveOpenAiPlanConfig(modelName: String, endpoint: String) {
+        prefs.edit()
+            .putString(roleProviderPrefKey(ROLE_REASONING), "openai")
+            .putString(roleEndpointPrefKey(ROLE_REASONING), endpoint)
+            .putString(roleModelNamePrefKey(ROLE_REASONING), modelName)
+            .putString(roleApiKeyPrefKey(ROLE_REASONING), "")
+            .putString(roleAuthModePrefKey(ROLE_REASONING), ModelAuthMode.OPENAI_PLAN.name)
+            .putString(KEY_DEFAULT_PROVIDER, "openai")
+            .putBoolean(KEY_FAST_SAME_AS_REASONING, true)
+            .putString(roleModelNamePrefKey(ROLE_FAST), modelName)
+            .apply()
+        Log.i(TAG, "OpenAI plan selected: model=$modelName")
+    }
+
+    fun clearOpenAiPlanUse() {
+        if (roleAuthMode(ROLE_REASONING) != ModelAuthMode.OPENAI_PLAN) return
+        prefs.edit()
+            .remove(roleProviderPrefKey(ROLE_REASONING))
+            .remove(roleApiKeyPrefKey(ROLE_REASONING))
+            .remove(roleModelNamePrefKey(ROLE_REASONING))
+            .putString(roleAuthModePrefKey(ROLE_REASONING), ModelAuthMode.API_KEY.name)
+            .apply()
+        Log.i(TAG, "OpenAI plan removed from the agent configuration")
     }
 
     fun getRoleConfig(role: String): ProviderConfig? {
         require(role in SUPPORTED_ROLES) { "Unsupported role: $role" }
+        val authMode = roleAuthMode(role)
         val providerId = prefs.getString(roleProviderPrefKey(role), null) ?: return null
-        val apiKey = prefs.getString(roleApiKeyPrefKey(role), null) ?: return null
+        val apiKey = prefs.getString(roleApiKeyPrefKey(role), null)
+        if (authMode != ModelAuthMode.OPENAI_PLAN && apiKey.isNullOrBlank()) return null
         val endpoint = prefs.getString(roleEndpointPrefKey(role), null) ?: ""
         val modelName = prefs.getString(roleModelNamePrefKey(role), null) ?: return null
-        return ProviderConfig(providerId, apiKey, endpoint, modelName)
+        return ProviderConfig(providerId, apiKey.orEmpty(), endpoint, modelName, authMode)
+    }
+
+    private fun roleAuthMode(role: String): ModelAuthMode {
+        val name = prefs.getString(roleAuthModePrefKey(role), null) ?: return ModelAuthMode.API_KEY
+        return runCatching { ModelAuthMode.valueOf(name) }.getOrDefault(ModelAuthMode.API_KEY)
     }
 
     fun getReasoningConfig(): ProviderConfig? = getRoleConfig(ROLE_REASONING)
@@ -290,5 +327,6 @@ class ConfigStore(context: Context) {
         fun roleProviderPrefKey(role: String) = "${role}_provider"
         fun roleEndpointPrefKey(role: String) = "${role}_endpoint"
         fun roleModelNamePrefKey(role: String) = "${role}_model_name"
+        fun roleAuthModePrefKey(role: String) = "${role}_auth_mode"
     }
 }

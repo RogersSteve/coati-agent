@@ -31,8 +31,10 @@ class ModelProviderTest {
     @Test
     fun `gemini provider has correct models`() {
         val gemini = ModelProviders.findById("gemini")!!
-        assertEquals(4, gemini.models.size)
-        assertTrue(gemini.models.contains("gemini-2.5-flash"))
+        assertEquals(3, gemini.models.size)
+        assertTrue(gemini.models.contains("gemini-4-carbon"))
+        assertTrue(gemini.models.contains("gemini-3.8-flash"))
+        assertFalse(gemini.models.contains("gemini-2.5-flash"))
         assertFalse(gemini.isCustom)
     }
 
@@ -42,6 +44,9 @@ class ModelProviderTest {
         assertEquals(ApiFormat.OPENAI_COMPATIBLE, openai.apiFormat)
         assertEquals(AuthStyle.BEARER, openai.authStyle)
         assertEquals("https://api.openai.com", openai.defaultEndpoint)
+        assertTrue(openai.models.contains("gpt-6.1-sol"))
+        assertTrue(openai.models.contains("gpt-5.4"))
+        assertFalse(openai.models.contains("gpt-5.2"))
         assertFalse(openai.isCustom)
     }
 

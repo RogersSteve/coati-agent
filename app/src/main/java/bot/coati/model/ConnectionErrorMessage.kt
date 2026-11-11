@@ -1,5 +1,6 @@
 package bot.coati.model
 
+import bot.coati.model.openai.OpenAiPlanException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -11,6 +12,9 @@ private val HTTP_STATUS_PATTERN = Regex("(?:API error|HTTP)\\s*(\\d{3})", RegexO
 class ApiHttpException(val statusCode: Int) : Exception("API error $statusCode")
 
 fun userFacingConnectionError(error: Throwable?): String {
+    if (error is OpenAiPlanException) {
+        return error.message ?: "OpenAI sign-in failed. Try again."
+    }
     val message = error?.message.orEmpty()
     val status = (error as? ApiHttpException)?.statusCode
         ?: HTTP_STATUS_PATTERN.find(message)?.groupValues?.getOrNull(1)?.toIntOrNull()

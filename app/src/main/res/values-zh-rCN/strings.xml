@@ -216,4 +216,22 @@
         <item quantity="other">还需完成 %d 项必需设置</item>
     </plurals>
     <string name="action_paste">粘贴</string>
+    <string name="openai_plan_title">OpenAI 订阅</string>
+    <string name="openai_plan_body">使用 ChatGPT 登录，让 Coati 使用你的 ChatGPT 订阅中符合条件的 AI 请求额度。密码始终只在 OpenAI 网站输入。Coati 会将登录凭据加密保存在本机且不备份；任务文字和截图将使用此登录发送给 OpenAI。</string>
+    <string name="openai_plan_sign_in">使用 ChatGPT 继续</string>
+    <string name="openai_plan_code_help">请在浏览器中完成登录并授权访问订阅。Coati 不会看到你的密码。</string>
+    <string name="openai_plan_open_page">返回浏览器登录</string>
+    <string name="openai_plan_signed_in">已登录。请选择账户和模型，然后设为智能体使用的模型。</string>
+    <string name="openai_plan_signed_in_as">已登录为 %1$s</string>
+    <string name="openai_plan_account">账户</string>
+    <string name="openai_plan_use">使用此模型</string>
+    <string name="openai_plan_in_use">智能体已选择此模型，用于推理和快速检查。</string>
+    <string name="openai_plan_sign_out">退出登录</string>
+    <string name="openai_plan_signed_out">已退出登录。本机登录凭据已删除，OpenAI 授权也已撤销。</string>
+    <string name="openai_plan_signed_out_local">已在本机退出登录，但无法连接 OpenAI 撤销授权。如需同时移除远程授权，请在 ChatGPT 设置中断开 Coati。</string>
+    <string name="openai_plan_sign_in_again">智能体已设为使用 OpenAI 订阅，但登录凭据缺失。请重新登录。</string>
+    <string name="openai_plan_choose_model">请选择账户和模型。</string>
+    <string name="openai_plan_model_fallback">OpenAI 未返回模型列表。以下为备用模型，可能不包含在你的订阅中。</string>
+    <string name="openai_plan_api_key_note">智能体正在使用你的 OpenAI 订阅。只有要切换为 API 计费时，才需要在下方验证 API Key。</string>
+    <string name="openai_plan_or_api_key">或者使用 API Key</string>
 </resources>

@@ -1,5 +1,6 @@
 package bot.coati.ui.settings
 
+import bot.coati.data.ModelAuthMode
 import bot.coati.data.ProviderConfig
 import bot.coati.experience.ManualMode
 import org.junit.Assert.assertEquals
@@ -88,6 +89,10 @@ class SettingsModelsTest {
         assertFalse(isCompleteModelConfig(complete.copy(endpoint = "")))
         assertFalse(isCompleteModelConfig(complete.copy(providerId = "removed-provider")))
         assertFalse(isCompleteModelConfig(null))
+        val plan = complete.copy(providerId = "openai", apiKey = "", authMode = ModelAuthMode.OPENAI_PLAN)
+        assertFalse(isCompleteModelConfig(plan))
+        assertTrue(isCompleteModelConfig(plan, openAiPlanSignedIn = true))
+        assertFalse(isCompleteModelConfig(plan.copy(modelName = ""), openAiPlanSignedIn = true))
     }
 
     @Test
