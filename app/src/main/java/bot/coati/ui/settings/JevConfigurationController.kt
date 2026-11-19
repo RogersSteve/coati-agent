@@ -100,7 +100,7 @@ class JevConfigurationController(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (isActive) mutableState.value = state.value.copy(errorMessage = userFacingConnectionError(e))
+                if (isActive) mutableState.value = state.value.copy(errorMessage = userFacingConnectionError(e, context.resources))
             } finally {
                 if (isActive) mutableState.value = state.value.copy(verifying = false)
             }

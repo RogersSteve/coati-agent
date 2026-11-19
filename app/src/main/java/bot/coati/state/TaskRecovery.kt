@@ -29,23 +29,40 @@ class TaskRecovery(private val stateManager: StateManager) {
         }
     }
 
-    fun getInterruptedAgo(task: TaskState): String {
+    fun getInterruptedAgo(task: TaskState): String = when (val age = interruptionAge(task)) {
+        InterruptionAge.Unknown -> "unknown"
+        InterruptionAge.JustNow -> "just now"
+        is InterruptionAge.Minutes -> "${age.count} minutes ago"
+        is InterruptionAge.Hours -> "${age.count} hours ago"
+        is InterruptionAge.Days -> "${age.count} days ago"
+    }
+
+    fun interruptionAge(task: TaskState): InterruptionAge {
         return try {
             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-            val lastUpdated = sdf.parse(task.lastUpdated) ?: return "unknown"
-            val now = System.currentTimeMillis()
-            val diffMs = now - lastUpdated.time
+            val lastUpdated = sdf.parse(task.lastUpdated) ?: return InterruptionAge.Unknown
+            val diffMs = System.currentTimeMillis() - lastUpdated.time
             val minutes = diffMs / 60_000
             val hours = minutes / 60
             val days = hours / 24
             when {
-                minutes < 1 -> "just now"
-                minutes < 60 -> "$minutes minutes ago"
-                hours < 24 -> "$hours hours ago"
-                else -> "$days days ago"
+                minutes < 1 -> InterruptionAge.JustNow
+                minutes < 60 -> InterruptionAge.Minutes(minutes.asCount())
+                hours < 24 -> InterruptionAge.Hours(hours.asCount())
+                else -> InterruptionAge.Days(days.asCount())
             }
         } catch (_: Exception) {
-            "unknown"
+            InterruptionAge.Unknown
         }
     }
 }
+
+sealed class InterruptionAge {
+    data object Unknown : InterruptionAge()
+    data object JustNow : InterruptionAge()
+    data class Minutes(val count: Int) : InterruptionAge()
+    data class Hours(val count: Int) : InterruptionAge()
+    data class Days(val count: Int) : InterruptionAge()
+}
+
+private fun Long.asCount(): Int = coerceIn(0, Int.MAX_VALUE.toLong()).toInt()

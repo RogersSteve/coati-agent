@@ -46,6 +46,7 @@ import bot.coati.model.ResilientModelGateway
 import bot.coati.model.ModelProviders
 import bot.coati.model.ModelRouter
 import bot.coati.sandbox.LinuxSandbox
+import bot.coati.state.InterruptionAge
 import bot.coati.state.StateManager
 import bot.coati.state.TaskRecovery
 import bot.coati.ui.main.MainActivity
@@ -160,7 +161,7 @@ class CoatiService : Service() {
                     incompleteTask.goal,
                     incompleteTask.currentStep,
                     incompleteTask.totalSteps,
-                    taskRecovery.getInterruptedAgo(incompleteTask),
+                    interruptedLabel(taskRecovery.interruptionAge(incompleteTask)),
                 )
                 if (resume) {
                     val a11y = CoatiAccessibilityService.instance
@@ -558,6 +559,14 @@ class CoatiService : Service() {
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .build()
+    }
+
+    private fun interruptedLabel(age: InterruptionAge): String = when (age) {
+        InterruptionAge.Unknown -> getString(R.string.interrupted_unknown)
+        InterruptionAge.JustNow -> getString(R.string.interrupted_just_now)
+        is InterruptionAge.Minutes -> resources.getQuantityString(R.plurals.interrupted_minutes, age.count, age.count)
+        is InterruptionAge.Hours -> resources.getQuantityString(R.plurals.interrupted_hours, age.count, age.count)
+        is InterruptionAge.Days -> resources.getQuantityString(R.plurals.interrupted_days, age.count, age.count)
     }
 
     companion object {

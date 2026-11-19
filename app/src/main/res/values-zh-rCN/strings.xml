@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name">Coati</string>
     <string name="accessibility_service_description">Coati 通过无障碍服务查看屏幕并代你操作。它会读取界面元素并截屏，以了解屏幕上的内容。</string>
     <string name="notification_channel_name">Coati 服务</string>
     <string name="notification_channel_description">Coati 运行时显示的常驻通知</string>
@@ -122,6 +123,8 @@
     <string name="safety_mode_trust">信任</string>
     <string name="safety_mode_standard">标准</string>
     <string name="safety_mode_cautious">谨慎</string>
+    <string name="settings_safety_cautious_title">@string/safety_mode_cautious</string>
+    <string name="settings_safety_trust_title">@string/safety_mode_trust</string>
     <string name="settings_safety_standard_title">标准 · 推荐</string>
     <string name="settings_safety_cautious_description">低风险操作自动执行。中、高和未知风险需要确认。</string>
     <string name="settings_safety_standard_description">低、中风险操作自动执行。高风险和未知风险需要确认。</string>
@@ -234,4 +237,75 @@
     <string name="openai_plan_model_fallback">OpenAI 未返回模型列表。以下为备用模型，可能不包含在你的订阅中。</string>
     <string name="openai_plan_api_key_note">智能体正在使用你的 OpenAI 订阅。只有要切换为 API 计费时，才需要在下方验证 API Key。</string>
     <string name="openai_plan_or_api_key">或者使用 API Key</string>
+    <string name="onboarding_verify_reasoning_first">请先验证推理模型</string>
+    <string name="onboarding_configure_reasoning_first">请先配置推理模型</string>
+    <string name="onboarding_unknown_provider">未知的服务商：%1$s</string>
+    <string name="onboarding_model_required">需要填写模型名称</string>
+    <string name="onboarding_endpoint_model_required">需要填写接口地址和模型名称</string>
+    <string name="connection_error_openai_signin">OpenAI 登录失败，请重试。</string>
+    <string name="connection_error_http_400">服务商拒绝了此配置。请检查接口地址和模型名称。（HTTP 400）</string>
+    <string name="connection_error_http_401">API 密钥被拒绝。请检查密钥后重试。（HTTP 401）</string>
+    <string name="connection_error_http_403">此账户无法使用所选模型。请检查权限或换一个模型。（HTTP 403）</string>
+    <string name="connection_error_http_404">找不到接口地址或模型。请同时检查这两项。（HTTP 404）</string>
+    <string name="connection_error_http_408">服务商响应超时。请检查网络后重试。（HTTP 408）</string>
+    <string name="connection_error_http_409">服务商报告配置冲突。请检查账户和模型。（HTTP 409）</string>
+    <string name="connection_error_http_429">账户已限流或额度用尽。请检查服务商账单，稍后再试。（HTTP 429）</string>
+    <string name="connection_error_http_server">服务商暂时不可用。请稍后再试。（HTTP %1$d）</string>
+    <string name="connection_error_timeout">连接超时。请检查网络后重试。</string>
+    <string name="connection_error_unknown_host">无法访问服务商地址。请检查网络和 API 接口。</string>
+    <string name="connection_error_connect">无法连接到服务商。请检查网络和 API 接口。</string>
+    <string name="connection_error_ssl">无法建立安全连接。请检查接口地址和设备时间。</string>
+    <string name="connection_error_io">网络请求失败。请检查连接后重试。</string>
+    <string name="connection_error_generic">连接验证失败。请检查网络、接口地址、模型和 API 密钥后重试。</string>
+    <string name="openai_error_no_login">OpenAI 没有返回登录信息，请重试。</string>
+    <string name="openai_error_rejected">OpenAI 拒绝了登录，请重试。</string>
+    <string name="openai_error_invalid_login">OpenAI 登录无效，请重新登录。</string>
+    <string name="openai_error_login_rejected">OpenAI 拒绝了这次登录，请重新登录。</string>
+    <string name="openai_error_model_forbidden">此 OpenAI 账户无法使用该模型，请换一个模型。</string>
+    <string name="openai_error_stream_incomplete">OpenAI 的回复在完成前中断了。</string>
+    <string name="openai_error_save_failed">这台手机无法保存 OpenAI 登录信息。</string>
+    <string name="openai_error_clear_failed">这台手机无法清除 OpenAI 登录信息。</string>
+    <string name="openai_error_save_identity_failed">这台手机无法保存 OpenAI 登录身份。</string>
+    <string name="openai_error_invalid_signin">OpenAI 返回了无效的登录，请重新开始。</string>
+    <string name="openai_error_cancelled">OpenAI 登录已取消。</string>
+    <string name="openai_error_failed">OpenAI 登录失败。</string>
+    <string name="openai_error_incomplete">OpenAI 没有完成登录，请重试。</string>
+    <string name="openai_error_no_refresh">OpenAI 没有返回可续期的登录，请重试。</string>
+    <string name="openai_error_no_identity">OpenAI 没有返回身份信息，请重试。</string>
+    <string name="openai_error_sign_in_first">请先使用 ChatGPT 登录。</string>
+    <string name="openai_error_choose_account">请选择已登录的 ChatGPT 账户。</string>
+    <string name="openai_error_choose_model">请选择一个模型。</string>
+    <string name="openai_error_expired">OpenAI 登录已过期，请重新登录。</string>
+    <string name="openai_error_no_revoke">OpenAI 没有提供退出登录的地址。</string>
+    <string name="openai_error_invalid_response">OpenAI 返回了无效的响应。</string>
+    <string name="openai_error_unknown_address">拒绝连接未知的 OpenAI 地址。</string>
+    <string name="openai_error_not_registered">OpenAI 没有注册此应用，请重试。</string>
+    <string name="openai_error_registration_mismatch">OpenAI 返回了不同的应用注册信息，请重新开始。</string>
+    <string name="openai_error_registration_invalid">已保存的 OpenAI 注册信息无效。</string>
+    <string name="openai_error_plan_not_approved">ChatGPT 订阅访问未获批准。请重新登录并允许使用订阅。</string>
+    <string name="openai_error_storage">这台手机无法打开用于保存 OpenAI 登录的安全存储。</string>
+    <string name="openai_error_unavailable">OpenAI 不可用。</string>
+    <string name="openai_error_unreachable">无法连接到 OpenAI。</string>
+    <string name="openai_error_refresh_http">无法刷新 OpenAI 登录（HTTP %1$d）。</string>
+    <string name="openai_error_signin_http">OpenAI 拒绝了登录（HTTP %1$d）。</string>
+    <string name="openai_error_account_http">OpenAI 没有返回账户信息（HTTP %1$d）。</string>
+    <string name="openai_error_contact_http">无法联系 OpenAI（HTTP %1$d）。</string>
+    <string name="openai_error_different_account">OpenAI 返回了另一个账户。请重新登录，并选择预期的账户。</string>
+    <string name="provider_gemini">Gemini（推荐）</string>
+    <string name="provider_openai">OpenAI</string>
+    <string name="provider_claude">Claude</string>
+    <string name="provider_deepseek">DeepSeek</string>
+    <string name="provider_openai_compatible">兼容 OpenAI</string>
+    <string name="provider_claude_compatible">兼容 Claude</string>
+    <string name="interrupted_unknown">未知</string>
+    <string name="interrupted_just_now">刚刚</string>
+    <plurals name="interrupted_minutes">
+        <item quantity="other">%d 分钟前</item>
+    </plurals>
+    <plurals name="interrupted_hours">
+        <item quantity="other">%d 小时前</item>
+    </plurals>
+    <plurals name="interrupted_days">
+        <item quantity="other">%d 天前</item>
+    </plurals>
 </resources>

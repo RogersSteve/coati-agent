@@ -430,7 +430,7 @@ class SettingsViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (isActive) setEditorError(role, userFacingConnectionError(e))
+                if (isActive) setEditorError(role, userFacingConnectionError(e, getApplication<Application>().resources))
             } finally {
                 if (isActive) updateEditor(role) { it.copy(verifying = false) }
             }

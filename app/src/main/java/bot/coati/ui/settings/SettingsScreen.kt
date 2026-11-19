@@ -58,6 +58,7 @@ import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
 import bot.coati.model.ModelProviders
 import bot.coati.ui.common.PasteButton
+import bot.coati.ui.common.modelProviderName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -888,12 +889,12 @@ private fun ProviderPicker(
         Spacer(Modifier.height(6.dp))
         Box {
             OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(provider?.displayName ?: selectedProviderId)
+                Text(provider?.let { modelProviderName(it) } ?: selectedProviderId)
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 ModelProviders.all.forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(option.displayName) },
+                        text = { Text(modelProviderName(option)) },
                         onClick = {
                             onSelected(option.id)
                             expanded = false

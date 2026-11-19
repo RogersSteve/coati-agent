@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import bot.coati.R
 import bot.coati.data.ConfigStore
 import bot.coati.data.ModelAuthMode
 import bot.coati.model.GatewayFactory
@@ -37,6 +38,11 @@ class OnboardingViewModel @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val planAuth: OpenAiPlanAuth,
 ) : AndroidViewModel(application) {
+
+    private fun getString(resId: Int, vararg formatArgs: Any): String =
+        getApplication<Application>().getString(resId, *formatArgs)
+
+    private fun resources() = getApplication<Application>().resources
 
     private val _currentStep = MutableStateFlow(0)
     val currentStep: StateFlow<Int> = _currentStep
@@ -327,22 +333,22 @@ class OnboardingViewModel @Inject constructor(
     fun verifySharedFastModel() {
         if (!_fastSameAsReasoning.value) return
         if (!_apiKeyVerified.value) {
-            _fastVerifyError.value = "Verify the Reasoning model first"
+            _fastVerifyError.value = getString(R.string.onboarding_verify_reasoning_first)
             return
         }
         val reasoning = configStore.getReasoningConfig() ?: configStore.getActiveProviderConfig()
         if (reasoning == null) {
-            _fastVerifyError.value = "Configure the Reasoning model first"
+            _fastVerifyError.value = getString(R.string.onboarding_configure_reasoning_first)
             return
         }
         val provider = ModelProviders.findById(reasoning.providerId)
         if (provider == null) {
-            _fastVerifyError.value = "Unknown provider: ${reasoning.providerId}"
+            _fastVerifyError.value = getString(R.string.onboarding_unknown_provider, reasoning.providerId)
             return
         }
         val modelName = _fastModelName.value.trim()
         if (modelName.isBlank()) {
-            _fastVerifyError.value = "Model name is required"
+            _fastVerifyError.value = getString(R.string.onboarding_model_required)
             return
         }
 
@@ -366,12 +372,12 @@ class OnboardingViewModel @Inject constructor(
                     _fastApiKeyVerified.value = true
                     _fastVerifyError.value = null
                 } else {
-                    _fastVerifyError.value = userFacingConnectionError(result.exceptionOrNull())
+                    _fastVerifyError.value = userFacingConnectionError(result.exceptionOrNull(), resources())
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (isActive) _fastVerifyError.value = userFacingConnectionError(e)
+                if (isActive) _fastVerifyError.value = userFacingConnectionError(e, resources())
             } finally {
                 if (isActive) _fastVerifying.value = false
             }
@@ -389,7 +395,7 @@ class OnboardingViewModel @Inject constructor(
         val endpoint = _fastEndpoint.value
         val modelName = _fastModelName.value
         if (endpoint.isBlank() || modelName.isBlank()) {
-            _fastVerifyError.value = "Endpoint and model name are required"
+            _fastVerifyError.value = getString(R.string.onboarding_endpoint_model_required)
             return
         }
         _fastVerifying.value = true
@@ -399,7 +405,7 @@ class OnboardingViewModel @Inject constructor(
             try {
                 val modelProvider = ModelProviders.findById(provider)
                 if (modelProvider == null) {
-                    _fastVerifyError.value = "Unknown provider: $provider"
+                    _fastVerifyError.value = getString(R.string.onboarding_unknown_provider, provider)
                     _fastVerifying.value = false
                     return@launch
                 }
@@ -413,12 +419,12 @@ class OnboardingViewModel @Inject constructor(
                     _fastVerifyError.value = null
                     _fastApiKeyInput.value = ""
                 } else {
-                    _fastVerifyError.value = userFacingConnectionError(result.exceptionOrNull())
+                    _fastVerifyError.value = userFacingConnectionError(result.exceptionOrNull(), resources())
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (isActive) _fastVerifyError.value = userFacingConnectionError(e)
+                if (isActive) _fastVerifyError.value = userFacingConnectionError(e, resources())
             } finally {
                 if (isActive) _fastVerifying.value = false
             }
@@ -432,7 +438,7 @@ class OnboardingViewModel @Inject constructor(
         val endpoint = _selectedEndpoint.value
         val modelName = _selectedModelName.value
         if (endpoint.isBlank() || modelName.isBlank()) {
-            _verifyError.value = "Endpoint and model name are required"
+            _verifyError.value = getString(R.string.onboarding_endpoint_model_required)
             return
         }
         _verifying.value = true
@@ -442,7 +448,7 @@ class OnboardingViewModel @Inject constructor(
             try {
                 val modelProvider = ModelProviders.findById(provider)
                 if (modelProvider == null) {
-                    _verifyError.value = "Unknown provider: $provider"
+                    _verifyError.value = getString(R.string.onboarding_unknown_provider, provider)
                     _verifying.value = false
                     return@launch
                 }
@@ -462,12 +468,12 @@ class OnboardingViewModel @Inject constructor(
                     _reasoningApiKeyInput.value = ""
                     if (_fastSameAsReasoning.value) syncSharedFastModel(provider)
                 } else {
-                    _verifyError.value = userFacingConnectionError(result.exceptionOrNull())
+                    _verifyError.value = userFacingConnectionError(result.exceptionOrNull(), resources())
                 }
             } catch (e: CancellationException) {
                 throw e  // must re-throw so coroutine machinery cleans up correctly
             } catch (e: Exception) {
-                if (isActive) _verifyError.value = userFacingConnectionError(e)
+                if (isActive) _verifyError.value = userFacingConnectionError(e, resources())
             } finally {
                 if (isActive) _verifying.value = false
             }

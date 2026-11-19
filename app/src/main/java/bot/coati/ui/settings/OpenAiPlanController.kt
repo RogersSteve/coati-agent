@@ -208,10 +208,10 @@ class OpenAiPlanController(
     private fun fail(error: Exception, phase: OpenAiPlanPhase) {
         val signedIn = planAuth.currentSnapshot()
         if (signedIn == null || phase == OpenAiPlanPhase.SIGNED_OUT) {
-            _state.value = signedOut().copy(error = userFacingConnectionError(error))
+            _state.value = signedOut().copy(error = userFacingConnectionError(error, application.resources))
         } else {
             reload()
-            _state.value = _state.value.copy(busy = false, error = userFacingConnectionError(error))
+            _state.value = _state.value.copy(busy = false, error = userFacingConnectionError(error, application.resources))
         }
     }
 

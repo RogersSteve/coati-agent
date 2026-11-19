@@ -32,6 +32,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import bot.coati.data.SafetyMode
 import bot.coati.experience.ManualMode
+import bot.coati.ui.theme.CoatiTheme
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -121,6 +122,7 @@ class OverlayManager(
             setViewTreeLifecycleOwner(lifecycleOwner)
             setViewTreeSavedStateRegistryOwner(lifecycleOwner)
             setContent {
+                CoatiTheme {
                 val state = overlayState.value
                 val ballState = agentBallState.value
                 // Sees every press before the overlay's own controls do (the view's touch listener
@@ -182,6 +184,7 @@ class OverlayManager(
                             onRecoveryAbandon?.invoke()
                         },
                     )
+                }
                 }
             }
         }

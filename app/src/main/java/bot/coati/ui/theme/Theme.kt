@@ -33,7 +33,9 @@ private val DarkColorScheme = darkColorScheme(
 @Composable
 fun CoatiTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    // Wallpaper colors would replace the light and dark backgrounds, so the
+    // background follows the system appearance instead.
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val colorScheme = when {

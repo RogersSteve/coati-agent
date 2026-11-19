@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -57,6 +58,7 @@ import bot.coati.ui.settings.batteryExemptionIntent
 import bot.coati.ui.settings.rememberBatteryUnrestricted
 import bot.coati.R
 import bot.coati.ui.settings.JevConfigurationContent
+import bot.coati.ui.common.modelProviderName
 import bot.coati.ui.settings.OpenAiPlanCard
 import bot.coati.model.ApiFormat
 import bot.coati.model.ModelProviders
@@ -70,33 +72,38 @@ fun OnboardingScreen(
     val currentStep by viewModel.currentStep.collectAsState()
     val recoveryMode by viewModel.recoveryMode.collectAsState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
-        Spacer(modifier = Modifier.height(48.dp))
-
-        if (!recoveryMode) {
-            StepIndicator(currentStep = currentStep, totalSteps = 6)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Spacer(modifier = Modifier.height(48.dp))
-        } else {
-            Spacer(modifier = Modifier.height(48.dp))
-        }
 
-        Box(modifier = Modifier.weight(1f)) {
-            when (currentStep) {
-                0 -> WelcomeStep(onNext = { viewModel.nextStep() })
-                1 -> OverlayPermissionStep(viewModel = viewModel)
-                2 -> AccessibilityPermissionStep(
-                    viewModel = viewModel,
-                    onGranted = if (recoveryMode) onFinish else ({ viewModel.nextStep() }),
-                )
-                3 -> RegionSelectionStep(viewModel = viewModel)
-                4 -> ApiKeyStep(viewModel = viewModel, onNext = { viewModel.nextStep() })
-                5 -> QuickStartStep(onFinish = { viewModel.finishOnboarding(onFinish) })
+            if (!recoveryMode) {
+                StepIndicator(currentStep = currentStep, totalSteps = 6)
+                Spacer(modifier = Modifier.height(48.dp))
+            } else {
+                Spacer(modifier = Modifier.height(48.dp))
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                when (currentStep) {
+                    0 -> WelcomeStep(onNext = { viewModel.nextStep() })
+                    1 -> OverlayPermissionStep(viewModel = viewModel)
+                    2 -> AccessibilityPermissionStep(
+                        viewModel = viewModel,
+                        onGranted = if (recoveryMode) onFinish else ({ viewModel.nextStep() }),
+                    )
+                    3 -> RegionSelectionStep(viewModel = viewModel)
+                    4 -> ApiKeyStep(viewModel = viewModel, onNext = { viewModel.nextStep() })
+                    5 -> QuickStartStep(onFinish = { viewModel.finishOnboarding(onFinish) })
+                }
             }
         }
     }
@@ -637,7 +644,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
         ) {
-            Text(currentProvider?.displayName ?: selectedProvider)
+            Text(currentProvider?.let { modelProviderName(it) } ?: selectedProvider)
         }
         DropdownMenu(
             expanded = providerDropdownExpanded,
@@ -645,7 +652,7 @@ private fun ReasoningModelConfig(viewModel: OnboardingViewModel) {
         ) {
             providers.forEach { provider ->
                 DropdownMenuItem(
-                    text = { Text(provider.displayName) },
+                    text = { Text(modelProviderName(provider)) },
                     onClick = {
                         viewModel.selectProvider(provider.id)
                         providerDropdownExpanded = false
@@ -828,7 +835,7 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
         Text(
             text = stringResource(
                 R.string.fast_shared_summary,
-                reasoningProvider?.displayName ?: selectedProvider,
+                reasoningProvider?.let { modelProviderName(it) } ?: selectedProvider,
                 fastModelName.ifBlank { stringResource(R.string.onboarding_model_select) },
             ),
             style = MaterialTheme.typography.bodyMedium,
@@ -911,7 +918,7 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
             ) {
-                Text(currentFastProvider?.displayName ?: fastProvider)
+                Text(currentFastProvider?.let { modelProviderName(it) } ?: fastProvider)
             }
             DropdownMenu(
                 expanded = fastProviderDropdownExpanded,
@@ -919,7 +926,7 @@ private fun FastModelConfig(viewModel: OnboardingViewModel) {
             ) {
                 ModelProviders.all.forEach { provider ->
                     DropdownMenuItem(
-                        text = { Text(provider.displayName) },
+                        text = { Text(modelProviderName(provider)) },
                         onClick = {
                             viewModel.selectFastProvider(provider.id)
                             fastProviderDropdownExpanded = false
