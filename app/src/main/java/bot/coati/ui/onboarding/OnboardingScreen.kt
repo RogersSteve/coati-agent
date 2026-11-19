@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -70,33 +71,38 @@ fun OnboardingScreen(
     val currentStep by viewModel.currentStep.collectAsState()
     val recoveryMode by viewModel.recoveryMode.collectAsState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
-        Spacer(modifier = Modifier.height(48.dp))
-
-        if (!recoveryMode) {
-            StepIndicator(currentStep = currentStep, totalSteps = 6)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Spacer(modifier = Modifier.height(48.dp))
-        } else {
-            Spacer(modifier = Modifier.height(48.dp))
-        }
 
-        Box(modifier = Modifier.weight(1f)) {
-            when (currentStep) {
-                0 -> WelcomeStep(onNext = { viewModel.nextStep() })
-                1 -> OverlayPermissionStep(viewModel = viewModel)
-                2 -> AccessibilityPermissionStep(
-                    viewModel = viewModel,
-                    onGranted = if (recoveryMode) onFinish else ({ viewModel.nextStep() }),
-                )
-                3 -> RegionSelectionStep(viewModel = viewModel)
-                4 -> ApiKeyStep(viewModel = viewModel, onNext = { viewModel.nextStep() })
-                5 -> QuickStartStep(onFinish = { viewModel.finishOnboarding(onFinish) })
+            if (!recoveryMode) {
+                StepIndicator(currentStep = currentStep, totalSteps = 6)
+                Spacer(modifier = Modifier.height(48.dp))
+            } else {
+                Spacer(modifier = Modifier.height(48.dp))
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                when (currentStep) {
+                    0 -> WelcomeStep(onNext = { viewModel.nextStep() })
+                    1 -> OverlayPermissionStep(viewModel = viewModel)
+                    2 -> AccessibilityPermissionStep(
+                        viewModel = viewModel,
+                        onGranted = if (recoveryMode) onFinish else ({ viewModel.nextStep() }),
+                    )
+                    3 -> RegionSelectionStep(viewModel = viewModel)
+                    4 -> ApiKeyStep(viewModel = viewModel, onNext = { viewModel.nextStep() })
+                    5 -> QuickStartStep(onFinish = { viewModel.finishOnboarding(onFinish) })
+                }
             }
         }
     }
